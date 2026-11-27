@@ -738,7 +738,7 @@ fn setup(
     app.manage(palette::PaletteCache::load(&palette_store)?);
     app.manage(palette_store);
     #[cfg(desktop)]
-    app.manage(Arc::new(palette::copies::Copies::load(&dir)));
+    app.manage(Arc::new(palette_store::copies::Copies::load(&dir)));
     app.manage(views);
     app.manage(Arc::new(agents::kept_transcripts::KeptTranscripts::new(
         dir.join("transcripts"),

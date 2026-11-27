@@ -281,7 +281,7 @@ pub async fn agent_session_find(
     // 2. Check desktop search index copies (instant, includes archived & offline machines).
     #[cfg(desktop)]
     if let Some((peer, found_id, activity_ms, meta)) =
-        crate::palette::copies::find_session(&app, &session, target_ep, prefer_ep).await
+        crate::palette_store::copies::find_session(&app, &session, target_ep, prefer_ep).await
     {
         let mut found = beep_proto::MachineSession {
             machine_id: peer.to_string(),

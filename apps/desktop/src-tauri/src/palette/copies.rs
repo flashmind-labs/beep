@@ -1,162 +1,18 @@
 //! The desktop's copy of each machine's search index, one file per machine,
 //! kept current over the machine's `FollowIndex` stream. Cmd+K searches the
-//! copies, so it answers at once and finds sessions of offline machines too.
+//! copies (`palette_store::copies`), so it answers at once and finds sessions of offline machines too.
 
 use super::projects::Found;
-use crate::{fleet::Fleet, store::lock};
+use crate::{fleet::Fleet, palette_store::copies::Copies, store::lock};
 use anyhow::{Context, bail};
 use beep_fleet::alerts::each_machine;
 use beep_mesh::RETRY;
-use beep_node::agents::search::IndexCopy;
-use beep_proto::{
-    SessionId,
-    node::agent::{SESSIONS_PROTOCOL, SearchSession, SessionsReply, SessionsRequest},
-};
+use beep_proto::node::agent::{SESSIONS_PROTOCOL, SessionsReply, SessionsRequest};
 use futures::StreamExt;
 use iroh::EndpointId;
-use std::{
-    collections::HashMap,
-    fs,
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard},
-};
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::{task::spawn_blocking, time::sleep};
-
-pub(crate) struct Copies {
-    dir: PathBuf,
-    held: Mutex<HashMap<EndpointId, Arc<Mutex<IndexCopy>>>>,
-}
-
-impl Copies {
-    /// Opens the copies kept under the app's `data` folder, so offline
-    /// machines are searched too.
-    pub fn load(data: &Path) -> Self {
-        // The index this desktop built itself before nodes kept their own.
-        for old in ["search.sqlite", "search.sqlite-wal", "search.sqlite-shm"] {
-            let _ = fs::remove_file(data.join(old));
-        }
-
-        let copies = Self {
-            dir: data.join("search-copies"),
-            held: Mutex::default(),
-        };
-        let kept = fs::read_dir(&copies.dir).into_iter().flatten().flatten();
-
-        for machine in kept.filter_map(|entry| machine_of(&entry.path())) {
-            if let Err(e) = copies.copy(machine) {
-                log::warn!("dropping the search copy of {machine}: {e:#}");
-                let _ = fs::remove_file(copies.path(machine));
-            }
-        }
-
-        copies
-    }
-
-    /// The hits of each copy.
-    fn find(&self, query: &str) -> Vec<Found> {
-        let held: Vec<_> = self
-            .held()
-            .iter()
-            .map(|(id, copy)| (*id, copy.clone()))
-            .collect();
-        let mut found = Vec::new();
-
-        for (machine, copy) in held {
-            // One copy that cannot be read leaves out only its machine.
-            match lock(&copy).find(query, &[]) {
-                Ok(hits) => found.extend(hits.into_iter().map(|hit| Found {
-                    machine: machine.to_string(),
-                    hit,
-                })),
-                Err(e) => log::warn!("searching the copy of {machine}: {e:#}"),
-            }
-        }
-
-        found
-    }
-
-    /// Looks up one session across the kept copies (or `machine` alone).
-    /// Prefers `prefer` when several machines hold it, else newest activity.
-    fn find_session(
-        &self,
-        id: &SessionId,
-        machine: Option<EndpointId>,
-        prefer: Option<EndpointId>,
-    ) -> Option<(EndpointId, SessionId, u64, SearchSession)> {
-        let held: Vec<_> = self
-            .held()
-            .iter()
-            .filter(|(peer, _)| machine.is_none_or(|wanted| **peer == wanted))
-            .map(|(peer, copy)| (*peer, copy.clone()))
-            .collect();
-        let mut best: Option<(EndpointId, SessionId, u64, SearchSession)> = None;
-
-        for (peer, copy) in held {
-            let hit = match lock(&copy).session(id) {
-                Ok(Some(hit)) => hit,
-                Ok(None) => continue,
-                Err(e) => {
-                    log::warn!("reading the copy of {peer}: {e:#}");
-                    continue;
-                }
-            };
-            let better = match &best {
-                None => true,
-                Some((best_peer, _, best_activity, _)) => {
-                    let is_preferred = prefer == Some(peer);
-                    let best_preferred = prefer == Some(*best_peer);
-                    (is_preferred && !best_preferred)
-                        || (is_preferred == best_preferred && hit.1 > *best_activity)
-                }
-            };
-
-            if better {
-                best = Some((peer, hit.0, hit.1, hit.2));
-            }
-        }
-
-        best
-    }
-
-    fn copy(&self, machine: EndpointId) -> anyhow::Result<Arc<Mutex<IndexCopy>>> {
-        if let Some(copy) = self.held().get(&machine) {
-            return Ok(copy.clone());
-        }
-
-        fs::create_dir_all(&self.dir)?;
-        let copy = Arc::new(Mutex::new(IndexCopy::open(&self.path(machine))?));
-        Ok(self.held().entry(machine).or_insert(copy).clone())
-    }
-
-    /// Drops the copies of machines no longer in the mesh.
-    fn keep(&self, members: &[EndpointId]) {
-        let gone: Vec<EndpointId> = self
-            .held()
-            .keys()
-            .filter(|id| !members.contains(id))
-            .copied()
-            .collect();
-
-        for machine in gone {
-            self.held().remove(&machine);
-            let _ = fs::remove_file(self.path(machine));
-        }
-    }
-
-    fn path(&self, machine: EndpointId) -> PathBuf {
-        self.dir.join(format!("{machine}.sqlite"))
-    }
-
-    fn held(&self) -> MutexGuard<'_, HashMap<EndpointId, Arc<Mutex<IndexCopy>>>> {
-        lock(&self.held)
-    }
-}
-
-fn machine_of(path: &Path) -> Option<EndpointId> {
-    (path.extension()? == "sqlite").then_some(())?;
-    path.file_stem()?.to_str()?.parse().ok()
-}
 
 /// Follows every online machine's index while a mesh is open.
 pub(crate) async fn follow(app: AppHandle) {
@@ -249,20 +105,13 @@ async fn copy_from(
 pub(super) async fn find(app: &AppHandle, query: &str) -> anyhow::Result<Vec<Found>> {
     let copies = app.state::<Arc<Copies>>().inner().clone();
     let query = query.to_owned();
-    Ok(spawn_blocking(move || copies.find(&query)).await?)
-}
+    let hits = spawn_blocking(move || copies.hits(&query)).await?;
 
-/// One session's metadata from the kept copies, when indexed.
-pub(crate) async fn find_session(
-    app: &AppHandle,
-    id: &SessionId,
-    machine: Option<EndpointId>,
-    prefer: Option<EndpointId>,
-) -> Option<(EndpointId, SessionId, u64, SearchSession)> {
-    let copies = app.state::<Arc<Copies>>().inner().clone();
-    let id = id.clone();
-    spawn_blocking(move || copies.find_session(&id, machine, prefer))
-        .await
-        .ok()
-        .flatten()
+    Ok(hits
+        .into_iter()
+        .map(|(machine, hit)| Found {
+            machine: machine.to_string(),
+            hit,
+        })
+        .collect())
 }
