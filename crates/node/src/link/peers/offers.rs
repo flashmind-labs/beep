@@ -13,7 +13,7 @@ use crate::{
     run::{device, shell, tasks, terminal},
     status::Own,
     team::{home::ForgeCli, link::TeamLink},
-    tools::{Caller, Node, ProjectTools},
+    tools::{Node, ProjectTools},
 };
 use anyhow::{Context, Result};
 use beep_proto::node::{
@@ -56,22 +56,6 @@ impl std::ops::Deref for Bound {
 impl std::ops::DerefMut for Bound {
     fn deref_mut(&mut self) -> &mut Offers {
         &mut self.offers
-    }
-}
-
-impl Caller {
-    /// This node's own agent calling it.
-    pub(crate) fn local(offers: &Offers) -> Self {
-        Self {
-            table: tasks::Table::Shared,
-            desktop_here: false,
-            commands_off: None,
-            transfers: offers.transfers.get(),
-            agents: Some(offers.agents.clone()),
-            project_tools: offers.project_tools.clone(),
-            team: offers.team.clone(),
-            mesh: offers.mesh.get(),
-        }
     }
 }
 
@@ -199,6 +183,11 @@ impl Offers {
             own: own.clone(),
             log: self.log.clone(),
         }
+    }
+
+    /// What the tools read of this node, once the node is made.
+    pub(crate) fn made_node(&self) -> Option<Node> {
+        Some(self.node(self.own.as_ref()?, self.team.as_ref()?))
     }
 
     /// What every node serves, the CLI and the Mac app alike: the coding

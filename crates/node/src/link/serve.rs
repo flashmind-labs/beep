@@ -395,17 +395,14 @@ pub(super) async fn serve_open(
                 .await
             }
             SessionProtocol::Tools => {
+                let node = offers.made_node().context("this node is not made yet")?;
                 let caller = match who {
-                    Who::Everything(_) => Caller::local(&offers),
+                    Who::Everything(_) => Caller::of(&node),
                     Who::Node { peer, desktop_here } => Caller {
                         table: tasks::Table::Peer(peer),
                         desktop_here,
                         commands_off: commands_off(&offers),
-                        transfers: offers.transfers.get(),
-                        agents: Some(offers.agents.clone()),
-                        project_tools: offers.project_tools.clone(),
-                        team: offers.team.clone(),
-                        mesh: offers.mesh.get(),
+                        ..Caller::of(&node)
                     },
                 };
                 peer_tools::serve(tx, rx, caller).await

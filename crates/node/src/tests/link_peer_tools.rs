@@ -1,7 +1,7 @@
 use beep_proto::SessionId;
 use super::*;
 use crate::tools::ProjectTools;
-use crate::link::Offers;
+use crate::tools::Node;
 use std::sync::Arc;
 
 fn caller(table: Table) -> Caller {
@@ -277,7 +277,7 @@ async fn team_pickup_is_taken_from_a_desktop_and_on_one() {
 #[tokio::test]
 async fn a_desktop_lists_a_nodes_agents() {
     let dir = tempfile::tempdir().unwrap();
-    let offers = Offers::local(&[], crate::machine::provision::Provision::new(dir.path()));
+    let node = Node::test(dir.path()).await;
     let request = |tool, args: &str| Request {
         session: SessionId::default(),
         tool,
@@ -286,7 +286,7 @@ async fn a_desktop_lists_a_nodes_agents() {
     };
 
     let Reply::Done { text, failed } =
-        answer(request(Tool::ListAgents, "{}"), Caller::local(&offers)).await
+        answer(request(Tool::ListAgents, "{}"), Caller::of(&node)).await
     else {
         panic!("not done");
     };
@@ -294,7 +294,7 @@ async fn a_desktop_lists_a_nodes_agents() {
     assert_eq!(text, "[]");
 
     let start = request(Tool::StartAgent, r#"{"harness":"codex","prompt":"hi"}"#);
-    let Reply::Done { failed, .. } = answer(start, Caller::local(&offers)).await else {
+    let Reply::Done { failed, .. } = answer(start, Caller::of(&node)).await else {
         panic!("not done");
     };
     assert!(failed);
