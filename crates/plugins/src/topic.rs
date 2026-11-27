@@ -86,9 +86,15 @@ impl Topic {
         })
     }
 
+    /// Whether the topic is one the mesh pushes: the sessions' `agents` and `agent`.
+    pub fn on_mesh(&self) -> bool {
+        matches!(self.name.as_str(), "agents" | "agent")
+    }
+
     fn family(&self) -> Result<Family, TopicError> {
         match self.name.as_str() {
-            "agents" | "agent" | "session.turn" => Ok(Family::Sessions),
+            "session.turn" => Ok(Family::Sessions),
+            _ if self.on_mesh() => Ok(Family::Sessions),
             _ if self.is_local() => Ok(Family::Local),
             other => Err(TopicError::Unknown(other.to_owned())),
         }

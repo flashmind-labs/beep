@@ -71,22 +71,51 @@ fn an_update_answers_each_wanted_topic_it_matches() {
 fn a_followed_topic_reaches_the_host_without_the_page() {
     let events = WindowOutbox::default();
     let topics = vec![wanted("agents", None, None)];
-    let (_keep, wanted_rx) = watch::channel(topics.clone());
-    let heard = Arc::new(Mutex::new(Vec::new()));
-    let sent = heard.clone();
-    let mut reader = Reader::new(sink(wanted_rx, move |publication| {
-        sent.lock().unwrap().push(publication);
-    }));
+    let heard = Arc::new(Heard::default());
+    let mut reader = Reader::new(heard.clone().sink());
+    let received = Mutex::new(Vec::new());
+    let take = || {
+        heard.take(&topics, |publication| {
+            received.lock().unwrap().push(publication);
+        });
+    };
 
     assert!(reader.follow(&events, interests(&topics)));
     events.dispatch(update("m1", NodeTopic::new("agents")));
+    take();
+    assert_eq!(received.lock().unwrap().len(), 1);
+    assert_eq!(received.lock().unwrap()[0].topic, topics[0]);
+    assert_eq!(received.lock().unwrap()[0].machine.as_deref(), Some("m1"));
 
-    let heard = heard.lock().unwrap();
-    assert_eq!(heard.len(), 1);
-    assert_eq!(heard[0].topic, topics[0]);
-    assert_eq!(heard[0].machine.as_deref(), Some("m1"));
-    drop(heard);
-
+    // Nothing wanted ends the reader, and wanting a topic again starts it anew.
     reader.follow(&events, Vec::new());
     assert!(!events.has_window(LABEL));
+    assert!(reader.follow(&events, interests(&topics)));
+    assert!(events.has_window(LABEL));
+    events.dispatch(update("m1", NodeTopic::new("agents")));
+    take();
+    assert_eq!(received.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn a_burst_reaches_the_host_as_its_newest_update() {
+    let events = WindowOutbox::default();
+    let topics = vec![wanted("agents", None, None)];
+    let heard = Arc::new(Heard::default());
+    let mut reader = Reader::new(heard.clone().sink());
+    assert!(reader.follow(&events, interests(&topics)));
+
+    for rows in 1..=3 {
+        let mut burst = update("m1", NodeTopic::new("agents"));
+        burst.data = Some(serde_json::json!({ "rows": rows }));
+        events.dispatch(burst);
+    }
+    let received = Mutex::new(Vec::new());
+    heard.take(&topics, |publication| {
+        received.lock().unwrap().push(publication)
+    });
+
+    let received = received.lock().unwrap();
+    assert_eq!(received.len(), 1);
+    assert_eq!(received[0].data, serde_json::json!({ "rows": 3 }));
 }

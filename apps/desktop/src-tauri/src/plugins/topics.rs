@@ -1,12 +1,16 @@
 //! Follows the mesh topics plugins want and hands each update to the host, so the page
 //! does not carry them back.
 
-use std::sync::Arc;
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex, PoisonError},
+};
 
 use beep_plugins::{Host, Publication, Topic};
 use beep_proto::node::events::Topic as NodeTopic;
+use beep_proto::watched;
 use tauri::{AppHandle, Manager};
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
 use uuid::Uuid;
 
 use crate::fleet::{
@@ -19,10 +23,6 @@ use crate::fleet::{
 /// The label this reader has in the outbox. No window has it, so no visibility pauses it.
 const LABEL: &str = "plugins";
 
-/// The mesh topics plugins may follow. The others are `ui.*`, which the page publishes,
-/// and `session.turn`, which it builds.
-const MESH_NAMES: [&str; 2] = ["agents", "agent"];
-
 /// The topics plugins follow, as the host last reported them.
 pub(super) struct Wanted(pub(super) watch::Receiver<Vec<Topic>>);
 
@@ -33,32 +33,75 @@ pub(crate) async fn follow(app: AppHandle) {
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
     events.start(fleet.id());
 
-    let deliver = {
-        let app = app.clone();
-        move |publication: Publication| {
-            if let Some(host) = app.try_state::<Host>()
-                && let Err(error) = host.publish(&publication)
-            {
-                log::debug!("a plugin update was refused: {error}");
-            }
-        }
-    };
-    let mut reader = Reader::new(sink(wanted.clone(), deliver));
+    let heard = Arc::new(Heard::default());
+    let mut reader = Reader::new(heard.clone().sink());
     let mut topics = wanted;
 
     loop {
-        let interests = interests(&topics.borrow_and_update());
+        let interests = watched::read_and_update(&mut topics, |wanted| interests(wanted));
 
         if reader.follow(&events, interests) {
             app.state::<Events>().start(app.clone(), fleet.clone());
         }
 
-        if topics.changed().await.is_err() {
-            break;
+        tokio::select! {
+            changed = topics.changed() => {
+                if changed.is_err() {
+                    break;
+                }
+            }
+            () = heard.wake.notified() => {
+                watched::read(&topics, |wanted| heard.take(wanted, |publication| {
+                    if let Some(host) = app.try_state::<Host>()
+                        && let Err(error) = host.publish(&publication)
+                    {
+                        log::debug!("a plugin update was refused: {error}");
+                    }
+                }));
+            }
         }
     }
 
     reader.end(&events);
+}
+
+/// An update's machine, topic and query.
+type UpdateKey = (String, NodeTopic, Option<u64>);
+
+/// What the outbox sent and the host has not yet been given: the newest update of each
+/// machine, topic and query, so a burst reaches plugins at the pace they are served.
+#[derive(Default)]
+struct Heard {
+    latest: Mutex<BTreeMap<UpdateKey, Update>>,
+    wake: Notify,
+}
+
+impl Heard {
+    fn sink(self: Arc<Self>) -> Sink {
+        Arc::new(move |update: Update| {
+            let key = (
+                update.machine_id.clone(),
+                update.topic.clone(),
+                update.query,
+            );
+            self.latest
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(key, update);
+            self.wake.notify_one();
+
+            true
+        })
+    }
+
+    /// Hands `deliver` one publication for each wanted topic each held update answers.
+    fn take(&self, wanted: &[Topic], deliver: impl Fn(Publication)) {
+        let held = std::mem::take(&mut *self.latest.lock().unwrap_or_else(PoisonError::into_inner));
+
+        for update in held.values() {
+            publications(wanted, update).into_iter().for_each(&deliver);
+        }
+    }
 }
 
 /// The registration in the outbox: held while any mesh topic is wanted.
@@ -89,30 +132,41 @@ impl Reader {
             return false;
         }
 
-        let result = match self.held {
-            Some(_) => events
-                .retopic(LABEL, self.id, interests.clone())
-                .map(|()| true),
-            None => events
-                .register(
+        match self.held {
+            Some(_) => match events.retopic(LABEL, self.id, interests.clone()) {
+                Ok(()) => {
+                    self.held = Some(interests);
+                    true
+                }
+                Err(error) => {
+                    log::warn!("plugins cannot follow the mesh topics they want: {error}");
+                    false
+                }
+            },
+            None => {
+                // A fresh id: the outbox remembers the ended one as removed.
+                let id = Uuid::new_v4();
+                let registered = events.register(
                     LABEL,
-                    self.id,
+                    id,
                     interests.clone(),
                     self.send.clone(),
                     || true,
                     None,
-                )
-                .map(|registered| registered.is_some()),
-        };
+                );
 
-        match result {
-            Ok(started) => {
-                self.held = Some(interests);
-                started
-            }
-            Err(error) => {
-                log::warn!("plugins cannot follow the mesh topics they want: {error}");
-                false
+                match registered {
+                    Ok(Some(_)) => {
+                        self.id = id;
+                        self.held = Some(interests);
+                        true
+                    }
+                    Ok(None) => false,
+                    Err(error) => {
+                        log::warn!("plugins cannot follow the mesh topics they want: {error}");
+                        false
+                    }
+                }
             }
         }
     }
@@ -128,7 +182,7 @@ impl Reader {
 fn interests(wanted: &[Topic]) -> Vec<Interest> {
     let mut interests: Vec<_> = wanted
         .iter()
-        .filter(|topic| MESH_NAMES.contains(&topic.name.as_str()))
+        .filter(|topic| topic.on_mesh())
         .map(|topic| Interest {
             machine: topic.machine.clone(),
             topic: node_topic(topic),
@@ -147,25 +201,10 @@ fn node_topic(topic: &Topic) -> NodeTopic {
     }
 }
 
-/// Hands `deliver` one publication for each wanted topic an update answers, as the page did
-/// for each topic it followed.
-fn sink(
-    wanted: watch::Receiver<Vec<Topic>>,
-    deliver: impl Fn(Publication) + Send + Sync + 'static,
-) -> Sink {
-    Arc::new(move |update: Update| {
-        for publication in publications(&wanted.borrow(), &update) {
-            deliver(publication);
-        }
-
-        true
-    })
-}
-
 fn publications(wanted: &[Topic], update: &Update) -> Vec<Publication> {
     wanted
         .iter()
-        .filter(|topic| MESH_NAMES.contains(&topic.name.as_str()))
+        .filter(|topic| topic.on_mesh())
         .filter(|topic| {
             topic
                 .machine
