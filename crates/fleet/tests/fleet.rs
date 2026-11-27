@@ -4158,6 +4158,9 @@ async fn the_change_feed_goes_to_one_follower_and_keeps_the_order_reads_finish()
         .await
         .expect("a stale read");
     session.settled().await;
+    session.spend(false).await.expect("a cold spend");
+    session.spend(false).await.expect("a stale spend");
+    session.settled().await;
 
     let mut said = Vec::new();
     while let Ok(changed) = changes.try_recv() {
@@ -4177,5 +4180,5 @@ async fn the_change_feed_goes_to_one_follower_and_keeps_the_order_reads_finish()
             other => format!("{other:?}"),
         })
         .collect();
-    assert_eq!(reads, ["lists acme/widget", "runs acme/widget"]);
+    assert_eq!(reads, ["lists acme/widget", "runs acme/widget", "Usage"]);
 }
