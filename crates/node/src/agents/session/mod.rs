@@ -102,7 +102,7 @@ pub(super) async fn parent_gone(parent: &mut watch::Receiver<Live>) -> bool {
 
 /// What a stream asks of a session.
 #[derive(Debug, strum::IntoStaticStr)]
-pub(crate) enum Command {
+pub(super) enum Command {
     RecoverCodexChildren(Vec<crate::agents::SubagentRun>),
     Prompt(Prompt),
     /// A message for the running turn: it goes once the agent's current
@@ -725,7 +725,7 @@ impl Session {
     /// Hands `command` to the session and waits until it is done or refused.
     /// The actor answers an order at once; one stuck past `ORDER_WAIT` is
     /// an error and a line in the log, not a caller held for good (#427).
-    pub(crate) async fn order(&self, command: Command) -> Result<(), String> {
+    pub(super) async fn order(&self, command: Command) -> Result<(), String> {
         let (done, answer) = oneshot::channel();
         let ordered = async {
             self.orders

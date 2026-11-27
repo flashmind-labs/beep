@@ -11,7 +11,7 @@ use crate::agents::machine_list::Machine;
 use crate::agents::child_view::{ChildView, full_id};
 use crate::agents::reply::{fail, json_of, ok, parse};
 use crate::agents::{
-    Agents, Command, Session, live::Live,
+    Agents, Session, live::Live,
     family::{ChildNote, ChildStart, RemoteKid, WAIT_LIMIT, Waiting, Who},
 };
 use crate::agents::child_reach::{ChildId, Found, Reach};
@@ -521,7 +521,7 @@ impl Reach<'_> {
     /// note every settle is also read every `WAIT_RECHECK`.
     async fn waited(&self, view: ChildView) -> ChildView {
         // What this wait answers goes in no note.
-        let waiting = self.agents.family.waits.hold(&self.who.session, &view.id);
+        let waiting = self.agents.hold_wait(&self.who.session, &view.id);
         let (live, remote) = match self.find(&view.id) {
             Ok(Found::Here(child)) => (Some(child.live.clone()), false),
             Ok(Found::There(_)) => (None, true),
@@ -716,13 +716,7 @@ async fn serve_peer(agents: &Agents, peer: EndpointId, request: &Request) -> Res
                 _ if call.turn_only => {
                     // Refused when no turn runs. A parent's node from 0.5.0
                     // and before asks without `stop_all`.
-                    let command = if call.stop_all {
-                        Command::StopAll { by_user: false }
-                    } else {
-                        Command::Cancel { by_user: false }
-                    };
-                    let _ = child.order(command).await;
-                    agents.cancel_family(&child).await;
+                    agents.stop_turn(&child, call.stop_all).await;
                     ok("Its turn is stopped.")
                 }
                 _ => {

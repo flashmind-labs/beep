@@ -13,7 +13,7 @@ const TURN: &str = "turn";
 
 impl Live {
     /// Applies one `async_task_*` update. True when the tasks changed.
-    pub(crate) fn apply_task(&mut self, update: AsyncTask) -> bool {
+    pub(in crate::agents) fn apply_task(&mut self, update: AsyncTask) -> bool {
         let before = self.info.state.tasks.clone();
         let subagents = self.info.state.subagents;
         let call = match update {

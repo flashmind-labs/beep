@@ -14,7 +14,7 @@ use serde_json::json;
 
 /// A message for the agent: its text, then any images.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub(crate) struct Prompt {
+pub(in crate::agents) struct Prompt {
     pub(in crate::agents) text: String,
     pub(in crate::agents) images: Vec<Upload>,
     /// Beep's word to the agent that goes with this message, ahead of the

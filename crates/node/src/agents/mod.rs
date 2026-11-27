@@ -121,8 +121,9 @@ host! {
     use crate::known::{Adapter, KNOWN, known, route};
     use models::ModelCache;
     use crate::machine::env::locate::folder;
+    pub(crate) use session::Session;
     pub(crate) use session::Begin;
-    pub(crate) use session::{Command, Session};
+    use session::Command;
     use session::Start;
     use spend::Spend;
     use usage::UsageHub;
@@ -221,7 +222,7 @@ host! {
         /// requests may reach beside the sessions' folders.
         folders: OnceLock<Vec<PathBuf>>,
         /// The sessions that started sessions, and the children on other machines.
-        pub(crate) family: family::Family,
+        family: family::Family,
         /// The reviews reviewers handed in, and the reviewers running.
         reviews: reviews::Reviews,
         /// How sessions start the Beep MCP server, once the node serves it.

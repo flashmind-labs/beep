@@ -469,6 +469,25 @@ impl Agents {
     /// go with the parent's own Stop all. They stop at once,
     /// side by side, so one machine that does not answer holds up none of
     /// the others; what already ended is left alone.
+    /// Holds a wait of `parent` on its child `child`; the wait ends when
+    /// the result drops.
+    pub(crate) fn hold_wait(&self, parent: &SessionId, child: &str) -> Waiting {
+        self.family.waits.hold(parent, child)
+    }
+
+    /// Stops the turn of `child` on behalf of a parent on another machine,
+    /// and with `stop_all` its queued messages too; then its family.
+    pub(crate) async fn stop_turn(&self, child: &Arc<Session>, stop_all: bool) {
+        let command = if stop_all {
+            Command::StopAll { by_user: false }
+        } else {
+            Command::Cancel { by_user: false }
+        };
+        // Refused when no turn runs.
+        let _ = child.order(command).await;
+        self.cancel_family(child).await;
+    }
+
     pub(crate) async fn cancel_family(&self, session: &Arc<Session>) {
         let mut local: Vec<Arc<Session>> = Vec::new();
         let mut remote: Vec<(SessionId, RemoteKid)> = Vec::new();

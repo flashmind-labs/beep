@@ -15,7 +15,7 @@ use serde_json::json;
     rename_all = "snake_case",
     rename_all_fields = "camelCase"
 )]
-pub(crate) enum AsyncTask {
+pub(in crate::agents) enum AsyncTask {
     #[serde(rename = "async_task_spawned")]
     Spawned {
         async_task_id: String,
