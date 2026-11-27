@@ -1,7 +1,7 @@
 use super::*;
 use crate::fleet::outbox::*;
 use beep_mesh::Snapshots;
-use beep_proto::node::events::{Read, Snapshot, Value};
+use beep_proto::node::events::{self, Read, Snapshot, Value};
 use beep_proto::watched;
 use tokio::sync::mpsc;
 

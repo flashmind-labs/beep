@@ -1,18 +1,17 @@
 //! All windows share one duplex stream per subscription on each demanded node.
 
 use super::{
-    Fleet, Machines, MeshState, agents as direct,
+    Fleet, Machines, MeshState,
     outbox::{
         Primed, Reading, Sink, WindowOutbox, compact_topics, controller_topic, home_sources,
         validate,
     },
-    session_mirror::SessionMirror,
     terminal_rows,
     view_signal::{Change, Interest, Update, ring},
 };
 use crate::error::{DesktopError, Result};
 use beep_mesh::{Key, Snapshots};
-use beep_proto::node::events::{self, CallReply, Operation, Topic};
+use beep_proto::node::events::{CallReply, Operation, Topic};
 use beep_proto::watched;
 use iroh::EndpointId;
 use std::{
@@ -33,7 +32,7 @@ mod subscriptions;
 #[cfg(test)]
 use commands::Registered;
 use commands::{Call, CommandWorker, Commands};
-use subscriptions::SubscriptionWorker;
+use subscriptions::{SubscriptionWorker, TOOL_UPDATES};
 
 #[derive(Default)]
 pub(crate) struct Events {
@@ -245,9 +244,6 @@ fn topics_for(interests: &[Interest], machine: EndpointId, local: EndpointId) ->
     topics.dedup();
     compact_topics(topics)
 }
-
-/// The node topic of the tools it found a newer release of.
-const TOOL_UPDATES: &str = "tool-updates";
 
 /// Controller view topics drawn by `views`. `machine-details` follows `machines`.
 const VIEW_TOPICS: [&str; 10] = [
@@ -552,37 +548,6 @@ async fn run(
             },
             Some(result) = workers.join_next() => if let Err(error) = result { log::debug!("event reader stopped: {error}"); },
         }
-    }
-}
-
-/// Drops what a snapshot of `topic` from `machine` makes out of date. One session's live report
-/// or the processes leave the session lists as they are; a live report updates its session.
-fn invalidate(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option<&events::Value>) {
-    match topic.name() {
-        // One machine's list changed: its pushed rows replace the ones held. Without them
-        // the next read lists that machine again.
-        "agents" | "*" => {
-            let pushed = match value {
-                Some(value) if topic.name() == "agents" => {
-                    direct::pushed_sessions(&app.state::<Arc<Fleet>>(), machine, value)
-                }
-                _ => None,
-            };
-
-            match pushed {
-                Some(rows) => app.state::<Arc<SessionMirror>>().pushed(machine, rows),
-                None => app.state::<Arc<SessionMirror>>().stale(machine),
-            }
-        }
-        "agent" => {
-            if let Some(events::Value::Sessions(reply)) = value
-                && let beep_proto::node::agent::SessionsReply::Live { status } = reply.as_ref()
-            {
-                app.state::<Arc<SessionMirror>>()
-                    .reported(&machine.to_string(), &status.session);
-            }
-        }
-        _ => {}
     }
 }
 

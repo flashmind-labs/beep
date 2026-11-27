@@ -1,11 +1,12 @@
 //! One snapshot worker per demanded topic, independent of action delivery.
 
-use super::{Fleet, Update, commands::retrying, invalidate};
+use super::commands::retrying;
 use crate::error::{DesktopError, Result};
 use crate::fleet::outbox::{WindowOutbox, controller_topic};
 use crate::fleet::{
+    Fleet, agents as direct,
     session_mirror::SessionMirror,
-    view_signal::{Change, moving, ring},
+    view_signal::{Change, Update, moving, ring},
 };
 use beep_mesh::{Heard, Snapshots};
 use beep_proto::node::{
@@ -23,6 +24,9 @@ use std::{
 use tauri::{AppHandle, Manager};
 use tokio::time::{Sleep, sleep, timeout};
 use uuid::Uuid;
+
+/// The node topic of the tools it found a newer release of.
+pub(super) const TOOL_UPDATES: &str = "tool-updates";
 
 /// A silent stream is lost after this long without a message.
 const IDLE: Duration = Duration::from_secs(35);
@@ -202,7 +206,7 @@ impl SubscriptionWorker {
                             let snapshot = Arc::new(snapshot);
                             let Some(initial) = fleet.reach.snapshots().install(machine, generation, &snapshot) else { continue; };
 
-                            if snapshot.topic.name() == super::TOOL_UPDATES {
+                            if snapshot.topic.name() == TOOL_UPDATES {
                                 tool_updates_heard(app, fleet, machine, Some(&snapshot.value));
                             }
 
@@ -255,7 +259,7 @@ impl SubscriptionWorker {
                             log::warn!("node snapshot failed machine={machine} generation={generation} query={query:?} topic={}: {reason}", topic.name());
                             if let Some(query) = query && !fleet.reach.snapshots().failed(machine, generation, query, reason.clone()) { continue; }
 
-                            if topic.name() == super::TOOL_UPDATES {
+                            if topic.name() == TOOL_UPDATES {
                                 tool_updates_heard(app, fleet, machine, None);
                             }
                             invalidate(app, machine, &topic, None);
@@ -323,6 +327,37 @@ impl Drop for SnapshotConnection<'_> {
                 .state::<Arc<SessionMirror>>()
                 .unpushed(self.machine);
         }
+    }
+}
+
+/// Drops what a snapshot of `topic` from `machine` makes out of date. One session's live report
+/// or the processes leave the session lists as they are; a live report updates its session.
+fn invalidate(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option<&events::Value>) {
+    match topic.name() {
+        // One machine's list changed: its pushed rows replace the ones held. Without them
+        // the next read lists that machine again.
+        "agents" | "*" => {
+            let pushed = match value {
+                Some(value) if topic.name() == "agents" => {
+                    direct::pushed_sessions(&app.state::<Arc<Fleet>>(), machine, value)
+                }
+                _ => None,
+            };
+
+            match pushed {
+                Some(rows) => app.state::<Arc<SessionMirror>>().pushed(machine, rows),
+                None => app.state::<Arc<SessionMirror>>().stale(machine),
+            }
+        }
+        "agent" => {
+            if let Some(events::Value::Sessions(reply)) = value
+                && let beep_proto::node::agent::SessionsReply::Live { status } = reply.as_ref()
+            {
+                app.state::<Arc<SessionMirror>>()
+                    .reported(&machine.to_string(), &status.session);
+            }
+        }
+        _ => {}
     }
 }
 
