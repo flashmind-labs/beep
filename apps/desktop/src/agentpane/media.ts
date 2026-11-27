@@ -15,7 +15,7 @@ import { pointFilesAt } from "./files.ts";
 import { paneRoot, startWorktrees } from "./worktree.ts";
 import { unfollowFiles } from "./reload.ts";
 import { type TermPlace } from "./terminal.ts";
-import type { TerminalRow } from "../terminals/terminals.tsx";
+import type { TerminalRow } from "../terminals/terminal-state.ts";
 import { newTermLike } from "../terminals/newkey-state.ts";
 
 import { readingFrom } from "./read-file.ts";

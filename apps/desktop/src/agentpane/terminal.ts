@@ -2,7 +2,7 @@
 // in its folder, kept running by the node like any terminal (Home lists it
 // under the machine).
 
-import { changeTerminalLink, describeMessage, endsForGood, inOrderChannel, newView, readTermMessage, Replay, sizeChanged, splice, terminalAttempt, terminalFollowing, type Screen, type TerminalLink, type TerminalRow, type TermSize } from "../terminals/terminals.tsx";
+import { changeTerminalLink, describeMessage, endsForGood, inOrderChannel, newView, readTermMessage, Replay, sizeChanged, splice, terminalAttempt, terminalFollowing, type Screen, type TerminalLink, type TerminalRow, type TermSize } from "../terminals/terminal-state.ts";
 import { indexedChannel, invoke, logError, logInfo } from "../ui/tauri.ts";
 import { onShownChange } from "../ui/active.ts";
 import { RETRY_MS } from "../agents/reconnect-state.ts";

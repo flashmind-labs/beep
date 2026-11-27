@@ -107,8 +107,8 @@ apps/desktop/src/review/diff-keys.ts | step | setTimeout#1 | ui | removes the hi
 apps/desktop/src/review/diff-viewer.ts | say | setTimeout#1 | ui | clears the flash message after 2 s
 apps/desktop/src/review/history.tsx | navigation | setTimeout#1 | debounce | searches history once after typing settles
 apps/desktop/src/settings/overview-view.tsx | SettingRow | setTimeout#1 | ui | clears the pointed setting highlight after 1.6 s
-apps/desktop/src/terminals/terminals.tsx | tries | setTimeout#1 | retry | reattaches a dropped terminal stream after RETRY_MS
-apps/desktop/src/terminals/terminals.tsx | watchGap | setTimeout#1 | deadline | reports a missing stream gap lost after LOST_MS
+apps/desktop/src/terminals/terminal-state.ts | tries | setTimeout#1 | retry | reattaches a dropped terminal stream after RETRY_MS
+apps/desktop/src/terminals/terminal-state.ts | watchGap | setTimeout#1 | deadline | reports a missing stream gap lost after LOST_MS
 apps/desktop/src/terminals/termview.ts | blinking | setInterval#1 | ui | blinks the cursor while focused
 apps/desktop/src/terminals/termview.ts | draw | setTimeout#1 | ui | schedules the next cursor or text animation frame
 apps/desktop/src/terminals/termview.ts | schedule | setTimeout#1 | ui | parses output on a timer while the window is hidden

@@ -4,6 +4,7 @@ import { ALL, byMachine, terminalsCount } from "./terminal-list.ts";
 import type { CenterView } from "../center/state.ts";
 import { drawPage } from "../center/nav.ts";
 import { allTerms, ensureAllTerms, termMachines } from "../center/allterms.ts";
+import { machinesPanel } from "./terminals.tsx";
 import { ensureHome } from "../center/refresh.ts";
 
 /// The Terminals page into its view, keeping the list's scroll.
@@ -12,7 +13,7 @@ function drawTerminals() {
 }
 
 export function TerminalsPage() {
-  return <div className="cc-view tl-view">{allTerms.machinesPanel(termMachines())}</div>;
+  return <div className="cc-view tl-view">{machinesPanel(allTerms, termMachines())}</div>;
 }
 
 export const terminalsView: CenterView<"terminals"> = {

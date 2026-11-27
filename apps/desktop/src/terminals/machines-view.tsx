@@ -1,5 +1,5 @@
 import type { Ago } from "../ui/format.ts";
-import type { MachineTerminals, TerminalRow } from "./terminals.tsx";
+import type { MachineTerminals, TerminalRow } from "./terminal-state.ts";
 import { terminalNote, terminalWhere } from "./terminal-list.ts";
 import { Button } from "../ui/kit.tsx";
 

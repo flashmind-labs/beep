@@ -1,7 +1,7 @@
 // What a terminal list shows: grouping by machine, where, and how each stands.
 import type { Ago } from "../ui/format.ts";
 import type { TileData } from "../project/board.ts";
-import type { MachineTerminals, TerminalMachine, TerminalRow } from "./terminals.tsx";
+import type { MachineTerminals, TerminalMachine, TerminalRow } from "./terminal-state.ts";
 
 /// The scope of the Terminals page: every terminal, of any project or none.
 export const ALL = "";

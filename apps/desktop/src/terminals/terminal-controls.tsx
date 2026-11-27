@@ -1,4 +1,4 @@
-import type { TerminalRow } from "./terminals.tsx";
+import type { TerminalRow } from "./terminal-state.ts";
 import { Button } from "../ui/kit.tsx";
 
 type TerminalControlLink = "attaching" | "attached" | "detached" | "ended" | "view_only";

@@ -4,7 +4,7 @@ import type { MediaTab } from "./pane-state.ts";
 import { noteTab, stopTerminalTab, touchTab } from "./pane-tabs.ts";
 import { readError } from "./read-file.ts";
 import { attach, detachTerm, termStatus, type PaneTerm } from "./terminal.ts";
-import { terminalFollowing } from "../terminals/terminals.tsx";
+import { terminalFollowing } from "../terminals/terminal-state.ts";
 import { Button } from "../ui/kit.tsx";
 
 /// A terminal tab: its live screen, and a footer to attach again or stop it.

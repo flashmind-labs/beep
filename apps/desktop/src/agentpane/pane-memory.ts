@@ -1,7 +1,7 @@
 // What the pane remembers of a session: its tabs, docks and layout, kept for
 // the next time the session shows. Below the tabs, which ask it to save.
 import { readWindowPreference, writeWindowPreference, windowPreferenceKey } from "../ui/window-layout.ts";
-import type { TerminalRow } from "../terminals/terminals.tsx";
+import type { TerminalRow } from "../terminals/terminal-state.ts";
 import { readLayout, withFolded, type PaneLayout } from "./media-state.ts";
 import { paneModel, openTabs } from "./media-layout.ts";
 import { P, type MediaTab } from "./pane-state.ts";

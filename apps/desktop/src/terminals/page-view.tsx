@@ -1,7 +1,7 @@
-import { createRef, useLayoutEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { TerminalMachines } from "./machines-view.tsx";
 import type { Ago } from "../ui/format.ts";
-import type { MachineTerminals, TerminalRow } from "./terminals.tsx";
+import { terminalOutput, type MachineTerminals, type TerminalRow } from "./terminal-state.ts";
 
 export function TerminalPage({ groups, selected, ago, open, create, children }: {
   groups: readonly MachineTerminals<TerminalRow>[]; selected: string | null; ago: Ago;
@@ -20,9 +20,6 @@ export function TerminalScreen({ element }: { element: HTMLElement }) {
   }, [element]);
   return <div ref={host} style={{ display: "contents" }} />;
 }
-
-/// The view-only terminal's output while the Terminals page shows one.
-export const terminalOutput = createRef<HTMLPreElement>();
 
 /// A view-only terminal's last lines. The element stays mounted across reads,
 /// so focus, selection and an upward scroll survive; it follows new lines only

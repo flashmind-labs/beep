@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDesktop, projectName } from "./harness.ts";
 import type { MachineDetail, SyncDetail } from "../../src/project/filesync.ts";
-import type { TerminalRow } from "../../src/terminals/terminals.tsx";
+import type { TerminalRow } from "../../src/terminals/terminal-state.ts";
 
 const machines = [
   { id: "build-box", name: "build-box", online: true, folder: "/srv/project", checking: false, checked_at: 1 },

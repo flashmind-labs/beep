@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { formatAgo, plural } from "../ui/format.ts";
 import { Icon } from "../ui/icons.tsx";
-import type { TerminalRow } from "../terminals/terminals.tsx";
+import type { TerminalRow } from "../terminals/terminal-state.ts";
 import { ALL, byMachine, terminalNote, terminalWhere } from "../terminals/terminal-list.ts";
 import { allTerms, openTerminals, termMachines } from "../center/allterms.ts";
 import { openAddMachine, openProjects } from "../project/addflow.ts";

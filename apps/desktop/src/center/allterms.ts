@@ -1,7 +1,7 @@
 // Every terminal on every machine, held for the Terminals page, Home's section and the sidebar.
 import { formatAgo } from "../ui/format.ts";
 import { invoke, indexedChannel } from "../ui/tauri.ts";
-import { lazyScreen, makeTerminals } from "../terminals/terminals.tsx";
+import { lazyScreen, makeTerminals } from "../terminals/terminal-state.ts";
 import { ALL } from "../terminals/terminal-list.ts";
 import { keptSection, state } from "./state.ts";
 import { currentLocation, drawPage, go, drawTop } from "./nav.ts";

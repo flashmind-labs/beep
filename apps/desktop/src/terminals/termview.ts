@@ -14,7 +14,7 @@ import { ZOOMED } from "../ui/zoom-state.ts";
 import { APPLE, isTouchDevice, onPhone } from "../ui/platform.ts";
 import { skinChanged } from "../ui/skin.ts";
 import { logError } from "../ui/tauri.ts";
-import type { Screen } from "./terminals.tsx";
+import type { Screen } from "./terminal-state.ts";
 
 const FONT_SIZE = 12;
 const LINE_HEIGHT = 1.2;

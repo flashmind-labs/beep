@@ -5,7 +5,7 @@ import type { EditorState } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { createStore } from "zustand";
 import type { AgentSession } from "../agents/agents-state.ts";
-import type { TerminalRow } from "../terminals/terminals.tsx";
+import type { TerminalRow } from "../terminals/terminal-state.ts";
 import type { Dock, ImageView, MediaKind } from "./media-state.ts";
 import type { ModelView } from "./model3d.ts";
 

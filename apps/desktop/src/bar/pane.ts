@@ -8,7 +8,7 @@ import { openSession } from "../agents/open-state.ts";
 import { type AssistantOpen, openAssistantPage, openedChat } from "../agents/assistant-page.tsx";
 import { closePaneTabs, newTerminal, openTerminal } from "../agentpane/media.ts";
 import { showChanges } from "../agentpane/changes.ts";
-import type { TerminalRow } from "../terminals/terminals.tsx";
+import type { TerminalRow } from "../terminals/terminal-state.ts";
 import { sessions } from "../agents/sessions.ts";
 import { type BackTo, changeListeners, current, type PaneNow, windowRequests } from "./core.ts";
 import { mountPane } from "./keys.ts";

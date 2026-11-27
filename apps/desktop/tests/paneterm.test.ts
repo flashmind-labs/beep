@@ -7,7 +7,7 @@ import { openTabs, paneModel } from "../src/agentpane/media-layout.ts";
 import type { MediaTab } from "../src/agentpane/pane-state.ts";
 import { closeTab, stopTerminalTab } from "../src/agentpane/pane-tabs.ts";
 import { ALL } from "../src/terminals/terminal-list.ts";
-import { makeTerminals, LOST_MS, type Screen, type TermMessage, type TerminalRow } from "../src/terminals/terminals.tsx";
+import { makeTerminals, LOST_MS, type Screen, type TermMessage, type TerminalRow } from "../src/terminals/terminal-state.ts";
 import { indexedChannel } from "../src/ui/tauri.ts";
 import { RETRY_MS } from "../src/agents/reconnect-state.ts";
 
