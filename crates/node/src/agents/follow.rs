@@ -2,7 +2,7 @@
 
 use super::{Agents, MAX_TRANSCRIPT, };
 use crate::logs::claude::Followed;
-use crate::logs::found::{Agent, Seen};
+use crate::logs::found::Agent;
 use crate::logs::transcript_stage;
 use crate::events::HEARTBEAT;
 use anyhow::{Context, Result, bail};
@@ -17,7 +17,7 @@ use beep_proto::node::{
 };
 use beep_proto::watched;
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap},
     future::pending,
     ops::Range,
     path::PathBuf,
@@ -73,77 +73,53 @@ struct Summary {
 /// do not invalidate them; descriptions still apply current presence and folders.
 #[derive(Default)]
 struct SummaryCache {
-    stores: BTreeMap<Agent, Vec<Seen>>,
     claude: Option<Vec<ExternalSession>>,
-    /// Claude Code's sessions with their folders, read with `claude`.
-    claude_seen: Vec<Seen>,
 }
 
 impl SummaryCache {
-    /// The summary, and every session the stores hold with its folder.
-    async fn read(
-        &mut self,
-        agents: &Agents,
-        changed: &BTreeSet<Agent>,
-    ) -> Result<(Vec<Summary>, Vec<Seen>)> {
+    /// The summary of every session, after the occupancy read the stores
+    /// again for the agents in `changed`.
+    async fn read(&mut self, agents: &Agents, changed: &BTreeSet<Agent>) -> Result<Vec<Summary>> {
+        let sighted = agents.occupancy.refresh(changed).await?;
         let stores = agents.stores().clone();
-        let mut listings = std::mem::take(&mut self.stores);
-        let changed = changed.clone();
         let refresh_claude = self.claude.is_none() || changed.contains(&Agent::Claude);
         let described = spawn_blocking(move || {
-            for agent in Agent::STORED {
-                if changed.contains(&agent) || !listings.contains_key(&agent) {
-                    listings.insert(agent, stores.sessions(Some(agent)));
-                }
-            }
-
             // Preserve the stores' order when activity times tie.
-            let mut seen: Vec<_> = Agent::STORED
-                .into_iter()
-                .flat_map(|agent| listings[&agent].iter().cloned())
+            let mut seen: Vec<_> = sighted
+                .seen
+                .iter()
+                .filter(|session| session.agent != Agent::Claude)
+                .cloned()
                 .collect();
             seen.sort_by_key(|session| std::cmp::Reverse(session.last_activity));
             let now = std::time::SystemTime::now();
-            let sessions = seen
-                .iter()
+            seen.into_iter()
                 .take(512)
-                .cloned()
                 .map(|session| stores.describe(session, now))
-                .collect::<Vec<_>>();
-            (listings, sessions, seen)
+                .collect::<Vec<_>>()
         });
         let claude = async {
             if refresh_claude {
-                let (listed, seen) = tokio::join!(
-                    agents.external().list(512, None, agents.owned()),
-                    agents.external().sightings()
-                );
-
-                // Either failing fails the read, so readers do not keep an
-                // older list of Claude's folders.
-                listed.and_then(|listed| Ok(Some((listed, seen?))))
+                agents
+                    .external()
+                    .list(512, None, agents.owned())
+                    .await
+                    .map(Some)
             } else {
                 Ok(None)
             }
         };
         let (claude, others) = tokio::join!(claude, described);
-        let (listings, others, stored) = others.context("reading agent summary")?;
-        self.stores = listings;
+        let others = others.context("reading agent summary")?;
 
         match claude {
-            Ok(Some((claude, seen))) => {
-                self.claude = Some(claude);
-                self.claude_seen = seen;
-            }
+            Ok(Some(claude)) => self.claude = Some(claude),
             Ok(None) => {}
             Err(error) => {
                 self.claude = None;
                 return Err(error);
             }
         }
-
-        let mut seen = self.claude_seen.clone();
-        seen.extend(stored);
 
         let mut sessions = self.claude.clone().unwrap_or_default();
         agents.observe_external(&sessions);
@@ -162,16 +138,15 @@ impl SummaryCache {
             })
             .collect();
         summary.sort_by(|a, b| (&a.agent, &a.id).cmp(&(&b.agent, &b.id)));
-        Ok((summary, seen))
+        Ok(summary)
     }
 }
 
 #[cfg(test)]
 async fn source_summary(agents: &Agents) -> Result<Vec<Summary>> {
     SummaryCache::default()
-        .read(agents, &BTreeSet::new())
+        .read(agents, &Agent::ALL.into_iter().collect())
         .await
-        .map(|(summary, _)| summary)
 }
 
 pub async fn serve_follow(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>) -> Result<()> {

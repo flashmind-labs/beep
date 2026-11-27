@@ -91,7 +91,7 @@ async fn summary_cache_rescans_only_changed_harnesses_and_tracks_file_changes() 
         ..Agents::default()
     };
     let mut cache = SummaryCache::default();
-    let initial = cache.read(&agents, &BTreeSet::new()).await.unwrap().0;
+    let initial = cache.read(&agents, &BTreeSet::new()).await.unwrap();
     assert_eq!(initial.len(), 2);
 
     // An unrelated harness write must not walk the flsh store again.
@@ -109,8 +109,7 @@ async fn summary_cache_rescans_only_changed_harnesses_and_tracks_file_changes() 
     let summary = cache
         .read(&agents, &BTreeSet::from([Agent::Codex]))
         .await
-        .unwrap()
-        .0;
+        .unwrap();
     assert_eq!(
         summary
             .iter()
@@ -126,8 +125,7 @@ async fn summary_cache_rescans_only_changed_harnesses_and_tracks_file_changes() 
     let summary = cache
         .read(&agents, &BTreeSet::from([Agent::Flsh]))
         .await
-        .unwrap()
-        .0;
+        .unwrap();
     assert!(!summary.iter().any(|session| session.id == "flsh-example"));
     assert!(summary.iter().any(|session| session.id == "flsh-new"));
 
@@ -137,16 +135,14 @@ async fn summary_cache_rescans_only_changed_harnesses_and_tracks_file_changes() 
         cache
             .read(&agents, &BTreeSet::from([Agent::Codex]))
             .await
-            .unwrap()
-            .0,
+            .unwrap(),
         summary
     );
     std::fs::remove_file(&renamed).unwrap();
     let summary = cache
         .read(&agents, &BTreeSet::from([Agent::Codex]))
         .await
-        .unwrap()
-        .0;
+        .unwrap();
     assert_eq!(summary.len(), 1);
     assert_eq!(summary[0].id, "flsh-new");
 }
@@ -1000,7 +996,7 @@ async fn callers_asking_during_a_store_read_share_it() {
     assert!(futures::poll!(first.as_mut()).is_pending());
     assert!(futures::poll!(second.as_mut()).is_pending());
 
-    let running = crate::lock(&agents.sighting).upgrade().unwrap();
+    let running = agents.occupancy.reading_now().unwrap();
     // This handle and the two callers'.
     assert_eq!(Arc::strong_count(&running), 3);
     drop(running);

@@ -8,8 +8,10 @@ pub mod claude;
 pub mod holds;
 mod holders;
 pub(crate) mod presence;
+mod sighted;
 
 pub(crate) use holders::{Holding, settle};
+pub(crate) use sighted::Watching;
 
 use crate::{
     logs::{claude::Store, found::{Agent, Stores}},
@@ -51,6 +53,8 @@ struct Inner {
     /// Sessions started outside Beep whose process this node ended or saw
     /// exit lately, by id, with when.
     closed: Mutex<HashMap<SessionId, Instant>>,
+    /// The one read of every store, and who waits for it.
+    reading: sighted::Reading,
     /// Where Claude Code keeps its sessions.
     claude: Store,
     /// Where Codex, pi, flsh and OpenCode keep theirs.

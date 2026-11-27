@@ -1,6 +1,6 @@
 //! Sessions and folders found in the agents' own logs and on disk.
 
-use super::{AgentKind, Agents, Begin, Command, DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS, MAX_FOLDERS, MAX_IN_FOLDERS, SavedSession, Session, Sighted, claude};
+use super::{AgentKind, Agents, Begin, Command, DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS, MAX_FOLDERS, MAX_IN_FOLDERS, SavedSession, Session, claude};
 use crate::logs::{claude::Store, found::Stores};
 use crate::occupancy::Holding;
 use crate::logs::picture::Picture;
@@ -124,7 +124,7 @@ impl Agents {
     /// The folders sessions started outside Beep worked in, with those of
     /// sessions known only from a live connection.
     pub(super) async fn sighted_folders(&self) -> Result<Vec<PathBuf>> {
-        let folders = self.sighted().await?.folders;
+        let folders = self.occupancy.sighted().await?.folders;
         let mut folders = folders.as_ref().clone();
         let before = folders.len();
         folders.extend(
@@ -141,55 +141,6 @@ impl Agents {
         }
 
         Ok(folders)
-    }
-
-    /// The agents' logs: what the watcher last read while they are watched,
-    /// else a read of the stores, shared by whoever asks while it runs. One
-    /// policy for listings, search and file requests.
-    async fn sighted(&self) -> Result<Sighted> {
-        if let Some(sighted) = self.watched_sighted() {
-            return Ok(sighted);
-        }
-
-        self.read_sighted().await
-    }
-
-    /// Reads every store, for the logs no watcher follows. Callers that ask
-    /// while a read runs share it; none waits for a read it did not need.
-    async fn read_sighted(&self) -> Result<Sighted> {
-        let running = {
-            let mut slot = crate::lock(&self.sighting);
-
-            match slot.upgrade() {
-                Some(running) => running,
-                None => {
-                    let running = Arc::default();
-                    *slot = Arc::downgrade(&running);
-                    running
-                }
-            }
-        };
-
-        running
-            .get_or_init(|| async { self.read_all_stores().await.map_err(Arc::new) })
-            .await
-            .clone()
-            .map_err(|error| anyhow::anyhow!("{error:#}"))
-    }
-
-    async fn read_all_stores(&self) -> Result<Sighted> {
-        metrics::counter!("beep_store_reads_total").increment(1);
-
-        let stores = self.stores().clone();
-        let others = spawn_blocking(move || stores.sessions(None));
-        let (claude, others) = tokio::join!(self.external().sightings(), others);
-        let mut seen = claude.unwrap_or_else(|e| {
-            log::warn!("Claude Code sessions not read: {e:#}");
-            Vec::new()
-        });
-        seen.extend(others.context("reading the agents' sessions")?);
-
-        Ok(Sighted::of(seen))
     }
 
     /// Where Claude Code keeps the sessions started outside Beep.
@@ -214,33 +165,9 @@ impl Agents {
     /// Every session the agents' stores hold, with the folder it ran in:
     /// what the watcher last read while they are watched, else a read of them.
     pub(super) async fn sightings(&self) -> Result<Vec<found::Seen>> {
-        let sighted = self.sighted().await?;
+        let sighted = self.occupancy.sighted().await?;
 
-        Ok(self.with_present(sighted.seen.as_ref().clone()))
-    }
-
-    /// `seen` with the sessions known only from a live connection.
-    fn with_present(&self, mut seen: Vec<found::Seen>) -> Vec<found::Seen> {
-        for native in self.occupancy.presence().snapshot() {
-            if seen
-                .iter()
-                .any(|seen| seen.agent.as_ref() == native.agent && seen.id == native.id)
-            {
-                continue;
-            }
-
-            seen.push(found::Seen {
-                agent: Agent::Flsh,
-                id: native.id,
-                cwd: PathBuf::from(native.cwd),
-                started_at: native.started_at,
-                last_activity: native.last_activity,
-                title: native.title,
-                file: None,
-            });
-        }
-
-        seen
+        Ok(self.occupancy.with_present(sighted.seen.as_ref().clone()))
     }
 
     /// The checkouts coding agents worked in, then the other checkouts

@@ -1,10 +1,9 @@
 //! Event sources for sessions on this machine.
 
 use super::{SummaryCache, recent_deadline};
-use crate::agents::{Agents, Sighted};
-use crate::logs::found::Agent;
+use crate::{agents::Agents, logs::found::Agent, occupancy::Watching};
 use anyhow::{Context, Result};
-use beep_proto::{SessionId, watched};
+use beep_proto::SessionId;
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
@@ -12,7 +11,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::{mpsc, watch},
+    sync::mpsc,
     task::spawn_blocking,
     time::{Instant, sleep},
 };
@@ -22,9 +21,8 @@ pub(crate) struct Sources {
     processes: std::sync::Mutex<std::collections::HashMap<(String, SessionId), ProcessWatch>>,
     pending: Arc<Mutex<Pending>>,
     dirty: mpsc::Sender<()>,
-    /// What the summary task last read of the agents' stores, none until its
-    /// first read.
-    sighted: watch::Receiver<Option<Sighted>>,
+    /// Tells the occupancy the stores are read as they change.
+    _watching: Watching,
     _summary: tokio_util::task::AbortOnDropHandle<()>,
 }
 
@@ -151,7 +149,7 @@ impl Agents {
         &self,
         sessions: &[beep_proto::node::agent::ExternalSession],
     ) {
-        let Some(source) = crate::lock(&self.event_watcher).upgrade() else {
+        let Some(source) = crate::lock(&self.sources).upgrade() else {
             return;
         };
         let mut processes = crate::lock(&source.processes);
@@ -249,16 +247,8 @@ impl Agents {
         }
     }
 
-    /// The agents' stores as the watcher's summary task last read them, none
-    /// while nothing watches or before its first read.
-    pub(in crate::agents) fn watched_sighted(&self) -> Option<Sighted> {
-        crate::lock(&self.event_watcher)
-            .upgrade()
-            .and_then(|source| watched::read(&source.sighted, Clone::clone))
-    }
-
     pub(in crate::agents) fn observed_work_roots(&self) -> Vec<PathBuf> {
-        crate::lock(&self.event_watcher)
+        crate::lock(&self.sources)
             .upgrade()
             .map_or_else(Vec::new, |source| {
                 active_roots(&crate::lock(&source.processes))
@@ -302,7 +292,7 @@ impl Agents {
 
     /// Log observers exist only while some client follows agent topics.
     pub(crate) async fn watch_event_sources(self: &Arc<Self>) -> Result<Arc<Sources>> {
-        if let Some(held) = crate::lock(&self.event_watcher).upgrade() {
+        if let Some(held) = crate::lock(&self.sources).upgrade() {
             return Ok(held);
         }
 
@@ -316,6 +306,7 @@ impl Agents {
             .collect();
         let hub = self.events.clone();
         let agents = Arc::downgrade(self);
+        let watching = self.occupancy.watching();
         let source = spawn_blocking(move || {
             let roots = roots
                 .into_iter()
@@ -325,10 +316,10 @@ impl Agents {
             let (dirty, mut summaries) = mpsc::channel(1);
             let pending = Arc::new(Mutex::new(Pending::default()));
             let summary_pending = pending.clone();
-            let (sighted_tx, sighted) = watch::channel(None);
             let summary = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
                 let mut previous = None;
                 let mut cache = SummaryCache::default();
+                let mut first = true;
 
                 while summaries.recv().await.is_some() {
                     sleep(Duration::from_millis(400)).await;
@@ -352,11 +343,18 @@ impl Agents {
                         }
                     }
 
-                    let changed = match cache.read(&agents, &pending.agents).await {
-                        Ok((summary, seen)) => {
-                            // Before the ping, so whoever it wakes reads this.
-                            sighted_tx.send_replace(Some(Sighted::of(seen)));
+                    // The first read takes every store: what an earlier read
+                    // left the occupancy may be older than this watch.
+                    let stale = if std::mem::take(&mut first) {
+                        Agent::ALL.into_iter().collect()
+                    } else {
+                        pending.agents
+                    };
 
+                    // The read publishes before the ping, so whoever it wakes
+                    // reads it.
+                    let changed = match cache.read(&agents, &stale).await {
+                        Ok(summary) => {
                             if previous.as_ref() == Some(&summary) {
                                 false
                             } else {
@@ -367,7 +365,6 @@ impl Agents {
                         Err(error) => {
                             log::debug!("agent summary could not be reconciled: {error}");
                             // Readers fall back to a direct read and see the error.
-                            sighted_tx.send_replace(None);
                             true
                         }
                     };
@@ -400,7 +397,7 @@ impl Agents {
                     processes: std::sync::Mutex::default(),
                     pending,
                     dirty,
-                    sighted,
+                    _watching: watching,
                     _summary: summary,
                 }),
                 watched,
@@ -410,7 +407,7 @@ impl Agents {
         .context("starting session notifications")??;
         let (source, roots) = source;
         source.paths.replace(roots).await?;
-        let mut held = crate::lock(&self.event_watcher);
+        let mut held = crate::lock(&self.sources);
 
         if let Some(current) = held.upgrade() {
             return Ok(current);

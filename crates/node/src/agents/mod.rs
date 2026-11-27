@@ -153,7 +153,7 @@ host! {
         /// Follows the checkouts that wait for Git recovery, once started.
         recovering: OnceLock<tokio_util::task::AbortOnDropHandle<()>>,
         pub events: crate::events::Hub,
-        event_watcher: Mutex<std::sync::Weak<follow::Sources>>,
+        sources: Mutex<std::sync::Weak<follow::Sources>>,
         event_forward: OnceLock<tokio_util::task::AbortOnDropHandle<()>>,
         /// The agents it can start, replaced when detection finds others.
         kinds: watch::Sender<Arc<Vec<AgentKind>>>,
@@ -213,9 +213,6 @@ host! {
         /// Set once the sessions open before the last stop have been resumed, or
         /// there were none.
         reopened: watch::Sender<bool>,
-        /// The read of every store now running, shared by whoever asks while
-        /// it does. Held only to join or start one, never across a read.
-        sighting: Mutex<std::sync::Weak<ReadInFlight>>,
         /// The checkouts found on disk under home, once `warm` read them.
         /// Written after a walk, by the one walk running.
         on_disk: Mutex<Option<Arc<Vec<found::Checkout>>>>,
@@ -228,30 +225,6 @@ host! {
         listed: Mutex<HashMap<usize, Arc<AsyncMutex<Option<found_sessions::Listed>>>>>,
         /// What sessions were, ended ones too, from the restart note.
         saved: Mutex<Vec<restart::SavedSession>>,
-    }
-
-    /// The outcome of one read of every store, set once by the caller that runs it.
-    type ReadInFlight = tokio::sync::OnceCell<Result<Sighted, Arc<anyhow::Error>>>;
-
-    /// What the agents' logs hold: the sessions, and the folders they ran in.
-    #[derive(Clone)]
-    struct Sighted {
-        seen: Arc<Vec<found::Seen>>,
-        folders: Arc<Vec<PathBuf>>,
-    }
-
-    impl Sighted {
-        /// `seen`, with the folders it names.
-        fn of(seen: Vec<found::Seen>) -> Self {
-            let mut folders: Vec<PathBuf> = seen.iter().map(|seen| seen.cwd.clone()).collect();
-            folders.sort();
-            folders.dedup();
-
-            Self {
-                seen: Arc::new(seen),
-                folders: Arc::new(folders),
-            }
-        }
     }
 
     impl Agents {
