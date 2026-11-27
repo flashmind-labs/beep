@@ -93,8 +93,7 @@ impl Topic {
 
     fn family(&self) -> Result<Family, TopicError> {
         match self.name.as_str() {
-            "session.turn" => Ok(Family::Sessions),
-            _ if self.on_mesh() => Ok(Family::Sessions),
+            _ if self.on_mesh() || self.name == "session.turn" => Ok(Family::Sessions),
             _ if self.is_local() => Ok(Family::Local),
             other => Err(TopicError::Unknown(other.to_owned())),
         }

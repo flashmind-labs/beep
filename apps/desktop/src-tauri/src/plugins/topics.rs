@@ -84,10 +84,13 @@ impl Heard {
                 update.topic.clone(),
                 update.query,
             );
-            self.latest
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .insert(key, update);
+            let mut latest = self.latest.lock().unwrap_or_else(PoisonError::into_inner);
+
+            // Concurrent dispatches can arrive out of order; the higher seq is the newer.
+            if latest.get(&key).is_none_or(|held| held.seq <= update.seq) {
+                latest.insert(key, update);
+            }
+            drop(latest);
             self.wake.notify_one();
 
             true
@@ -104,26 +107,21 @@ impl Heard {
     }
 }
 
-/// The registration in the outbox: held while any mesh topic is wanted.
+/// The registration in the outbox, with its id: held while any mesh topic is wanted.
 struct Reader {
-    id: Uuid,
     send: Sink,
-    held: Option<Vec<Interest>>,
+    held: Option<(Uuid, Vec<Interest>)>,
 }
 
 impl Reader {
     fn new(send: Sink) -> Self {
-        Self {
-            id: Uuid::new_v4(),
-            send,
-            held: None,
-        }
+        Self { send, held: None }
     }
 
     /// Makes `interests` what the reader follows. Returns whether the node streams need
     /// starting.
     fn follow(&mut self, events: &WindowOutbox, interests: Vec<Interest>) -> bool {
-        if self.held.as_ref().unwrap_or(&Vec::new()) == &interests {
+        if self.held.as_ref().map_or(&[][..], |(_, held)| held) == interests {
             return false;
         }
 
@@ -132,48 +130,42 @@ impl Reader {
             return false;
         }
 
-        match self.held {
-            Some(_) => match events.retopic(LABEL, self.id, interests.clone()) {
-                Ok(()) => {
-                    self.held = Some(interests);
-                    true
-                }
-                Err(error) => {
-                    log::warn!("plugins cannot follow the mesh topics they want: {error}");
-                    false
-                }
-            },
+        let result = match &self.held {
+            Some((id, _)) => events
+                .retopic(LABEL, *id, interests.clone())
+                .map(|()| Some(*id)),
+            // A fresh id: the outbox remembers the ended one as removed.
             None => {
-                // A fresh id: the outbox remembers the ended one as removed.
                 let id = Uuid::new_v4();
-                let registered = events.register(
-                    LABEL,
-                    id,
-                    interests.clone(),
-                    self.send.clone(),
-                    || true,
-                    None,
-                );
+                events
+                    .register(
+                        LABEL,
+                        id,
+                        interests.clone(),
+                        self.send.clone(),
+                        || true,
+                        None,
+                    )
+                    .map(|registered| registered.map(|_| id))
+            }
+        };
 
-                match registered {
-                    Ok(Some(_)) => {
-                        self.id = id;
-                        self.held = Some(interests);
-                        true
-                    }
-                    Ok(None) => false,
-                    Err(error) => {
-                        log::warn!("plugins cannot follow the mesh topics they want: {error}");
-                        false
-                    }
-                }
+        match result {
+            Ok(Some(id)) => {
+                self.held = Some((id, interests));
+                true
+            }
+            Ok(None) => false,
+            Err(error) => {
+                log::warn!("plugins cannot follow the mesh topics they want: {error}");
+                false
             }
         }
     }
 
     fn end(&mut self, events: &WindowOutbox) {
-        if self.held.take().is_some() {
-            events.remove(LABEL, self.id);
+        if let Some((id, _)) = self.held.take() {
+            events.remove(LABEL, id);
         }
     }
 }
