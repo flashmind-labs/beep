@@ -378,7 +378,7 @@ impl Starter {
 }
 
 /// The folder resumed session `id` of `kind`, kept for `cwd`, starts in, so
-/// that a session can always go on: `cwd`, which `Agents::start` turns into
+/// that a session can always go on: `cwd`, which `Starter::start` turns into
 /// the project folder when it is a worktree, even a removed one, or the home
 /// folder when `cwd` is gone and was no worktree. Claude Code's transcript
 /// goes along; a failure there only costs the history.
