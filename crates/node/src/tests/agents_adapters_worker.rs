@@ -1,5 +1,9 @@
 use super::*;
+use crate::agents::adapters::installs::{Install, Installs};
 use crate::known::known;
+use crate::status::AgentState;
+use beep_proto::node::AdapterInstall;
+use std::collections::BTreeMap;
 
 fn kind(name: &str) -> AgentKind {
     AgentKind {

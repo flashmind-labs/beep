@@ -641,7 +641,7 @@ async fn a_refused_start_makes_no_branch() {
     let (_dir, work) = checkout::tests::repo("refused");
     let kind = sh_agent("codex", "cat > /dev/null");
     let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
-    agents.set_settings(AgentSettings {
+    agents.catalog.set_settings(AgentSettings {
         harnesses: vec![beep_proto::node::harness::HarnessConfig {
             enabled: false,
             ..beep_proto::node::harness::HarnessConfig::new("codex")

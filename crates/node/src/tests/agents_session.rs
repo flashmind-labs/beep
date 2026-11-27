@@ -2519,7 +2519,7 @@ async fn saved_instructions_reach_new_and_resumed_sessions_without_editing_files
         (0, None, "Use short sentences."),
         (1, Some(SessionId::from("s")), "Use plain words."),
     ] {
-        agents.set_instructions(Some(text.to_owned()));
+        agents.catalog.set_instructions(Some(text.to_owned()));
         let log = dir.join(format!("sent-{index}.jsonl"));
         let kind = script("codex", SYSTEM_PROMPT_ADAPTER, &log);
         let session = agents

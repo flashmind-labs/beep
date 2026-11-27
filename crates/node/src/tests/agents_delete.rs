@@ -7,7 +7,6 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
-use tokio::sync::watch;
 
 const CLAUDE_ID: &str = "0f3c2a9e-1111-4222-8333-944455556666";
 const CLAUDE_OTHER: &str = "7a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d";
@@ -90,7 +89,7 @@ impl Machine {
 
         write(&root.join("outside.jsonl"), "keep me");
         let agents = Agents {
-            kinds: watch::Sender::new(Arc::new(vec![kind("claude"), kind("codex"), kind("pi")])),
+            catalog: Arc::new(crate::agents::catalog::Catalog::new(vec![kind("claude"), kind("codex"), kind("pi")])),
             occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::at(&root.join("claude")), crate::logs::found::Stores::at(Some(&root.join("codex")), Some(&root.join("pi")), None)),
             ..Agents::default()
         };

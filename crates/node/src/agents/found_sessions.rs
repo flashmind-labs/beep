@@ -689,7 +689,7 @@ impl Agents {
             previous.info.cwd.clone()
         };
 
-        self.prepare(kind).await?;
+        self.catalog.prepare(kind).await?;
         let cwd = super::restart::ready_to_resume(kind, id, Path::new(&cwd)).await;
         let cwd = cwd.to_string_lossy();
         // Never seen here, as one found outside Beep: never the assistant.

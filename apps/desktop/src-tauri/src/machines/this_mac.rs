@@ -56,7 +56,7 @@ impl Machine {
         let provision = Provision::new(dir);
         let name = crate::beep::identity::computer_name();
         let mut offers = Offers::local(&[], provision.clone()).bound(endpoint, dir, &name);
-        offers.agents.list_beep_skills();
+        offers.agents.catalog.list_beep_skills();
         // The assistant's project tools on this Mac reach this app.
         offers.project_tools = project_tools;
         #[cfg(target_os = "macos")]
@@ -101,6 +101,7 @@ impl Machine {
             let _adapters = home
                 .offers
                 .agents
+                .catalog
                 .install_adapters(home.dir.clone(), Vec::new());
             let _upkeep = home.offers.agents.start_upkeep();
             let _mcp = tools::start(&home.dir, Node::of(&home.offers));

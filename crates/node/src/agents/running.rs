@@ -3,7 +3,7 @@
 use crate::machine::env::locate::folder;
 use super::{AgentKind, Agents, Answered, Asking, Session, checkout, harnesses, live::Sent, machine_list, models, plans, projects, session::{Begin, Command, History, Start}, sessions::{self, new_id}};
 use crate::{
-    agents::{child_reach, mcp_launch::Launch},
+    agents::child_reach,
     process::spawn_env::{self, Scope},
     process,
 };
@@ -36,22 +36,6 @@ use tokio::{
 };
 
 impl Agents {
-    /// Gives the sessions started from now on the Beep MCP server, as
-    /// `launch` starts it. Only the first call counts.
-    pub fn serve_mcp(&self, launch: Arc<Launch>) {
-        // A second launch would give the same server.
-        let _ = self.mcp.set(launch);
-    }
-
-    /// Lists the skills in Beep's own skills folder for the sessions
-    /// started from now on, as a node that serves does. Only the first call
-    /// counts.
-    pub fn list_beep_skills(&self) {
-        if let Some(dir) = crate::machine::provision::skills_dir() {
-            let _ = self.skills_dir.set(dir);
-        }
-    }
-
     /// Whether `session` is one of this node's and still runs.
     pub(crate) fn runs(&self, session: &SessionId) -> bool {
         self.get(session).is_some_and(|session| {
@@ -306,26 +290,9 @@ impl Agents {
         (entries, earlier)
     }
 
-    /// Applies the saved Beep instructions to sessions started or resumed from now on.
-    pub(crate) fn set_instructions(&self, text: Option<String>) {
-        *crate::lock(&self.instructions) = text;
-    }
-
-    /// Takes the user's settings for the agents in place of the ones
-    /// before; sessions start with them from now on.
-    pub fn set_settings(&self, settings: AgentSettings) {
-        self.settings.set(settings);
-    }
-
     /// The settings now in force.
     pub fn settings(&self) -> AgentSettings {
-        self.settings.current()
-    }
-
-    /// The mesh gave the user's settings: sessions held over a restart
-    /// may start.
-    pub fn settings_arrived(&self) {
-        self.settled.send_replace(true);
+        self.catalog.settings.current()
     }
 
     /// The models the agent `name` can run on here; `None` when this node
@@ -333,11 +300,12 @@ impl Agents {
     pub(crate) async fn models(&self, name: &str) -> Option<ModelList> {
         let kind = self.named(name)?;
         let kind = self
+            .catalog
             .settings
             .configured(&kind)
             .unwrap_or_else(|_| kind.clone());
         let default_model = kind.default_model.clone();
-        let mut list = self.models.get(name, models::find(kind)).await;
+        let mut list = self.catalog.models.get(name, models::find(kind)).await;
         if let Some(model) = default_model {
             list.current = Some(model.to_string());
         }
@@ -354,7 +322,7 @@ impl Agents {
         args: &[&str],
     ) -> Option<tokio::process::Command> {
         let kind = self.named(name)?;
-        let kind = self.settings.configured(&kind).ok()?;
+        let kind = self.catalog.settings.configured(&kind).ok()?;
         let program = harnesses::find(name)?;
         let mut command = process::command(program);
         spawn_env::apply(&mut command, Scope::for_agent(name, account));
@@ -405,7 +373,7 @@ impl Agents {
     /// waits for the user's agent settings, which say how each CLI signs in,
     /// for `SETTINGS_WAIT` at most.
     pub(crate) async fn read_plans_at_start(self: &Arc<Self>) {
-        if !self.settings_came().await {
+        if !self.catalog.settings_came().await {
             log::debug!("reading the plans without the agent settings");
         }
 
@@ -476,7 +444,7 @@ impl Agents {
 
                 loop {
                     interval.tick().await;
-                    harnesses::refresh_versions(&agents.kinds(), &agents.latest).await;
+                    harnesses::refresh_versions(&agents.kinds(), &agents.catalog.latest).await;
                 }
             };
             let background_children = async {
@@ -490,7 +458,7 @@ impl Agents {
 
     /// What this node finds of each agent harness it knows.
     pub(super) async fn harnesses(&self, refresh: bool) -> HarnessReport {
-        harnesses::report(&self.kinds(), &self.settings, &self.latest, refresh).await
+        harnesses::report(&self.kinds(), &self.catalog.settings, &self.catalog.latest, refresh).await
     }
 
     /// Closes every running session and waits until their agents have
@@ -562,28 +530,12 @@ impl Agents {
 
     /// The agents this node can start now.
     pub(crate) fn kinds(&self) -> Arc<Vec<AgentKind>> {
-        watched::read_sent(&self.kinds, Clone::clone)
-    }
-
-    /// Takes the agents a new detection found, when they differ.
-    pub(super) fn set_kinds(&self, kinds: Vec<AgentKind>) {
-        let changed = self.kinds.send_if_modified(|current| {
-            if **current == kinds {
-                return false;
-            }
-            *current = Arc::new(kinds);
-            true
-        });
-
-        if changed {
-            let names: Vec<String> = self.kinds().iter().map(|kind| kind.name.clone()).collect();
-            log::info!("coding agents now: {}", names.join(", "));
-        }
+        watched::read_sent(&self.catalog.kinds, Clone::clone)
     }
 
     /// Changes each time the agents this node can start change.
     pub(crate) fn kinds_changed(&self) -> watch::Receiver<Arc<Vec<AgentKind>>> {
-        self.kinds.subscribe()
+        self.catalog.kinds.subscribe()
     }
 
     /// The session `id` names: by the id it started under or by the
@@ -678,7 +630,7 @@ impl Agents {
         checkout: Option<CheckoutPlan>,
         mut begin: Begin,
     ) -> Result<Arc<Session>> {
-        self.prepare(kind).await?;
+        self.catalog.prepare(kind).await?;
         self.admits(kind, cwd, &begin)?;
 
         let prompt = begin.prompt.as_deref().unwrap_or_default();
@@ -744,20 +696,13 @@ impl Agents {
         Ok((named.id, worktree.unwrap_or(named.cwd)))
     }
 
-    /// Readies what `kind` reads before it starts: for flsh, the user's
-    /// flsh settings in its config.
-    pub(super) async fn prepare(&self, kind: &AgentKind) -> Result<()> {
-        let configured = self.settings.configured(kind)?;
-        self.settings.prepare(&configured).await
-    }
-
     pub(crate) async fn start(
         &self,
         kind: &AgentKind,
         cwd: Option<&str>,
         mut begin: Begin,
     ) -> Result<Arc<Session>> {
-        let kind = &self.settings.configured(kind)?;
+        let kind = &self.catalog.settings.configured(kind)?;
         signs_in(&kind.name, begin.account.as_ref())?;
         let own = own_folder(cwd, &begin)?;
         let (cwd, brief) = in_project(own.as_deref().or(cwd), begin.resume.is_some(), begin.brief.take())?;
@@ -818,7 +763,7 @@ impl Agents {
         self.occupancy.holds().check_start(&cwd)?;
         // A reviewer changes nothing, so it needs no git rule.
         let rule = checkout::rule(&cwd).filter(|_| !begin.review).map(str::to_owned);
-        let instructions = crate::lock(&self.instructions)
+        let instructions = crate::lock(&self.catalog.instructions)
             .clone()
             .filter(|text| !text.trim().is_empty());
         let resumed = begin.resume.is_some();
@@ -855,10 +800,11 @@ impl Agents {
             instructions,
             rule,
             skills: self
+                .catalog
                 .skills_dir
                 .get()
                 .and_then(|dir| crate::machine::provision::skills_brief(dir)),
-            mcp: self.mcp.get().map(|launch| launch.server(&id)),
+            mcp: self.catalog.mcp.get().map(|launch| launch.server(&id)),
             context,
             images: self.images.clone(),
             usage: self.usage.clone(),

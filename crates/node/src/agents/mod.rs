@@ -12,7 +12,7 @@ host! {
     pub(crate) mod child_reach;
     pub(crate) mod child_view;
     pub(crate) use crate::calls;
-    use crate::{AsyncMutex, agents::mcp_launch::Launch, occupancy::Occupancy};
+    use crate::{AsyncMutex, occupancy::Occupancy};
     use crate::logs::found;
     use beep_proto::SessionId;
     use std::{
@@ -35,6 +35,7 @@ host! {
     mod adapters;
     pub(crate) mod alerts;
     pub(crate) mod ci;
+    pub(crate) mod catalog;
     pub(crate) mod checkout;
     pub(crate) mod checkouts;
     mod compaction;
@@ -105,7 +106,6 @@ host! {
     pub(crate) use processes::Demand as ProcessDemand;
     pub(crate) use processes::watch_ports;
     use images::Images;
-    use models::ModelCache;
     pub(crate) use session::Session;
     pub(crate) use session::Begin;
     use spend::Spend;
@@ -122,10 +122,9 @@ host! {
         pub events: crate::events::Hub,
         sources: Mutex<std::sync::Weak<follow::Sources>>,
         event_forward: OnceLock<tokio_util::task::AbortOnDropHandle<()>>,
-        /// The agents it can start, replaced when detection finds others.
-        kinds: watch::Sender<Arc<Vec<AgentKind>>>,
-        /// The adapters the node installs itself.
-        adapters: installs::Installs,
+        /// The agents it can start, how their adapters stand and the user's
+        /// settings for them.
+        pub(crate) catalog: Arc<catalog::Catalog>,
         pub(crate) sessions: sessions::Sessions,
         /// Serializes changes to a stored session against resuming it, one
         /// lock for each session by the agent's own id; see `store_of`.
@@ -150,14 +149,6 @@ host! {
         last_plan_read: Mutex<Option<Instant>>,
         /// How the moves of sessions to this machine stand.
         moves: moving::Moves,
-        /// The models each agent offers, found lately.
-        models: ModelCache,
-        /// The user's settings for each agent, applied when one starts.
-        settings: harnesses::Settings,
-        /// Saved Beep instructions, supplied to sessions without editing agent files.
-        instructions: Mutex<Option<String>>,
-        /// The newest versions of the agents, found lately.
-        latest: harnesses::Latest,
         /// The workspace and the folders shared in `node.toml`, which file
         /// requests may reach beside the sessions' folders.
         folders: OnceLock<Vec<PathBuf>>,
@@ -165,18 +156,10 @@ host! {
         family: family::Family,
         /// The reviews reviewers handed in, and the reviewers running.
         reviews: reviews::Reviews,
-        /// How sessions start the Beep MCP server, once the node serves it.
-        mcp: OnceLock<Arc<Launch>>,
-        /// Beep's own skills folder, listed for sessions once the node
-        /// serves: one made without it, as in tests, lists none.
-        skills_dir: OnceLock<PathBuf>,
         /// The search index, once the mesh opened it.
         search: OnceLock<Arc<search::SearchIndex>>,
         /// Set once the node is stopping.
         stopping: Arc<AtomicBool>,
-        /// Set once the mesh gave the user's agent settings, which resumed
-        /// sessions start with.
-        settled: watch::Sender<bool>,
         /// Set once the sessions open before the last stop have been resumed, or
         /// there were none.
         reopened: watch::Sender<bool>,
@@ -200,7 +183,7 @@ host! {
 
             Self {
                 events: events.clone(),
-                kinds: watch::Sender::new(Arc::new(kinds)),
+                catalog: Arc::new(catalog::Catalog::new(kinds)),
                 occupancy,
                 spend: Arc::new(Spend::locate()),
                 reviews: reviews::Reviews::new(events),

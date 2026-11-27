@@ -523,7 +523,7 @@ pub async fn serve_sessions(
             report: agents.harnesses(refresh).await,
         },
         SessionsRequest::UpdateHarness { agent } => {
-            match harnesses::update(&agents.kinds(), &agents.latest, &agent).await {
+            match harnesses::update(&agents.kinds(), &agents.catalog.latest, &agent).await {
                 Ok(()) => SessionsReply::Harnesses {
                     report: agents.harnesses(false).await,
                 },
@@ -566,7 +566,7 @@ pub async fn serve_sessions(
             runs: agents.reviews_of(&session),
         },
         SessionsRequest::InstallAdapters {} => {
-            agents.install_adapters_now();
+            agents.catalog.install_adapters_now();
             SessionsReply::AdaptersInstalling {}
         }
         other => SessionsReply::Error {

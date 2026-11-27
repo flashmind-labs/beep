@@ -875,7 +875,7 @@ async fn the_link_survives_a_restart_and_the_family_still_stops_together() {
 
     let noted: Vec<OpenSession> = serde_json::from_str(&noted).expect("the note reads");
     let after = Agents::new(vec![rig.top.clone(), rig.kid.clone()], crate::occupancy::Occupancy::default());
-    after.settings_arrived();
+    after.catalog.settings_arrived();
     // The child is noted first on purpose: parents resume before children.
     let mut noted = noted;
     noted.sort_by_key(|open| std::cmp::Reverse(open.depth()));
@@ -943,7 +943,7 @@ async fn a_thread_started_as_a_persona_hears_its_instructions_and_keeps_its_name
     rig.agents.shutdown().await;
     let noted: Vec<OpenSession> = serde_json::from_str(&noted).expect("the note reads");
     let after = Agents::new(vec![rig.top.clone(), rig.kid.clone()], crate::occupancy::Occupancy::default());
-    after.settings_arrived();
+    after.catalog.settings_arrived();
     after.reopen(noted).await;
     let id = Agents::name_of(&child);
     let resumed = after.get(&id).expect("the thread is back");
@@ -1090,7 +1090,7 @@ async fn a_resumed_child_with_nothing_to_do_reads_idle() {
     rig.agents.shutdown().await;
 
     let after = Agents::new(vec![rig.top.clone(), rig.kid.clone()], crate::occupancy::Occupancy::default());
-    after.settings_arrived();
+    after.catalog.settings_arrived();
     after.reopen(noted).await;
     let resumed = after
         .get(&Agents::name_of(&child))

@@ -204,7 +204,7 @@ async fn listen(launch: Arc<Launch>, node: Node) -> Result<()> {
         "serving the Beep MCP server on {}",
         local_socket::shown(socket)
     );
-    node.agents.serve_mcp(launch.clone());
+    node.agents.catalog.serve_mcp(launch.clone());
     node.agents.serve_mesh(node.mesh.clone());
     let node = Arc::new(Served {
         node,

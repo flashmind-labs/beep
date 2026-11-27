@@ -4,6 +4,7 @@
 //! which Node.js to fetch, `install` does it and `installs` keeps at it.
 
 pub(in crate::agents) mod install;
+pub(crate) mod installs;
 pub(in crate::agents) mod layout;
 mod node_dist;
 

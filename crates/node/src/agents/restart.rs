@@ -19,10 +19,6 @@ use std::{
 };
 use tokio::{task::spawn_blocking, time::timeout};
 
-/// How long resumed sessions wait for the user's agent settings before
-/// starting without them.
-pub(super) const SETTINGS_WAIT: Duration = Duration::from_secs(60);
-
 /// The first line of a resumed session's transcript.
 const RESUMED: &str = "Resumed after beep-node restarted";
 
@@ -356,19 +352,6 @@ impl Agents {
         })
     }
 
-    /// Waits for the user's agent settings for `SETTINGS_WAIT` at most;
-    /// whether they came.
-    pub(super) async fn settings_came(&self) -> bool {
-        let mut settled = self.settled.subscribe();
-
-        timeout(
-            SETTINGS_WAIT,
-            watched::wait_for(&mut settled, |settled| *settled),
-        )
-        .await
-        .is_ok()
-    }
-
     /// Resumes `sessions`, once the user's settings for the agents came or
     /// after `SETTINGS_WAIT`.
     pub(crate) async fn reopen(&self, sessions: Vec<OpenSession>) {
@@ -377,7 +360,7 @@ impl Agents {
             return;
         }
 
-        if !self.settings_came().await {
+        if !self.catalog.settings_came().await {
             log::info!("resuming sessions without the agent settings: the mesh gave none");
         }
 
@@ -430,7 +413,7 @@ impl Agents {
         let kind = self
             .named(&open.agent)
             .with_context(|| format!("this node no longer runs {}", open.agent))?;
-        self.prepare(&kind).await?;
+        self.catalog.prepare(&kind).await?;
         let cwd = ready_to_resume(&kind, &open.session, &open.cwd).await;
         let cwd = cwd.to_string_lossy();
         let follows = open

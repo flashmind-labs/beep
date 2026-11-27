@@ -281,13 +281,13 @@ impl Applied {
             }
         }
 
-        offers.agents.set_instructions(instructions(mesh));
+        offers.agents.catalog.set_instructions(instructions(mesh));
 
         let settings = settings(mesh);
 
         if self.settings.as_ref() != Some(&settings) {
-            offers.agents.set_settings(settings.clone());
-            offers.agents.settings_arrived();
+            offers.agents.catalog.set_settings(settings.clone());
+            offers.agents.catalog.settings_arrived();
             log::info!(
                 "from the mesh: settings for {} agents",
                 settings.harnesses.len()

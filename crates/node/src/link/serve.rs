@@ -98,13 +98,14 @@ pub async fn serve(
     let _sccache = provision.start_sccache();
     let mut offers =
         Offers::local(&state.agents, provision).bound(&endpoint, &state.dir, &state.name);
-    offers.agents.list_beep_skills();
+    offers.agents.catalog.list_beep_skills();
     let _upkeep = offers.agents.start_upkeep();
     let _uploads = crate::agents::uploads::maintain(offers.agents.sessions.subscribe());
     // The ACP adapters an agent found here lacks, installed in the node's
     // folder; the work stops with the node.
     let _adapters = offers
         .agents
+        .catalog
         .install_adapters(state.dir.clone(), state.agents.clone());
     offers.traffic = traffic;
     if let Some(home) = dirs::home_dir() {
