@@ -682,7 +682,7 @@ impl Cards {
         // The machines that push their sessions are heard; the others are asked.
         let sessions = async {
             let mut listed =
-                in_the_mesh(&agents, Some(mesh), &caller, Some(refused), Some(ended_since)).await;
+                in_the_mesh(agents, Some(mesh), &caller, Some(refused), Some(ended_since)).await;
             listed.extend(
                 rows.iter()
                     .flat_map(|(peer, rows)| pushed_sessions(mesh, *peer, rows, ended_since)),
@@ -741,7 +741,7 @@ impl Cards {
                 let round = Round {
                     link,
                     mesh,
-                    agents: &agents,
+                    agents,
                     team,
                     project,
                     cards: &fresh,
