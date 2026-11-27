@@ -1,4 +1,5 @@
 import { AG, type AgentSession } from "../../stores/agents/agents-state.ts";
+import { sessionRuns } from "../../stores/agents/running-state.ts";
 import { flushSync } from "react-dom";
 import { createStore } from "zustand/vanilla";
 import { type BarPageSlot, openBarPage } from "../../stores/bar/bar-page.ts";
@@ -76,7 +77,7 @@ function sessionRow({ row, depth }: { row: AgentSession; depth: number }): Agent
     : s.status !== "ended" && machineConnecting(s.machine_id) ? { kind: "connecting" }
     : moving ? { kind: "move", label: moving.chip, why: moving.why ?? null }
     : s.status === "asking" ? { kind: "asking" }
-    : s.status === "working" || s.status === "running" || s.status === "starting" ? { kind: "running", doing: s.doing || "Working" }
+    : sessionRuns(s) ? { kind: "running", doing: s.doing || "Working" }
     // The Ended group names the state; its rows say when they last ran.
     : s.status === "ended" ? { kind: "plain", label: s.last_activity ? formatAgo(s.last_activity, "since") : "Ended" }
     : { kind: "plain", label: s.external ? "In terminal" : cap(s.status) };

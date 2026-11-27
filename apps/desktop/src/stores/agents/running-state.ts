@@ -59,6 +59,11 @@ export function runningLine(
 const runningAt = (r: Pick<RunningAgent, "started_at" | "last_activity"> & { status?: string }) =>
   r.status === "working" ? Date.now() : r.last_activity || r.started_at;
 
+/// Whether a session shows as running: a turn runs, or its turn ended while
+/// its subagents or background commands still run.
+export const sessionRuns = (s: { status: string; subagents?: number }) =>
+  s.status === "working" || s.status === "running" || s.status === "starting" || (s.status === "idle" && (s.subagents ?? 0) > 0);
+
 /// Idle sessions show how long ago they were last active.
 export function runningWhen(r: Parameters<typeof runningAt>[0]) {
   const time = formatAgo(runningAt(r), "short");

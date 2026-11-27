@@ -1,7 +1,7 @@
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { moveLabel } from "../../stores/agents/move-store.ts";
 import { closingNote } from "../../stores/agents/closing.ts";
-import { agentName, runningKey, runningWhen, type RunningAgent } from "../../stores/agents/running-state.ts";
+import { agentName, runningKey, runningWhen, sessionRuns, type RunningAgent } from "../../stores/agents/running-state.ts";
 import { formatAgo } from "../../ui/format.ts";
 import type { TerminalRow } from "../../stores/terminals/terminal-state.ts";
 import { terminalNote, terminalWhere } from "../../stores/terminals/terminal-list.ts";
@@ -65,7 +65,7 @@ export function RunningStatus({ row, doing = false }: { row: RunningAgent; doing
   if (moving) return <span className={`chip ${moving.chip === "Moving" ? "run" : "bad"}`}>{moving.chip}</span>;
   if (closing) return closing;
   if (row.status === "asking") return <span className="chip wait">needs you</span>;
-  if (["working", "running", "starting"].includes(row.status)) return <span className="cc-running"><Spinner dot label={row.status === "starting" ? "Starting" : "Working"} />{doing && row.doing ? <span className="doing">{row.doing}</span> : runningWhen(row)}</span>;
+  if (sessionRuns(row)) return <span className="cc-running"><Spinner dot label={row.status === "starting" ? "Starting" : "Working"} />{doing && row.doing ? <span className="doing">{row.doing}</span> : runningWhen(row)}</span>;
   return runningWhen(row);
 }
 

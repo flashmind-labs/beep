@@ -82,3 +82,8 @@ test("Waiting hides child conversations in every state, including unread and ask
   assert.deepEqual(waitingSessions([parent, ...children], unread, "", () => "project").map(item => item.session.id), ["parent"]);
   assert.deepEqual(waitingSessions(children, unread, "asking", () => "project"), []);
 });
+
+test("Waiting lists an idle session whose subagents still run as running", () => {
+  const busy = row("busy", { status: "idle", subagents: 2 }), quiet = row("quiet", { status: "idle" });
+  assert.deepEqual(waitingSessions([busy, quiet], new Set(), "", () => "project").map(item => [item.session.id, item.kind]), [["busy", "running"], ["quiet", "idle"]]);
+});

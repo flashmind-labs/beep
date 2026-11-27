@@ -1,5 +1,6 @@
 // Which sessions the bar's default list shows, and in what order.
 import type { AgentSession } from "../agents/agents-state.ts";
+import { sessionRuns } from "../agents/running-state.ts";
 import { sessionKey } from "../agents/conversation-state.ts";
 
 /// Why a session is on the list, in the order the groups show.
@@ -18,7 +19,7 @@ const ORDER: Record<WaitingKind, number> = { asking: 0, done: 1, running: 2, idl
 function waitingKind(s: AgentSession, unread: ReadonlySet<string>): WaitingKind | null {
   if (s.status === "asking" || s.question) return "asking";
   if (s.status === "ended" || s.status === "closing") return null;
-  if (s.status === "working" || s.status === "running" || s.status === "starting") return "running";
+  if (sessionRuns(s)) return "running";
   return unread.has(sessionKey(s)) ? "done" : "idle";
 }
 
