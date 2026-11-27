@@ -1,5 +1,4 @@
 use super::*;
-use tracing_subscriber::Layer;
 
 #[test]
 fn dates_are_civil_dates() {
@@ -53,19 +52,6 @@ fn a_file_from_an_earlier_day_is_moved_aside_and_old_ones_pruned() {
         "{names:?}"
     );
     fs::remove_dir_all(&dir).unwrap();
-}
-
-#[derive(Clone, Default)]
-struct Captured(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
-
-impl Write for Captured {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        self.0.lock().unwrap().write(bytes)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
 }
 
 fn trace_in(outcome: &'static str, stream: bool) -> RequestTrace {
