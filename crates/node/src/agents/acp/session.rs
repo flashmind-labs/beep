@@ -1,5 +1,6 @@
 //! Session startup, capabilities and model configuration.
 
+use crate::logs::subagent::CLAUDE_SPAWNS;
 use agent_client_protocol::{
     UntypedMessage,
     schema::ProtocolVersion,
@@ -14,7 +15,6 @@ use agent_client_protocol::{
     },
 };
 use beep_proto::node::agent::{Effort, ModeOption, ModelOption};
-use crate::logs::subagent::CLAUDE_SPAWNS;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::path::Path;

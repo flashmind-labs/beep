@@ -18,10 +18,7 @@ pub(crate) use crate::calls;
 #[cfg(feature = "host")]
 use crate::occupancy::Occupancy;
 #[cfg(feature = "host")]
-use std::{
-    path::PathBuf,
-    sync::Arc,
-};
+use std::{path::PathBuf, sync::Arc};
 
 #[cfg(feature = "host")]
 pub mod claude;
@@ -39,21 +36,19 @@ pub(crate) mod skill_library;
 pub mod skills;
 
 #[cfg(feature = "host")]
-pub(crate) mod follow;
-#[cfg(feature = "host")]
 mod acp;
 #[cfg(feature = "host")]
 mod adapters;
 #[cfg(feature = "host")]
 pub(crate) mod alerts;
 #[cfg(feature = "host")]
-pub(crate) mod ci;
-#[cfg(feature = "host")]
 pub(crate) mod catalog;
 #[cfg(feature = "host")]
 pub(crate) mod checkout;
 #[cfg(feature = "host")]
 pub(crate) mod checkouts;
+#[cfg(feature = "host")]
+pub(crate) mod ci;
 #[cfg(feature = "host")]
 mod compaction;
 #[cfg(feature = "host")]
@@ -65,11 +60,11 @@ pub(crate) mod family;
 #[cfg(feature = "host")]
 mod flsh_config;
 #[cfg(feature = "host")]
+pub(crate) mod follow;
+#[cfg(feature = "host")]
 mod found_sessions;
 #[cfg(feature = "host")]
 mod harnesses;
-#[cfg(feature = "host")]
-mod installs;
 #[cfg(feature = "host")]
 mod image_files;
 #[cfg(feature = "host")]
@@ -77,21 +72,21 @@ mod image_index;
 #[cfg(feature = "host")]
 mod images;
 #[cfg(feature = "host")]
+mod installs;
+#[cfg(feature = "host")]
 pub(crate) mod kinds;
 #[cfg(feature = "host")]
 mod launch;
 #[cfg(feature = "host")]
-pub(crate) mod listings;
-#[cfg(feature = "host")]
 mod limits;
+#[cfg(feature = "host")]
+pub(crate) mod listings;
 #[cfg(feature = "host")]
 pub(crate) mod live;
 #[cfg(feature = "host")]
-pub(crate) mod machine_list;
-#[cfg(feature = "host")]
-pub(crate) mod projects;
-#[cfg(feature = "host")]
 mod lsp;
+#[cfg(feature = "host")]
+pub(crate) mod machine_list;
 #[cfg(feature = "host")]
 mod made_files;
 #[cfg(feature = "host")]
@@ -103,27 +98,29 @@ pub(crate) mod moving;
 #[cfg(feature = "host")]
 mod pipe;
 #[cfg(feature = "host")]
-pub(crate) mod reply;
-#[cfg(feature = "host")]
 mod plans;
 #[cfg(feature = "host")]
 mod presence_stream;
 #[cfg(feature = "host")]
 mod processes;
 #[cfg(feature = "host")]
+pub(crate) mod projects;
+#[cfg(feature = "host")]
 pub(crate) mod reach;
 #[cfg(feature = "host")]
-pub mod search;
+mod reopen;
+#[cfg(feature = "host")]
+pub(crate) mod reply;
 #[cfg(feature = "host")]
 mod requests;
-#[cfg(feature = "host")]
-mod reopen;
 #[cfg(feature = "host")]
 mod restart;
 #[cfg(feature = "host")]
 pub(crate) mod reviews;
 #[cfg(feature = "host")]
 mod running;
+#[cfg(feature = "host")]
+pub mod search;
 #[cfg(feature = "host")]
 mod session;
 #[cfg(feature = "host")]
@@ -152,7 +149,6 @@ mod worktrees;
 #[cfg(feature = "host")]
 pub use work_folder::{local_hashes, local_read, local_tree};
 
-
 #[cfg(feature = "host")]
 pub use kinds::{AgentKind, Bridge, detect};
 #[cfg(feature = "host")]
@@ -167,17 +163,17 @@ pub use moving::SessionsAlpn;
 #[cfg(feature = "host")]
 pub(crate) use moving::follow as follow_moves;
 #[cfg(feature = "host")]
-pub(crate) use search::follow as follow_search;
-#[cfg(feature = "host")]
 pub(crate) use moving::project_folder;
+#[cfg(feature = "host")]
+pub use reopen::Reopen;
+#[cfg(feature = "host")]
+pub(crate) use reopen::{OpenSession, SavedSession};
 #[cfg(feature = "host")]
 pub use requests::serve_sessions;
 #[cfg(feature = "host")]
 pub(crate) use requests::{TRANSCRIPT_PROTOCOL, serve_transcripts};
 #[cfg(feature = "host")]
-pub use reopen::Reopen;
-#[cfg(feature = "host")]
-pub(crate) use reopen::{OpenSession, SavedSession};
+pub(crate) use search::follow as follow_search;
 #[cfg(feature = "host")]
 pub(crate) use session::{Answered, Asking};
 #[cfg(feature = "host")]
@@ -186,15 +182,15 @@ pub use session_stream::serve_session;
 #[cfg(feature = "host")]
 pub(crate) use alerts::AlertHub;
 #[cfg(feature = "host")]
+use images::Images;
+#[cfg(feature = "host")]
 pub(crate) use processes::Demand as ProcessDemand;
 #[cfg(feature = "host")]
 pub(crate) use processes::watch_ports;
 #[cfg(feature = "host")]
-use images::Images;
+pub(crate) use session::Begin;
 #[cfg(feature = "host")]
 pub(crate) use session::Session;
-#[cfg(feature = "host")]
-pub(crate) use session::Begin;
 
 #[cfg(feature = "host")]
 pub(crate) use crate::logs::unix_now;
@@ -267,13 +263,24 @@ impl Agents {
     pub fn new(parts: Parts) -> Self {
         let events = crate::events::Hub::default();
         let sessions = Arc::new(sessions::Sessions::default());
-        let catalog = Arc::new(catalog::Catalog::new(parts.kinds, parts.launch, parts.skills_dir));
+        let catalog = Arc::new(catalog::Catalog::new(
+            parts.kinds,
+            parts.launch,
+            parts.skills_dir,
+        ));
         let links = Arc::new(family::links::Links::new(parts.mesh));
 
-        let reviews = Arc::new(reviews::kept::Reviews::new(events.clone(), sessions.clone()));
+        let reviews = Arc::new(reviews::kept::Reviews::new(
+            events.clone(),
+            sessions.clone(),
+        ));
         let reopen = Arc::new(reopen::Reopen::new(sessions.clone(), links.clone()));
         let images = Arc::<Images>::default();
-        let reach = Arc::new(reach::Reach::new(parts.folders, sessions.clone(), parts.occupancy.clone()));
+        let reach = Arc::new(reach::Reach::new(
+            parts.folders,
+            sessions.clone(),
+            parts.occupancy.clone(),
+        ));
         let search = Arc::new(search::Opener::new(parts.search));
 
         let listings = Arc::new(listings::Listings::new(

@@ -1,12 +1,19 @@
 //! Keeping agent sessions across a node restart: the next start resumes each noted
 //! `OpenSession` by the agent's own id, with the prompts that still waited.
 
-use beep_proto::SessionId;
-use super::{AgentKind, Agents, Begin, acp::Prompt, checkout, moving, reopen::{OpenSession, Reopen, SavedSession}, session::{CONTINUE, Command, NODE_STOPPED, Session}, sessions::find_session};
+use super::{
+    AgentKind, Agents, Begin,
+    acp::Prompt,
+    checkout, moving,
+    reopen::{OpenSession, Reopen, SavedSession},
+    session::{CONTINUE, Command, NODE_STOPPED, Session},
+    sessions::find_session,
+};
 use crate::logs::found::Agent;
 use anyhow::{Context, Result};
-use beep_proto::watched;
+use beep_proto::SessionId;
 use beep_proto::node::agent::{SessionInfo, Status};
+use beep_proto::watched;
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -69,7 +76,10 @@ impl Reopen {
         limit: std::time::Duration,
         restart: impl Future<Output = T>,
     ) -> T {
-        if tokio::time::timeout(limit, self.until_idle()).await.is_err() {
+        if tokio::time::timeout(limit, self.until_idle())
+            .await
+            .is_err()
+        {
             log::info!("a turn still runs after the wait; restarting anyway");
         }
 
@@ -118,14 +128,18 @@ impl Reopen {
     /// Keeps `saved`, a session that came from another machine ended, as
     /// one that ended here.
     pub(crate) fn keep_arrived(&self, saved: SavedSession) {
-        kept_with(&mut crate::lock(&self.saved), vec![saved], |kept| &kept.info.id);
+        kept_with(&mut crate::lock(&self.saved), vec![saved], |kept| {
+            &kept.info.id
+        });
         crate::events::open_changed();
     }
 
     /// What session `id`, by the agent's own id, is: from its state when it
     /// is here, else as kept from before.
     pub(crate) fn saved(&self, id: &SessionId) -> Option<SavedSession> {
-        if let Some(saved) = find_session(&self.sessions.read(), id).and_then(|session| Self::saved_of(&session)) {
+        if let Some(saved) =
+            find_session(&self.sessions.read(), id).and_then(|session| Self::saved_of(&session))
+        {
             return Some(saved);
         }
 
@@ -297,7 +311,8 @@ impl Agents {
 
     pub(crate) async fn reopen_one(&self, open: OpenSession) -> Result<()> {
         let kind = self
-            .catalog.named(&open.agent)
+            .catalog
+            .named(&open.agent)
             .with_context(|| format!("this node no longer runs {}", open.agent))?;
         self.catalog.prepare(&kind).await?;
         let cwd = ready_to_resume(&kind, &open.session, &open.cwd).await;
@@ -306,31 +321,33 @@ impl Agents {
             .parent
             .as_ref()
             .and_then(|link| self.parent_live_of(link));
-        let session = self.start(
-            &kind,
-            Some(&cwd),
-            Begin {
-                resume: Some(open.session),
-                timestamps: Some((open.started_at, open.last_activity)),
-                earlier: open.transcript,
-                model: open.model,
-                title: open.title,
-                named: open.named,
-                mode: open.mode,
-                parent: open.parent,
-                follows,
-                note: Some(RESUMED.to_owned()),
-                worktrees: open.worktrees,
-                assistant: open.assistant,
-                effort: open.effort,
-                fast: open.fast,
-                account: open.account,
-                persona: open.persona,
-                continues: open.continues,
-                issue: open.issue,
-                ..Begin::default()
-            },
-        ).await?;
+        let session = self
+            .start(
+                &kind,
+                Some(&cwd),
+                Begin {
+                    resume: Some(open.session),
+                    timestamps: Some((open.started_at, open.last_activity)),
+                    earlier: open.transcript,
+                    model: open.model,
+                    title: open.title,
+                    named: open.named,
+                    mode: open.mode,
+                    parent: open.parent,
+                    follows,
+                    note: Some(RESUMED.to_owned()),
+                    worktrees: open.worktrees,
+                    assistant: open.assistant,
+                    effort: open.effort,
+                    fast: open.fast,
+                    account: open.account,
+                    persona: open.persona,
+                    continues: open.continues,
+                    issue: open.issue,
+                    ..Begin::default()
+                },
+            )
+            .await?;
         self.watch_parent(&session);
 
         if open.device.is_some() {
@@ -377,7 +394,10 @@ pub(super) async fn ready_to_resume(kind: &AgentKind, id: &SessionId, cwd: &Path
             && let Some(to) = project.as_ref().or(home.as_ref())
             && let Err(e) = moving::rehome_claude(&id, &kept, to)
         {
-            log::warn!("could not carry a Claude transcript to {}: {e:#}", to.display());
+            log::warn!(
+                "could not carry a Claude transcript to {}: {e:#}",
+                to.display()
+            );
         }
 
         home.unwrap_or(kept)
@@ -393,7 +413,11 @@ mod tests;
 
 /// `kept` with `now` in place of the entries of the same sessions, the
 /// newest `KEPT_SAVED`; a copy of the result.
-fn kept_with<T: Clone>(kept: &mut Vec<T>, now: Vec<T>, session: impl Fn(&T) -> &SessionId) -> Vec<T> {
+fn kept_with<T: Clone>(
+    kept: &mut Vec<T>,
+    now: Vec<T>,
+    session: impl Fn(&T) -> &SessionId,
+) -> Vec<T> {
     kept.retain(|old| !now.iter().any(|new| session(new) == session(old)));
     kept.extend(now);
     let over = kept.len().saturating_sub(KEPT_SAVED);

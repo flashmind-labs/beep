@@ -41,7 +41,10 @@ fn folder(url: &str) -> String {
 pub(super) fn inspect_git(node_dir: &Path, url: &str) -> Result<(String, Vec<LibrarySkill>)> {
     let root = git_root(node_dir, url);
     clone(&root, url)?;
-    git(&root, &["fetch", "--quiet", "origin", &format!("+HEAD:{HEAD_REF}")])?;
+    git(
+        &root,
+        &["fetch", "--quiet", "origin", &format!("+HEAD:{HEAD_REF}")],
+    )?;
     let commit = git(&root, &["rev-parse", &format!("{HEAD_REF}^{{commit}}")])?
         .trim()
         .to_owned();
@@ -78,7 +81,10 @@ pub(super) fn ensure_git(node_dir: &Path, url: &str, revision: &str) -> Result<P
     let detached = git(&root, &["symbolic-ref", "--quiet", "HEAD"]).is_err();
 
     if head.trim() != revision || !detached {
-        git(&root, &["checkout", "--quiet", "--detach", "--force", revision])?;
+        git(
+            &root,
+            &["checkout", "--quiet", "--detach", "--force", revision],
+        )?;
     }
 
     Ok(root)
@@ -91,13 +97,16 @@ pub(super) fn cloned(node_dir: &Path, url: &str) -> bool {
 
 /// The plain copy of the library at `url` and `revision`: a folder per skill.
 pub(super) fn copy_root(node_dir: &Path, url: &str, revision: &str) -> Result<PathBuf> {
-    let commit = (7..=64).contains(&revision.len()) && revision.chars().all(|c| c.is_ascii_hexdigit());
+    let commit =
+        (7..=64).contains(&revision.len()) && revision.chars().all(|c| c.is_ascii_hexdigit());
 
     if !commit {
         bail!("{revision:?} is not a commit");
     }
 
-    Ok(node_dir.join(ROOT).join(format!("{}-{revision}", folder(url))))
+    Ok(node_dir
+        .join(ROOT)
+        .join(format!("{}-{revision}", folder(url))))
 }
 
 /// The files of the library's skill `skill` at `revision` on this node: from the plain copy, or
@@ -122,7 +131,11 @@ pub(super) fn skill_at(
     let root = git_root(node_dir, url);
 
     if !root.join(".git").is_dir()
-        || git(&root, &["cat-file", "-e", &format!("{revision}^{{commit}}")]).is_err()
+        || git(
+            &root,
+            &["cat-file", "-e", &format!("{revision}^{{commit}}")],
+        )
+        .is_err()
     {
         return Ok(None);
     }
@@ -177,7 +190,10 @@ pub(super) fn prune_copies(node_dir: &Path, url: &str, revision: &str) {
         if rest != revision
             && let Err(e) = fs::remove_dir_all(entry.path())
         {
-            log::debug!("skill libraries: {} not removed: {e}", entry.path().display());
+            log::debug!(
+                "skill libraries: {} not removed: {e}",
+                entry.path().display()
+            );
         }
     }
 }
@@ -197,7 +213,10 @@ fn clone(root: &Path, url: &str) -> Result<()> {
         .with_context(|| format!("creating a folder in {}", parent.display()))?;
     let into = temp.path().join("repo");
     let into_text = into.to_str().context("the library folder is not text")?;
-    git(parent, &["clone", "--quiet", "--no-checkout", url, into_text])?;
+    git(
+        parent,
+        &["clone", "--quiet", "--no-checkout", url, into_text],
+    )?;
 
     if let Err(e) = fs::rename(&into, root)
         && !root.join(".git").is_dir()
@@ -257,7 +276,9 @@ fn skill_dirs<'a>(
                 all => all,
             };
 
-            parts.len() <= MAX_DEPTH && !plain.is_empty() && plain.iter().all(|part| skill_disk::valid_part(part))
+            parts.len() <= MAX_DEPTH
+                && !plain.is_empty()
+                && plain.iter().all(|part| skill_disk::valid_part(part))
         })
         .collect();
     dirs.sort_by(|a, b| (a.matches('/').count(), a).cmp(&(b.matches('/').count(), b)));

@@ -1,8 +1,8 @@
 use super::super::{boot, shutdown};
 use super::*;
 use beep_proto::node::device_video::FPS;
-use tokio_util::task::AbortOnDropHandle;
 use tokio::time::{Instant, sleep, sleep_until};
+use tokio_util::task::AbortOnDropHandle;
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs a native device encoder; set BEEP_VIDEO_TEST"]

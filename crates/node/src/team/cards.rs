@@ -107,7 +107,10 @@ pub(crate) fn settle(old: &[Card], fresh: Vec<Card>, now: SystemTime) -> Vec<Car
 /// since are Done today, as the desktop's board has them.
 pub(crate) fn midnight(now: SystemTime) -> u64 {
     let day = Into::<DateTime<Local>>::into(now).date_naive();
-    let start = day.and_time(NaiveTime::MIN).and_local_timezone(Local).earliest();
+    let start = day
+        .and_time(NaiveTime::MIN)
+        .and_local_timezone(Local)
+        .earliest();
 
     start.map_or(0, |start| u64::try_from(start.timestamp()).unwrap_or(0))
 }

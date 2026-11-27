@@ -258,7 +258,10 @@ fn note_reached(
     *reached = Some(now);
 
     match error {
-        None => log::info!("session {}: asked the target how the move stands", record.id),
+        None => log::info!(
+            "session {}: asked the target how the move stands",
+            record.id
+        ),
         Some(e) => log::warn!("session {}: cannot ask the target: {e:#}", record.id),
     }
 }

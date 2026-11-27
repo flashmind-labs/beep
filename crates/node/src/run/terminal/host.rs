@@ -6,18 +6,20 @@ use super::{
     terminals::{OpenTerminal, Terminals, unknown},
 };
 use crate::{
-    AsyncMutex, lock,
-    run::local_socket::{Listener, Stream, connect, is_listening},
+    AsyncMutex,
     fs::note,
+    lock,
     process::spawn_env::{self, Scope},
+    run::local_socket::{Listener, Stream, connect, is_listening},
 };
 use anyhow::{Context, Result, bail};
 use beep_proto::{
-    SecretText, lenient, watched,
+    SecretText, lenient,
     node::{
         EnvSecret, MAX_FRAME,
         terminal::{Reply, Request},
     },
+    watched,
 };
 use futures::{SinkExt, StreamExt};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -150,8 +152,7 @@ struct Host<'a> {
 
 impl Host<'_> {
     fn idle(&self) -> bool {
-        self.connections.load(Ordering::Relaxed) == 0
-            && !self.terminals.any_running()
+        self.connections.load(Ordering::Relaxed) == 0 && !self.terminals.any_running()
     }
 }
 

@@ -1,18 +1,21 @@
 //! Starts an agent on the bridge its kind names: the node's own Claude Code
 //! and Codex bridges, or a relay into WSL, or the agent's own process.
 
-use super::{Bridge, claude_direct, codex_direct, launch::{Cli, Running, STDERR_LINES, Started, pipe, spawn}};
+use super::{
+    Bridge, claude_direct, codex_direct,
+    launch::{Cli, Running, STDERR_LINES, Started, pipe, spawn},
+};
 use crate::machine::wsl;
 use anyhow::Result;
 use beep_proto::team::TeamRepo;
 use std::future::Future;
-use url::Url;
 use tokio::{
     io::DuplexStream,
     process::Command,
     sync::{mpsc, oneshot},
 };
 use tokio_util::{either::Either, task::AbortOnDropHandle};
+use url::Url;
 
 /// Starts the agent `process` sets up, on `bridge` when given: the bridge
 /// starts the CLI `process` names, with its arguments after the bridge's,
@@ -117,7 +120,9 @@ pub(crate) fn issue_of_repo(repo: &TeamRepo, number: u64, url: &str) -> bool {
     let wanted = format!("/{}/issues/{number}", repo.repo).to_lowercase();
 
     matches!(url.scheme(), "https" | "http")
-        && url.host_str().is_some_and(|host| host.eq_ignore_ascii_case(repo.hostname()))
+        && url
+            .host_str()
+            .is_some_and(|host| host.eq_ignore_ascii_case(repo.hostname()))
         && url.path().to_lowercase().ends_with(&wanted)
 }
 
@@ -126,7 +131,9 @@ pub(crate) fn issue_of_repo(repo: &TeamRepo, number: u64, url: &str) -> bool {
 /// `#<n>` names nothing: it may be a pull request or another repository's.
 pub(crate) fn issue_of_prompt(repo: &TeamRepo, prompt: &str) -> Option<u64> {
     let urls = prompt
-        .split(|c: char| c.is_whitespace() || matches!(c, '(' | ')' | '<' | '>' | '[' | ']' | '"' | '\''))
+        .split(|c: char| {
+            c.is_whitespace() || matches!(c, '(' | ')' | '<' | '>' | '[' | ']' | '"' | '\'')
+        })
         .map(|word| word.trim_end_matches(['.', ',', ';', ':', '!', '?']))
         .filter(|word| word.contains("/issues/"))
         .find_map(|url| {

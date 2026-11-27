@@ -39,7 +39,12 @@ fn picked_skills_install_update_and_uninstall_without_losing_edits() {
         put(&store, name, &format!("The {name} skill."), "v1");
     }
     // Already there: the same `notes`, and a `style` of the user's own.
-    put(&home.join(".claude/skills"), "notes", "The notes skill.", "v1");
+    put(
+        &home.join(".claude/skills"),
+        "notes",
+        "The notes skill.",
+        "v1",
+    );
     put(&home.join(".claude/skills"), "style", "Mine.", "v1");
     let global = skill_disk::targets(&home);
     let checkouts = [Checkout {
@@ -66,8 +71,15 @@ fn picked_skills_install_update_and_uninstall_without_losing_edits() {
     assert_eq!(problems[0].message, "a skill named style is already there");
     assert!(read(&home.join(".claude/skills/style")).contains("Mine."));
     assert!(read(&home.join(".claude/skills/pdf")).contains("v1"));
-    assert!(record.installs.contains_key(&home.join(".claude/skills/notes")));
-    assert_eq!(record.global_names(), ["notes", "pdf"].map(String::from).into());
+    assert!(
+        record
+            .installs
+            .contains_key(&home.join(".claude/skills/notes"))
+    );
+    assert_eq!(
+        record.global_names(),
+        ["notes", "pdf"].map(String::from).into()
+    );
 
     for rel in [".claude/skills/pdf", ".agents/skills/pdf"] {
         assert!(read(&checkout.join(rel)).contains("v1"), "{rel}");
@@ -75,7 +87,10 @@ fn picked_skills_install_update_and_uninstall_without_losing_edits() {
 
     let exclude = fs::read_to_string(&exclude_file).unwrap();
     assert!(exclude.starts_with("mine/\n"), "{exclude}");
-    assert!(exclude.contains("/.claude/skills/pdf/\n/.agents/skills/pdf/\n"), "{exclude}");
+    assert!(
+        exclude.contains("/.claude/skills/pdf/\n/.agents/skills/pdf/\n"),
+        "{exclude}"
+    );
     assert_eq!(run_git(&checkout, &["status", "--porcelain"]), "");
 
     // Saved and read back alike.
@@ -84,7 +99,12 @@ fn picked_skills_install_update_and_uninstall_without_losing_edits() {
 
     // The library updates; the global copy was edited here, the project's were not.
     put(&store, "pdf", "The pdf skill.", "v2");
-    put(&home.join(".claude/skills"), "pdf", "The pdf skill.", "my edit");
+    put(
+        &home.join(".claude/skills"),
+        "pdf",
+        "The pdf skill.",
+        "my edit",
+    );
     let problems = apply(
         &mut record,
         wants(&ready(Pick::All, names(&["pdf"])), &global, &checkouts),
@@ -93,9 +113,9 @@ fn picked_skills_install_update_and_uninstall_without_losing_edits() {
     assert!(read(&home.join(".claude/skills/pdf")).contains("my edit"));
     assert!(read(&checkout.join(".claude/skills/pdf")).contains("v2"));
     assert!(
-        problems
-            .iter()
-            .any(|p| p.message == "pdf was edited here, so it is not updated" && p.place == "global"),
+        problems.iter().any(
+            |p| p.message == "pdf was edited here, so it is not updated" && p.place == "global"
+        ),
         "{problems:?}"
     );
 
@@ -129,7 +149,11 @@ fn a_library_that_cannot_be_fetched_keeps_what_it_installed() {
         store: Some(store),
     };
     let mut record = Record::load(temp.path()).unwrap();
-    apply(&mut record, wants(std::slice::from_ref(&lib), &global, &[]), &[]);
+    apply(
+        &mut record,
+        wants(std::slice::from_ref(&lib), &global, &[]),
+        &[],
+    );
     assert_eq!(record.installs.len(), 1);
 
     lib.store = None;
@@ -137,7 +161,11 @@ fn a_library_that_cannot_be_fetched_keeps_what_it_installed() {
         name: "pdf".into(),
         description: String::new(),
     }];
-    apply(&mut record, wants(std::slice::from_ref(&lib), &global, &[]), &[]);
+    apply(
+        &mut record,
+        wants(std::slice::from_ref(&lib), &global, &[]),
+        &[],
+    );
     assert_eq!(record.installs.len(), 1);
     assert!(home.join(".claude/skills/pdf/SKILL.md").exists());
 
@@ -189,7 +217,9 @@ fn root_and_child_skills_can_be_picked_for_a_project_on_either_node() {
 
     let copy = store::copy_root(&peer, url, &revision).unwrap();
     for skill in &skills {
-        let files = store::skill_at(&reader, url, &revision, &skill.name).unwrap().unwrap();
+        let files = store::skill_at(&reader, url, &revision, &skill.name)
+            .unwrap()
+            .unwrap();
         write(&copy.join(&skill.name), &files).unwrap();
     }
     let clone = store::ensure_git(&reader, url, &revision).unwrap();
@@ -214,7 +244,10 @@ fn root_and_child_skills_can_be_picked_for_a_project_on_either_node() {
         let checkouts = std::slice::from_ref(&checkout);
         let mut record = Record::load(&node).unwrap();
         for picked in [names(&[name]), Pick::All, names(&["notes"])] {
-            ready.library.projects.insert(PROJECT.into(), picked.clone());
+            ready
+                .library
+                .projects
+                .insert(PROJECT.into(), picked.clone());
             let desired = wants(std::slice::from_ref(&ready), &[], checkouts);
             let problems = apply(&mut record, desired, checkouts);
             assert!(problems.is_empty(), "{problems:?}");
@@ -228,8 +261,14 @@ fn root_and_child_skills_can_be_picked_for_a_project_on_either_node() {
 
                 if main.exists() {
                     assert_eq!(read(&main), read(&repo));
-                    assert_eq!(fs::read_to_string(main.join("references/guide.md")).unwrap(), "Guide");
-                    assert_eq!(read(&main.join("skills/notes")), read(&repo.join("skills/notes")));
+                    assert_eq!(
+                        fs::read_to_string(main.join("references/guide.md")).unwrap(),
+                        "Guide"
+                    );
+                    assert_eq!(
+                        read(&main.join("skills/notes")),
+                        read(&repo.join("skills/notes"))
+                    );
                     assert!(!main.join(".git").exists());
                 }
 

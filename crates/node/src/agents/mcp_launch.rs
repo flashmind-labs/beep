@@ -100,7 +100,11 @@ impl Invocation {
             return None;
         }
 
-        let session = session.into_string().ok().filter(|id| !id.is_empty()).map(Into::<SessionId>::into)?;
+        let session = session
+            .into_string()
+            .ok()
+            .filter(|id| !id.is_empty())
+            .map(Into::<SessionId>::into)?;
         Some(Self {
             dir: PathBuf::from(dir),
             session,

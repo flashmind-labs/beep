@@ -5,11 +5,9 @@
 //! serves it only while it is lent to other devices. A device the agent
 //! drives keeps one attached stream open until it idles.
 
-use super::{
-    server::Called,
-};
-use crate::agents::machine_list::{Machine, find_or_id_named};
 use super::Node;
+use super::server::Called;
+use crate::agents::machine_list::{Machine, find_or_id_named};
 use crate::{agents::calls::command_name, run::device};
 use anyhow::{Context, Result, bail};
 use beep_mesh::Mesh;
@@ -320,8 +318,9 @@ async fn run(reach: &Reach<'_>, screens: &Screens, action: Action) -> Result<Ran
         }
         Action::Reset { at, text } => {
             reach
-                .app(&at, APP_LIMIT, "Cleared", &text, |id, app| {
-                    Request::Reset { id, app }
+                .app(&at, APP_LIMIT, "Cleared", &text, |id, app| Request::Reset {
+                    id,
+                    app,
                 })
                 .await
         }

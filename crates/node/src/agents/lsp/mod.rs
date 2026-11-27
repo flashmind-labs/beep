@@ -4,10 +4,7 @@ mod client;
 
 use self::client::{Client, ERR_CONTENT_MODIFIED, ERR_SERVER_CANCELLED, RpcError};
 use super::work_folder::WorkRoot;
-use crate::{
-    AsyncMutex,
-    machine::env::locate, process::spawn_env,
-};
+use crate::{AsyncMutex, machine::env::locate, process::spawn_env};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::agent::{LspDefinitions, RelPath};
 use std::{
@@ -260,7 +257,8 @@ impl Pool {
             });
         };
 
-        let result = query_definition(&client, &file_path, language_id, &source, line, column).await;
+        let result =
+            query_definition(&client, &file_path, language_id, &source, line, column).await;
 
         match result {
             Ok(locations) => Ok(LspDefinitions {
@@ -285,8 +283,8 @@ impl Pool {
         let existing = {
             let mut clients = self.clients.lock().await;
             clients.retain(|existing_key, client| {
-                let keep = client.is_alive()
-                    && (existing_key == key || client.idle_for() < IDLE_TIMEOUT);
+                let keep =
+                    client.is_alive() && (existing_key == key || client.idle_for() < IDLE_TIMEOUT);
                 if !keep {
                     stale.push(Arc::clone(client));
                 }
@@ -413,9 +411,8 @@ async fn query_definition(
 }
 
 fn is_retryable(err: &anyhow::Error) -> bool {
-    err.downcast_ref::<RpcError>().is_some_and(|rpc| {
-        matches!(rpc.code, ERR_CONTENT_MODIFIED | ERR_SERVER_CANCELLED)
-    })
+    err.downcast_ref::<RpcError>()
+        .is_some_and(|rpc| matches!(rpc.code, ERR_CONTENT_MODIFIED | ERR_SERVER_CANCELLED))
 }
 
 fn shutdown_background(clients: Vec<Arc<Client>>) {

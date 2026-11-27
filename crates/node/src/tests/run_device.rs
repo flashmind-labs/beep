@@ -1,12 +1,15 @@
-use super::*;
 use super::screen::{FRAME_GAP, Screen, Turn, Turned, follow, point};
-use std::sync::{Arc, atomic::{AtomicU8, Ordering}};
-use futures::StreamExt;
-use tokio::{sync::watch, time::Instant};
+use super::*;
 use beep_proto::node::device::Frame;
 use beep_proto::node::device::{Button, DeviceState, Key, TouchPhase};
+use futures::StreamExt;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU8, Ordering},
+};
 use std::time::Duration;
 use tokio::time::timeout;
+use tokio::{sync::watch, time::Instant};
 
 #[test]
 fn a_touch_lands_on_the_screen_even_outside_it() {

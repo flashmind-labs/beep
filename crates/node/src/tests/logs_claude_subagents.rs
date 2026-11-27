@@ -1,12 +1,17 @@
 use super::*;
-use std::io;
 use crate::logs::claude::transcript::{self, Transcripts};
 use crate::logs::window::Excerpt;
 use beep_proto::node::agent::EntryKind;
 use serde_json::json;
+use std::io;
 
 /// The entries of the transcript at `path` with their subagents.
-fn entries(path: &Path, last: usize, before: Option<u64>, kept: &Transcripts) -> io::Result<Excerpt> {
+fn entries(
+    path: &Path,
+    last: usize,
+    before: Option<u64>,
+    kept: &Transcripts,
+) -> io::Result<Excerpt> {
     transcript::entries(path, last, before, kept).map(|page| attached(path, page))
 }
 
@@ -157,7 +162,9 @@ fn native_sidechain_messages_use_the_normal_transcript_reader() {
     );
     assert!(
         store
-            .find(&SessionId::from("subagent:claude:11111111-1111-4111-8111-111111111111:../a1"))
+            .find(&SessionId::from(
+                "subagent:claude:11111111-1111-4111-8111-111111111111:../a1"
+            ))
             .is_none()
     );
 }

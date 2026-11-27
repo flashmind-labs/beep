@@ -64,7 +64,11 @@ impl Landing {
         let mesh = Membership::default();
 
         Self {
-            agents: Arc::new(Agents::new(Parts { kinds: vec![kind], mesh: mesh.clone(), ..Parts::default() })),
+            agents: Arc::new(Agents::new(Parts {
+                kinds: vec![kind],
+                mesh: mesh.clone(),
+                ..Parts::default()
+            })),
             mesh,
             _dir: tempfile::tempdir().expect("a folder"),
         }
@@ -82,9 +86,13 @@ impl Landing {
     /// Starts the session once `link`'s device is on the mesh, and returns
     /// its card and how many turns it ran.
     async fn start(&self, link: &TeamLink) -> (String, watch::Receiver<crate::agents::live::Live>) {
-        let mesh = Mesh::create(&self._dir.path().join("mesh"), link.endpoint().clone(), "build-box")
-            .await
-            .expect("a mesh");
+        let mesh = Mesh::create(
+            &self._dir.path().join("mesh"),
+            link.endpoint().clone(),
+            "build-box",
+        )
+        .await
+        .expect("a mesh");
         self.mesh.set(mesh);
         let session = self
             .agents
@@ -109,7 +117,10 @@ impl Landing {
         .expect("the first turn ends")
         .expect("the session lives");
 
-        (format!("{}@build-box", crate::agents::sessions::name_of(&session)), live)
+        (
+            format!("{}@build-box", crate::agents::sessions::name_of(&session)),
+            live,
+        )
     }
 }
 
@@ -225,7 +236,10 @@ async fn ask_to_person_without_session_is_needs_you_card() {
     pair.bob_link.reach(&pair.alice, &msg).await.unwrap();
 
     // The card is for this mesh's apps: the board teammates see never shows it.
-    let board = pair.gateway.served(|served| served.boards.cards(&repo())).unwrap();
+    let board = pair
+        .gateway
+        .served(|served| served.boards.cards(&repo()))
+        .unwrap();
     let (cards, waiting) = pair.gateway.asks(|asks| {
         let cards = asks.cards(&repo(), SystemTime::now());
         (cards, asks.taken.len())
@@ -265,7 +279,10 @@ async fn ask_to_a_card_reaches_its_session_and_only_it_answers() {
 
     // The teammate gets its reply once the session has the ask.
     pair.bob_link
-        .reach(&pair.alice, &ask("00000000000000a2", to.clone(), "Can I take #52?"))
+        .reach(
+            &pair.alice,
+            &ask("00000000000000a2", to.clone(), "Can I take #52?"),
+        )
         .await
         .unwrap();
     tokio::time::timeout(
@@ -315,7 +332,10 @@ async fn an_ask_names_the_session_it_is_for() {
     );
     assert!(delivery.words.contains("Can I take #52?"));
     assert!(delivery.words.contains("reply_to 00000000000000a2"));
-    assert!(pair.gateway.asks(|asks| asks.taken.contains_key("00000000000000a2")));
+    assert!(
+        pair.gateway
+            .asks(|asks| asks.taken.contains_key("00000000000000a2"))
+    );
 }
 
 #[tokio::test]
@@ -433,13 +453,22 @@ async fn a_reply_that_did_not_reach_the_asking_session_can_be_sent_again() {
         first,
         Err("No session s1@alices-box runs on this mesh".to_owned())
     );
-    assert!(pair.gateway.asks(|asks| asks.sent.contains_key("00000000000000b1")));
+    assert!(
+        pair.gateway
+            .asks(|asks| asks.sent.contains_key("00000000000000b1"))
+    );
 
     // Undone by hand, as the node does when a delivery fails, it waits again.
     let delivery = delivery(&pair, &reply).await;
-    assert!(pair.gateway.asks(|asks| !asks.sent.contains_key("00000000000000b1")));
+    assert!(
+        pair.gateway
+            .asks(|asks| !asks.sent.contains_key("00000000000000b1"))
+    );
     pair.gateway.undo(delivery.undo);
-    assert!(pair.gateway.asks(|asks| asks.sent.contains_key("00000000000000b1")));
+    assert!(
+        pair.gateway
+            .asks(|asks| asks.sent.contains_key("00000000000000b1"))
+    );
 }
 
 #[tokio::test]
@@ -556,7 +585,10 @@ async fn an_ask_for_the_person_is_answered_from_any_session_and_its_card_goes() 
         login: login("alice"),
     };
     pair.bob_link
-        .reach(&pair.alice, &ask("00000000000000a9", to, "Who owns the fee model?"))
+        .reach(
+            &pair.alice,
+            &ask("00000000000000a9", to, "Who owns the fee model?"),
+        )
         .await
         .unwrap();
     let card = |link: &TeamLink| {
@@ -582,7 +614,8 @@ async fn an_ask_for_the_person_is_answered_from_any_session_and_its_card_goes() 
         .with(|teams| teams.rosters.refresh([(repo(), team.clone())].into()));
     let alice = pair.alice.clone();
     pair.bob_link.edit_home(|home| home.mesh = Some(bob.mesh));
-    pair.bob_link.with(|teams| teams.rosters.refresh([(repo(), team)].into()));
+    pair.bob_link
+        .with(|teams| teams.rosters.refresh([(repo(), team)].into()));
     pair.bob_link.asks(|asks| {
         let sent = Sent {
             repo: repo(),

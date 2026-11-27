@@ -3,8 +3,15 @@
 use super::{MAX_IN_FOLDERS, Occupancy, RepositoryHold};
 use crate::logs::found::{self, Agent};
 use anyhow::{Result, ensure};
-use beep_proto::{SessionId, node::agent::{ExternalSession, Presence}};
-use std::{collections::{HashMap, HashSet}, path::Path, time::SystemTime};
+use beep_proto::{
+    SessionId,
+    node::agent::{ExternalSession, Presence},
+};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+    time::SystemTime,
+};
 use tokio::task::spawn_blocking;
 
 /// Whether `sessions`, all there are in a folder, leave it idle: a folder

@@ -1,7 +1,7 @@
 use super::*;
+use crate::link::peers::Peers;
 use beep_mesh::DeviceKind;
 use iroh::SecretKey;
-use crate::link::peers::Peers;
 
 fn share(answer: Answer) -> Share {
     Share {
@@ -85,13 +85,8 @@ async fn the_tools_read_this_node_with_secrets_removed() {
     assert!(!failed, "{status}");
     assert!(status.starts_with("## build-box (node, "), "{status}");
     assert!(status.contains("): answered\n"), "{status}");
-    let (other, failed) = text(
-        call(
-            &node,
-            &request(Tool::BeepLogs, r#"{"machine":"gpu-box"}"#),
-        )
-        .await,
-    );
+    let (other, failed) =
+        text(call(&node, &request(Tool::BeepLogs, r#"{"machine":"gpu-box"}"#)).await);
     assert!(failed);
     assert_eq!(other, "There is no machine gpu-box.");
 }

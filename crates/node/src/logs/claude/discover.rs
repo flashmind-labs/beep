@@ -7,8 +7,8 @@ use super::{
     transcript,
 };
 use crate::logs::found::{
-        Agent, Memo, Seen as Sighting, folder_place::of_folder, is_jsonl, quiet_presence, unix_secs,
-    };
+    Agent, Memo, Seen as Sighting, folder_place::of_folder, is_jsonl, quiet_presence, unix_secs,
+};
 use beep_proto::SessionId;
 use beep_proto::node::agent::{ExternalSession, Presence};
 use serde::Deserialize;
@@ -381,9 +381,11 @@ pub(crate) fn sightings(store: &Store) -> io::Result<Vec<Sighting>> {
     let mut out = Vec::new();
 
     for transcripts in folders {
-        let Some(cwd) = transcripts.iter().take(HEADS_PER_FOLDER).find_map(|t| {
-            launched(store, &t.path).ok()?
-        }) else {
+        let Some(cwd) = transcripts
+            .iter()
+            .take(HEADS_PER_FOLDER)
+            .find_map(|t| launched(store, &t.path).ok()?)
+        else {
             continue;
         };
 

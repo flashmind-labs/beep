@@ -361,13 +361,19 @@ fn a_worktree_already_holding_the_work_is_taken_as_it_is() {
     let work = snapshot(&wt).expect("a snapshot");
     detach(&wt).expect("detached");
     let target = dir.path().join("target-wt");
-    assert_eq!(attach(&main, &target, "feat", &work).expect("made"), Placed::Made);
+    assert_eq!(
+        attach(&main, &target, "feat", &work).expect("made"),
+        Placed::Made
+    );
     assert_eq!(
         attach(&main, &target, "feat", &work).expect("a retried move"),
         Placed::Held
     );
     fs::write(target.join("a.txt"), "edited since\n").expect("an edit");
-    assert!(attach(&main, &target, "feat", &work).is_err(), "edits since stay the user's");
+    assert!(
+        attach(&main, &target, "feat", &work).is_err(),
+        "edits since stay the user's"
+    );
 }
 
 #[test]
@@ -377,13 +383,19 @@ fn a_bundle_holds_only_the_commits_after_its_base() {
     let base = git(&main, &["rev-parse", "HEAD"]);
     fs::write(wt.join("branch.txt"), "x\n").expect("a file");
     git(&wt, &["add", "branch.txt"]);
-    git(&wt, &["commit", "-q", "--only", "-m", "branch work", "branch.txt"]);
+    git(
+        &wt,
+        &["commit", "-q", "--only", "-m", "branch work", "branch.txt"],
+    );
     let head = git(&wt, &["rev-parse", "HEAD"]);
     let bytes = bundle(&wt, &head, &base).expect("a bundle");
     let listed = run(&main, &["bundle", "list-heads", "-"], Some(&bytes)).expect("it reads");
     assert!(String::from_utf8_lossy(&listed).contains(&head));
     let prereqs = String::from_utf8_lossy(&bytes);
-    assert!(prereqs.contains(&format!("-{base}")), "the base is a prerequisite");
+    assert!(
+        prereqs.contains(&format!("-{base}")),
+        "the base is a prerequisite"
+    );
 }
 
 #[test]
@@ -391,7 +403,10 @@ fn the_head_of_a_folder_outside_git_is_none() {
     let dir = TempDir::new().expect("a temp folder");
     assert_eq!(head(dir.path()).expect("read"), None);
     let (_dir, wt) = source();
-    assert_eq!(head(&wt).expect("read"), Some(git(&wt, &["rev-parse", "HEAD"])));
+    assert_eq!(
+        head(&wt).expect("read"),
+        Some(git(&wt, &["rev-parse", "HEAD"]))
+    );
 }
 
 #[test]
@@ -411,7 +426,10 @@ fn taking_back_removes_a_made_worktree_unchanged_since_and_leaves_one_with_edits
     let applied = fingerprint(&target).expect("a fingerprint");
     fs::write(target.join("a.txt"), "edited since\n").expect("an edit");
     assert!(take_back(&main, &target, &placed, &applied, None).is_err());
-    assert_eq!(fs::read_to_string(target.join("a.txt")).unwrap(), "edited since\n");
+    assert_eq!(
+        fs::read_to_string(target.join("a.txt")).unwrap(),
+        "edited since\n"
+    );
 }
 
 #[test]
@@ -434,7 +452,10 @@ fn taking_back_detaches_a_reused_worktree_at_its_old_commit() {
 fn a_worktree_folder_is_named_with_forward_slashes() {
     let (dir, _wt) = source();
     let main = dir.path().join("main");
-    git(&main, &["worktree", "add", "-q", "-b", "deep", ".worktrees/a/b"]);
+    git(
+        &main,
+        &["worktree", "add", "-q", "-b", "deep", ".worktrees/a/b"],
+    );
     let made = vec![main.join(".worktrees/a/b").to_string_lossy().into_owned()];
     let moving = moving(&main, &made);
     assert_eq!(moving.len(), 1);
@@ -445,9 +466,15 @@ fn a_worktree_folder_is_named_with_forward_slashes() {
 fn edits_in_the_checkout_count_but_a_worktree_inside_it_does_not() {
     let (dir, _wt) = source();
     let main = dir.path().join("main");
-    git(&main, &["worktree", "add", "-q", "-b", "inside", ".worktrees/inside"]);
+    git(
+        &main,
+        &["worktree", "add", "-q", "-b", "inside", ".worktrees/inside"],
+    );
     fs::write(main.join(".worktrees/inside/a.txt"), "edited there\n").unwrap();
-    assert!(!has_edits(&main), "a worktree inside is not the checkout's edit");
+    assert!(
+        !has_edits(&main),
+        "a worktree inside is not the checkout's edit"
+    );
     fs::write(main.join("loose.txt"), "new\n").unwrap();
     assert!(has_edits(&main));
     assert!(!has_edits(&dir.path().join("nowhere")), "outside Git");

@@ -1,16 +1,25 @@
 use super::*;
-use crate::agents::{calls::SERVER_NAME, mcp_launch::{Invocation, Launch, SOCKET_ENV, TOKEN_ENV}};
+use crate::agents::{
+    calls::SERVER_NAME,
+    mcp_launch::{Invocation, Launch, SOCKET_ENV, TOKEN_ENV},
+};
 use agent_client_protocol::v1::schema::McpServer;
 
 #[test]
 fn a_token_is_good_for_its_own_session_only() {
     let launch = Launch::new("/usr/local/bin/beep-node".into(), "/srv/node".into());
-    let token = launch.token(&SessionId::from("a3f9c1")).to_hex().to_string();
+    let token = launch
+        .token(&SessionId::from("a3f9c1"))
+        .to_hex()
+        .to_string();
     assert!(launch.verify(&SessionId::from("a3f9c1"), &token));
     assert!(!launch.verify(&SessionId::from("b4e0d2"), &token));
     assert!(!launch.verify(&SessionId::from("a3f9c1"), "not hex"));
     let other = Launch::new("/usr/local/bin/beep-node".into(), "/srv/node".into());
-    assert!(!other.verify(&SessionId::from("a3f9c1"), &token), "a new run has a new key");
+    assert!(
+        !other.verify(&SessionId::from("a3f9c1"), &token),
+        "a new run has a new key"
+    );
     let McpServer::Stdio(server) = launch.server(&SessionId::from("a3f9c1")) else {
         panic!("the server is not a command");
     };
@@ -78,7 +87,10 @@ async fn bind_gives_the_launch_of_the_socket_it_listens_on() {
     let launch = socket.launch();
 
     assert_eq!(launch.dir, std::path::absolute(dir.path()).unwrap());
-    assert!(launch.socket.exists(), "the listener made the socket the launch names");
+    assert!(
+        launch.socket.exists(),
+        "the listener made the socket the launch names"
+    );
     assert!(crate::run::local_socket::is_listening(&launch.socket));
 
     // A node that left a socket behind is replaced by the next bind, as

@@ -2,7 +2,10 @@
 //! `jsonrpc` field. A call waits for its answer; what Codex sends meanwhile
 //! waits, in order, for the bridge.
 
-use crate::agents::{launch::Cli, pipe::{Frame, Pipe}};
+use crate::agents::{
+    launch::Cli,
+    pipe::{Frame, Pipe},
+};
 use crate::machine::wsl::DistroName;
 use crate::process::line_reader::MAX_MESSAGE;
 use anyhow::{Context, Result, anyhow};
@@ -20,9 +23,16 @@ pub(super) struct TooLong {
 /// What Codex sends of its own accord.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Incoming {
-    Notification { method: String, params: Value },
+    Notification {
+        method: String,
+        params: Value,
+    },
     /// A request Codex waits on, answered by `id`.
-    Request { id: Value, method: String, params: Value },
+    Request {
+        id: Value,
+        method: String,
+        params: Value,
+    },
 }
 
 /// A running app-server. Dropping it kills it.
@@ -45,10 +55,14 @@ impl AppServer {
             backlog: VecDeque::new(),
         };
 
-        let client = json!({"name": "beep-node", "title": "Beep", "version": env!("CARGO_PKG_VERSION")});
+        let client =
+            json!({"name": "beep-node", "title": "Beep", "version": env!("CARGO_PKG_VERSION")});
         // Questions asked mid-turn and collaboration modes are experimental.
         server
-            .call("initialize", json!({"clientInfo": client, "capabilities": {"experimentalApi": true}}))
+            .call(
+                "initialize",
+                json!({"clientInfo": client, "capabilities": {"experimentalApi": true}}),
+            )
             .await
             .context("Codex did not initialize")?;
         server.pipe.write(&json!({"method": "initialized"}));
@@ -60,7 +74,8 @@ impl AppServer {
     pub(super) async fn call(&mut self, method: &str, params: Value) -> Result<Value> {
         self.next += 1;
         let id = self.next;
-        self.pipe.write(&json!({"id": id, "method": method, "params": params}));
+        self.pipe
+            .write(&json!({"id": id, "method": method, "params": params}));
 
         loop {
             let frame = match self.pipe.frames.recv().await {
@@ -131,7 +146,10 @@ impl AppServer {
 /// call waits for.
 fn incoming(mut frame: Value) -> Option<Incoming> {
     let method = frame.get("method")?.as_str()?.to_owned();
-    let params = frame.get_mut("params").map(Value::take).unwrap_or(Value::Null);
+    let params = frame
+        .get_mut("params")
+        .map(Value::take)
+        .unwrap_or(Value::Null);
 
     Some(match frame.get_mut("id").map(Value::take) {
         Some(id) => Incoming::Request { id, method, params },

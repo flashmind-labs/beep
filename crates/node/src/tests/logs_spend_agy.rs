@@ -1,8 +1,8 @@
 //! Passes over fabricated Antigravity conversations.
 
 use super::*;
-use crate::logs::found::agy::Workspace;
 use crate::agents::spend::{Heard, Spend};
+use crate::logs::found::agy::Workspace;
 use crate::logs::spend::Roots;
 use rusqlite::Connection;
 
@@ -128,7 +128,11 @@ fn a_subagents_requests_count_toward_the_session_that_started_it() {
     assert_eq!(reports.len(), 1, "{reports:?}");
     let report = &reports[0];
     assert_eq!(
-        (report.agent.as_ref(), report.session.as_ref(), report.cwd.as_str()),
+        (
+            report.agent.as_ref(),
+            report.session.as_ref(),
+            report.cwd.as_str()
+        ),
         ("agy", "c1", "/srv/project")
     );
     let hours: Vec<_> = report
@@ -149,7 +153,14 @@ fn a_subagents_requests_count_toward_the_session_that_started_it() {
         hours,
         [
             (hour, "gemini-4-carbon", 1000, 100, 0, Billing::Subscription),
-            (hour + HOUR, "gemini-4-carbon", 10, 5, 500, Billing::Subscription),
+            (
+                hour + HOUR,
+                "gemini-4-carbon",
+                10,
+                5,
+                500,
+                Billing::Subscription
+            ),
         ]
     );
 }

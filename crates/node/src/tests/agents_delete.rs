@@ -1,6 +1,6 @@
 use super::*;
-use crate::agents::Parts;
 use crate::agents::Agents;
+use crate::agents::Parts;
 use crate::agents::{AgentKind, Begin};
 use std::{
     collections::BTreeMap,
@@ -91,7 +91,14 @@ impl Machine {
         write(&root.join("outside.jsonl"), "keep me");
         let agents = Agents::new(Parts {
             kinds: vec![kind("claude"), kind("codex"), kind("pi")],
-            occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::at(&root.join("claude")), crate::logs::found::Stores::at(Some(&root.join("codex")), Some(&root.join("pi")), None)),
+            occupancy: crate::occupancy::Occupancy::over(
+                crate::logs::claude::Store::at(&root.join("claude")),
+                crate::logs::found::Stores::at(
+                    Some(&root.join("codex")),
+                    Some(&root.join("pi")),
+                    None,
+                ),
+            ),
             ..Parts::default()
         });
         Self { dir, agents }
@@ -123,7 +130,8 @@ async fn a_deleted_session_leaves_the_listing_kept_from_before() {
     let m = Machine::new();
     let listed = || async {
         m.agents
-            .listings.sightings()
+            .listings
+            .sightings()
             .await
             .unwrap()
             .into_iter()
@@ -132,7 +140,11 @@ async fn a_deleted_session_leaves_the_listing_kept_from_before() {
     };
 
     assert!(listed().await.contains(&CODEX_ID.to_owned()));
-    m.agents.delete.delete_session("codex", &SessionId::from(CODEX_ID)).await.unwrap();
+    m.agents
+        .delete
+        .delete_session("codex", &SessionId::from(CODEX_ID))
+        .await
+        .unwrap();
 
     assert!(!listed().await.contains(&CODEX_ID.to_owned()));
 }
@@ -140,20 +152,37 @@ async fn a_deleted_session_leaves_the_listing_kept_from_before() {
 #[tokio::test]
 async fn each_harness_deletes_only_its_own_session() {
     let m = Machine::new();
-    m.agents.delete.delete_session("claude", &SessionId::from(CLAUDE_ID)).await.unwrap();
+    m.agents
+        .delete
+        .delete_session("claude", &SessionId::from(CLAUDE_ID))
+        .await
+        .unwrap();
     assert!(!m.claude(CLAUDE_ID) && !m.side(CLAUDE_ID));
     assert!(m.claude(CLAUDE_OTHER) && m.side(CLAUDE_OTHER));
     assert!(m.codex(CODEX_ID) && m.pi("p1"));
 
-    m.agents.delete.delete_session("codex", &SessionId::from(CODEX_ID)).await.unwrap();
+    m.agents
+        .delete
+        .delete_session("codex", &SessionId::from(CODEX_ID))
+        .await
+        .unwrap();
     assert!(!m.codex(CODEX_ID) && m.codex(CODEX_OTHER));
 
-    m.agents.delete.delete_session("pi", &SessionId::from("p1")).await.unwrap();
+    m.agents
+        .delete
+        .delete_session("pi", &SessionId::from("p1"))
+        .await
+        .unwrap();
     assert!(!m.pi("p1") && m.pi("p2"));
     assert!(m.claude(CLAUDE_OTHER) && m.codex(CODEX_OTHER));
     assert!(m.has("outside.jsonl"));
 
-    let err = m.agents.delete.delete_session("pi", &SessionId::from("p1")).await.unwrap_err();
+    let err = m
+        .agents
+        .delete
+        .delete_session("pi", &SessionId::from("p1"))
+        .await
+        .unwrap_err();
     assert!(err.to_string().contains("no pi session"), "{err}");
 }
 
@@ -162,15 +191,26 @@ async fn a_deleted_session_is_no_longer_listed() {
     let m = Machine::new();
     let listed = |m: &Machine| {
         let stores = m.agents.listings.stores().clone();
-        stores.find(Agent::Codex, &SessionId::from(CODEX_ID)).is_some()
+        stores
+            .find(Agent::Codex, &SessionId::from(CODEX_ID))
+            .is_some()
     };
     assert!(listed(&m));
-    m.agents.delete.delete_session("codex", &SessionId::from(CODEX_ID)).await.unwrap();
+    m.agents
+        .delete
+        .delete_session("codex", &SessionId::from(CODEX_ID))
+        .await
+        .unwrap();
     assert!(!listed(&m));
-    m.agents.delete.delete_session("claude", &SessionId::from(CLAUDE_ID)).await.unwrap();
+    m.agents
+        .delete
+        .delete_session("claude", &SessionId::from(CLAUDE_ID))
+        .await
+        .unwrap();
     let left = m
         .agents
-        .listings.external()
+        .listings
+        .external()
         .list(10, None, Default::default())
         .await
         .unwrap();
@@ -188,24 +228,41 @@ async fn a_running_session_is_refused_and_an_ended_one_is_forgotten() {
     let session = m
         .agents
         .start(&kind("claude"), Some("/"), begin)
-        .await.expect("a session");
+        .await
+        .expect("a session");
     for id in [session.id.clone(), SessionId::from(CLAUDE_ID)] {
-        let err = m.agents.delete.delete_session("claude", &id).await.unwrap_err();
+        let err = m
+            .agents
+            .delete
+            .delete_session("claude", &id)
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("still runs"), "{err}");
     }
 
     assert!(m.claude(CLAUDE_ID), "the transcript stays");
     assert_eq!(m.agents.sessions.list().len(), 1);
-    assert_eq!(m.agents.reopen.open_sessions().len(), 1, "it would be reopened");
+    assert_eq!(
+        m.agents.reopen.open_sessions().len(),
+        1,
+        "it would be reopened"
+    );
 
     session.close().await;
     m.agents
-        .delete.delete_session("claude", &session.id)
+        .delete
+        .delete_session("claude", &session.id)
         .await
         .unwrap();
     assert!(!m.claude(CLAUDE_ID) && !m.side(CLAUDE_ID));
-    assert!(m.agents.sessions.list().is_empty(), "the node's record is gone");
-    assert!(m.agents.reopen.open_sessions().is_empty(), "and not reopened");
+    assert!(
+        m.agents.sessions.list().is_empty(),
+        "the node's record is gone"
+    );
+    assert!(
+        m.agents.reopen.open_sessions().is_empty(),
+        "and not reopened"
+    );
 }
 
 #[tokio::test]
@@ -222,7 +279,8 @@ async fn a_session_another_process_has_recently_written_is_refused() {
         .expect("a new modification time");
     let err = m
         .agents
-        .delete.delete_session("claude", &SessionId::from(CLAUDE_ID))
+        .delete
+        .delete_session("claude", &SessionId::from(CLAUDE_ID))
         .await
         .unwrap_err();
     assert!(err.to_string().contains("terminal or IDE"), "{err}");
@@ -244,7 +302,12 @@ async fn an_id_that_walks_out_of_the_store_is_refused() {
             "x\0y",
             "p1/../p2",
         ] {
-            let err = m.agents.delete.delete_session(agent, &SessionId::from(id)).await.unwrap_err();
+            let err = m
+                .agents
+                .delete
+                .delete_session(agent, &SessionId::from(id))
+                .await
+                .unwrap_err();
             assert!(
                 err.to_string().contains("not a session id"),
                 "{id:?}: {err}"
@@ -277,13 +340,19 @@ async fn sessions_kept_in_a_database_are_refused() {
     let m = Machine::new();
 
     for agent in ["flsh", "opencode"] {
-        let err = m.agents.delete.delete_session(agent, &SessionId::from("ses_1")).await.unwrap_err();
+        let err = m
+            .agents
+            .delete
+            .delete_session(agent, &SessionId::from("ses_1"))
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("database"), "{err}");
     }
 
     let err = m
         .agents
-        .delete.delete_session("example", &SessionId::from("ses_1"))
+        .delete
+        .delete_session("example", &SessionId::from("ses_1"))
         .await
         .unwrap_err();
     assert!(err.to_string().contains("no agent"), "{err}");
@@ -295,25 +364,37 @@ async fn a_closed_codex_session_moves_without_changing_the_conversation() {
     let destination = m.dir.path().join("destination");
     fs::create_dir(&destination).expect("destination");
     m.agents
-        .delete.relocate_session("codex", &SessionId::from(CODEX_ID), destination.to_str().expect("UTF-8 path"))
+        .delete
+        .relocate_session(
+            "codex",
+            &SessionId::from(CODEX_ID),
+            destination.to_str().expect("UTF-8 path"),
+        )
         .await
         .expect("move");
     let moved = m
         .agents
-        .listings.stores()
+        .listings
+        .stores()
         .find(Agent::Codex, &SessionId::from(CODEX_ID))
         .expect("moved session");
     assert_eq!(Path::new(&moved.cwd), destination);
     assert!(m.codex(CODEX_OTHER));
     assert!(
         m.agents
-            .delete.relocate_session("codex", &SessionId::from("../outside"), "/srv/project")
+            .delete
+            .relocate_session("codex", &SessionId::from("../outside"), "/srv/project")
             .await
             .is_err()
     );
     assert!(
         m.agents
-            .delete.relocate_session("codex", &SessionId::from(CODEX_OTHER), "/missing/destination")
+            .delete
+            .relocate_session(
+                "codex",
+                &SessionId::from(CODEX_OTHER),
+                "/missing/destination"
+            )
             .await
             .is_err()
     );
@@ -334,16 +415,19 @@ async fn an_ended_owned_session_keeps_its_identity_after_moving() {
                 ..Begin::default()
             },
         )
-        .await.expect("session");
+        .await
+        .expect("session");
     assert!(
         m.agents
-            .delete.relocate_session("codex", &session.id, destination.to_str().unwrap())
+            .delete
+            .relocate_session("codex", &session.id, destination.to_str().unwrap())
             .await
             .is_err()
     );
     session.close().await;
     m.agents
-        .delete.relocate_session("codex", &session.id, destination.to_str().unwrap())
+        .delete
+        .relocate_session("codex", &session.id, destination.to_str().unwrap())
         .await
         .expect("move");
     let listed = m.agents.sessions.list();
@@ -358,12 +442,14 @@ async fn a_pi_session_moves_to_its_new_store_folder() {
     let destination = m.dir.path().join("destination");
     fs::create_dir(&destination).expect("destination");
     m.agents
-        .delete.relocate_session("pi", &SessionId::from("p1"), destination.to_str().unwrap())
+        .delete
+        .relocate_session("pi", &SessionId::from("p1"), destination.to_str().unwrap())
         .await
         .expect("move");
     let found = m
         .agents
-        .listings.stores()
+        .listings
+        .stores()
         .find(Agent::Pi, &SessionId::from("p1"))
         .expect("moved session");
     assert_eq!(Path::new(&found.cwd), destination);
@@ -391,12 +477,18 @@ async fn a_claude_session_moves_with_its_subagents() {
         ),
     );
     m.agents
-        .delete.relocate_session("claude", &SessionId::from(CLAUDE_ID), destination.to_str().unwrap())
+        .delete
+        .relocate_session(
+            "claude",
+            &SessionId::from(CLAUDE_ID),
+            destination.to_str().unwrap(),
+        )
         .await
         .expect("move");
     let found = m
         .agents
-        .listings.external()
+        .listings
+        .external()
         .list(1, Some(SessionId::from(CLAUDE_ID)), Default::default())
         .await
         .unwrap()
@@ -405,7 +497,8 @@ async fn a_claude_session_moves_with_its_subagents() {
     assert_eq!(Path::new(&found.cwd), destination);
     let moved = m
         .agents
-        .listings.external()
+        .listings
+        .external()
         .file(&SessionId::from(CLAUDE_ID))
         .await
         .unwrap()
@@ -446,7 +539,14 @@ async fn a_background_child_that_closes_for_good_is_deleted_by_its_own_receiver(
     let m = Machine::new();
     let session = m
         .agents
-        .start(&kind("claude"), Some("/"), Begin { resume: Some(SessionId::from(CLAUDE_ID)), ..Begin::default() })
+        .start(
+            &kind("claude"),
+            Some("/"),
+            Begin {
+                resume: Some(SessionId::from(CLAUDE_ID)),
+                ..Begin::default()
+            },
+        )
         .await
         .expect("a session");
     assert_eq!(m.agents.sessions.list().len(), 1);

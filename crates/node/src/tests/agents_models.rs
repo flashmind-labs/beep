@@ -174,13 +174,22 @@ async fn pi_lists_the_provider_separately_from_the_model_name() {
     let models: Vec<_> = listing
         .models
         .iter()
-        .map(|model| (model.id.as_str(), model.name.as_str(), model.provider.as_deref()))
+        .map(|model| {
+            (
+                model.id.as_str(),
+                model.name.as_str(),
+                model.provider.as_deref(),
+            )
+        })
         .collect();
-    assert_eq!(models, [
-        (id, "Vendor: Model (batch)", Some("openrouter")),
-        ("custom/model", "Family/Model", Some("custom")),
-        ("default", "Default", None),
-    ]);
+    assert_eq!(
+        models,
+        [
+            (id, "Vendor: Model (batch)", Some("openrouter")),
+            ("custom/model", "Family/Model", Some("custom")),
+            ("default", "Default", None),
+        ]
+    );
 }
 
 #[cfg(unix)]

@@ -303,7 +303,8 @@ async fn a_port_that_answers_with_a_page_is_one_of_its_pages_once_it_is_ready() 
 
     let me = || async {
         let rows = processes.list().await.unwrap();
-        rows.processes.into_iter()
+        rows.processes
+            .into_iter()
             .find(|row| row.pid == std::process::id())
             .unwrap()
     };

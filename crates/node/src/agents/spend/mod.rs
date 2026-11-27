@@ -10,24 +10,28 @@ use std::{
     sync::{Arc, Mutex, Weak},
 };
 use tokio::{
-    sync::{broadcast, broadcast::error::{RecvError, TryRecvError}, watch},
+    sync::{
+        broadcast,
+        broadcast::error::{RecvError, TryRecvError},
+        watch,
+    },
     task::spawn_blocking,
     time::{Instant, sleep_until},
 };
 use tokio_util::task::AbortOnDropHandle;
 
+pub(crate) use crate::logs::spend::pi_session_cost;
 use crate::logs::spend::{
     Roots, databases,
     ledger::{Ledger, SessionKey, Stamp},
     scan,
 };
-pub(crate) use crate::logs::spend::pi_session_cost;
 
 use crate::{
     agents::{limits::SPEND_GAP, unix_now},
-    logs::found::Agent,
     events::Change,
     lock,
+    logs::found::Agent,
 };
 
 /// How far back the logs are read: a month and a bit.
@@ -130,7 +134,10 @@ impl Spend {
     /// Follows what sessions spent. One task reads the logs when `logs` says
     /// they changed, at most every `SPEND_GAP`, for all followers while any
     /// holds the returned `Scan`; the reports are as the last pass left them.
-    pub(crate) fn follow(self: &Arc<Self>, logs: LogChanges) -> (Arc<Scan>, watch::Receiver<Reports>) {
+    pub(crate) fn follow(
+        self: &Arc<Self>,
+        logs: LogChanges,
+    ) -> (Arc<Scan>, watch::Receiver<Reports>) {
         let mut running = lock(&self.scan);
         let scan = running.upgrade().unwrap_or_else(|| {
             let scan = Arc::new(Scan {

@@ -4,7 +4,10 @@ use super::{
     actor::{Actor, Asked, Reply, Waiting, agent_title},
     types::{Answered, Command, MAX_ASKED, MAX_PLAN, MAX_QUEUED, MAX_QUEUED_BYTES},
 };
-use crate::agents::{acp::{self, Prompt}, live::Live};
+use crate::agents::{
+    acp::{self, Prompt},
+    live::Live,
+};
 use crate::text::cut;
 use agent_client_protocol::{
     Agent, ConnectionTo, Responder,
@@ -431,10 +434,10 @@ impl Actor {
         }
 
         if let Some(fast) = fast {
-            let id = self
-                .offers.fast_option
-                .as_ref()
-                .ok_or_else(|| format!("{title} here does not offer fast mode for this model"))?;
+            let id =
+                self.offers.fast_option.as_ref().ok_or_else(|| {
+                    format!("{title} here does not offer fast mode for this model")
+                })?;
             let request = acp::set_fast(&session, id, fast).map_err(|e| e.to_string())?;
             requests.push((
                 request,

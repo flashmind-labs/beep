@@ -1,9 +1,9 @@
 //! Claude Code's logs (`line`): each assistant line carries `message.usage`,
 //! `message.model`, `message.id` and `requestId`.
 
-use beep_proto::SessionId;
 use super::{Line, Request, billing::claude_cloud};
 use crate::{logs::found::unix_seconds, logs::prices::Tokens};
+use beep_proto::SessionId;
 use beep_proto::node::usage::Billing;
 use serde::Deserialize;
 

@@ -233,12 +233,22 @@ fn a_persona_is_found_by_name_the_threads_harness_first() {
         ".codex/agents/researcher.toml",
         "name = \"researcher\"\ndescription = \"Digs\"\ndeveloper_instructions = \"Dig with Codex.\"",
     );
-    write(&s.home, ".claude/agents/mine.md", "---\nname: mine\n---\nMine.");
+    write(
+        &s.home,
+        ".claude/agents/mine.md",
+        "---\nname: mine\n---\nMine.",
+    );
 
     let codex = persona(&s.project, Some(&s.home), "Researcher", "codex").unwrap();
-    assert_eq!((codex.harness.as_ref(), codex.prompt.as_str()), ("codex", "Dig with Codex."));
+    assert_eq!(
+        (codex.harness.as_ref(), codex.prompt.as_str()),
+        ("codex", "Dig with Codex.")
+    );
     let claude = persona(&s.project, Some(&s.home), "researcher", "claude").unwrap();
-    assert_eq!((claude.prompt.as_str(), claude.color.as_deref()), ("Dig deep.", Some("blue")));
+    assert_eq!(
+        (claude.prompt.as_str(), claude.color.as_deref()),
+        ("Dig deep.", Some("blue"))
+    );
     // One for another harness still serves.
     let other = persona(&s.project, Some(&s.home), "researcher", "flsh").unwrap();
     assert_eq!(other.harness.as_ref(), "claude");
@@ -250,24 +260,50 @@ fn a_persona_is_found_by_name_the_threads_harness_first() {
 #[test]
 fn an_unknown_persona_names_the_ones_there_are() {
     let s = setup();
-    write(&s.project, ".claude/agents/researcher.md", "---\nname: researcher\n---\nDig.");
-    write(&s.project, ".codex/agents/researcher.toml", "name = \"researcher\"\ndeveloper_instructions = \"Dig.\"");
-    write(&s.home, ".claude/agents/mine.md", "---\nname: mine\n---\nMine.");
+    write(
+        &s.project,
+        ".claude/agents/researcher.md",
+        "---\nname: researcher\n---\nDig.",
+    );
+    write(
+        &s.project,
+        ".codex/agents/researcher.toml",
+        "name = \"researcher\"\ndeveloper_instructions = \"Dig.\"",
+    );
+    write(
+        &s.home,
+        ".claude/agents/mine.md",
+        "---\nname: mine\n---\nMine.",
+    );
     // Without instructions it is no persona.
-    write(&s.project, ".claude/agents/empty.md", "---\nname: empty\n---\n");
+    write(
+        &s.project,
+        ".claude/agents/empty.md",
+        "---\nname: empty\n---\n",
+    );
 
     let error = persona(&s.project, Some(&s.home), "writer", "claude").unwrap_err();
-    assert_eq!(error, "There is no custom agent called writer. There are: researcher, mine.");
+    assert_eq!(
+        error,
+        "There is no custom agent called writer. There are: researcher, mine."
+    );
 
     let none = setup();
     let error = persona(&none.project, Some(&none.home), "writer", "claude").unwrap_err();
-    assert_eq!(error, "There is no custom agent called writer: this folder and the user define none.");
+    assert_eq!(
+        error,
+        "There is no custom agent called writer: this folder and the user define none."
+    );
 }
 
 #[test]
 fn a_personas_brief_names_it_and_holds_its_instructions() {
     let s = setup();
-    write(&s.project, ".claude/agents/researcher.md", "---\nname: researcher\n---\nDig deep.");
+    write(
+        &s.project,
+        ".claude/agents/researcher.md",
+        "---\nname: researcher\n---\nDig deep.",
+    );
     let found = persona(&s.project, None, "researcher", "claude").unwrap();
     let brief = persona_brief(&found);
     assert!(brief.contains("researcher"), "{brief}");

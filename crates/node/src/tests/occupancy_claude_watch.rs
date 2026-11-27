@@ -48,4 +48,3 @@ async fn a_hook_reaches_the_hub_over_the_socket() {
     assert_eq!(activity.kind, ActivityKind::NeedsInput);
     assert!(activity.from_hook);
 }
-

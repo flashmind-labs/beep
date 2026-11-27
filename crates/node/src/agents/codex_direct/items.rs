@@ -101,9 +101,14 @@ pub(super) fn completed(item: &Value, whole: bool) -> Option<Value> {
     let id = item["id"].as_str()?;
     let mut update = match item["type"].as_str()? {
         // A plan item is the plan Plan mode proposes, shown as its text.
-        "agentMessage" | "plan" if whole => return text_update("agent_message_chunk", item["text"].as_str()?),
+        "agentMessage" | "plan" if whole => {
+            return text_update("agent_message_chunk", item["text"].as_str()?);
+        }
         "reasoning" if whole => {
-            let parts = match item["summary"].as_array().is_some_and(|summary| !summary.is_empty()) {
+            let parts = match item["summary"]
+                .as_array()
+                .is_some_and(|summary| !summary.is_empty())
+            {
                 true => &item["summary"],
                 false => &item["content"],
             };
@@ -122,8 +127,15 @@ pub(super) fn completed(item: &Value, whole: bool) -> Option<Value> {
             if !item["result"].is_null() || !item["error"].is_null() {
                 end["rawOutput"] = json!({"result": item["result"], "error": item["error"]});
             }
-            let shown = mcp_text(&item["result"]).or_else(|| item["error"]["message"].as_str().map(str::to_owned));
-            end["content"] = json!(shown.as_deref().map(text_content).into_iter().collect::<Vec<_>>());
+            let shown = mcp_text(&item["result"])
+                .or_else(|| item["error"]["message"].as_str().map(str::to_owned));
+            end["content"] = json!(
+                shown
+                    .as_deref()
+                    .map(text_content)
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            );
             end
         }
         "dynamicToolCall" => {
@@ -168,11 +180,19 @@ pub(super) fn replayed(item: &Value) -> Vec<Value> {
                 .filter(|input| input["type"] == "text")
                 .filter_map(|input| input["text"].as_str())
                 .collect();
-            let images = inputs.filter(|input| input["type"] == "image").filter_map(image);
-            text_update("user_message_chunk", &said.join("\n")).into_iter().chain(images).collect()
+            let images = inputs
+                .filter(|input| input["type"] == "image")
+                .filter_map(image);
+            text_update("user_message_chunk", &said.join("\n"))
+                .into_iter()
+                .chain(images)
+                .collect()
         }
         Some("agentMessage" | "reasoning" | "plan") => completed(item, true).into_iter().collect(),
-        _ => started(item).into_iter().chain(completed(item, false)).collect(),
+        _ => started(item)
+            .into_iter()
+            .chain(completed(item, false))
+            .collect(),
     }
 }
 
@@ -219,13 +239,17 @@ fn command(item: &Value) -> Value {
             "title": format!("Read file '{}'", path.unwrap_or_default()),
             "locations": path.map(|path| json!({"path": path})).into_iter().collect::<Vec<_>>(),
         }),
-        Some("search") => json!({"kind": "search", "title": search_title(action.and_then(|a| a["query"].as_str()), path)}),
+        Some("search") => {
+            json!({"kind": "search", "title": search_title(action.and_then(|a| a["query"].as_str()), path)})
+        }
         Some("listFiles") => json!({
             "kind": "read",
             "title": path.map_or_else(|| "List files".to_owned(), |path| format!("List files in '{path}'")),
         }),
         _ => {
-            let line = action.and_then(|action| action["command"].as_str()).unwrap_or(text(item, "command"));
+            let line = action
+                .and_then(|action| action["command"].as_str())
+                .unwrap_or(text(item, "command"));
             json!({
                 "kind": "execute",
                 "title": strip_shell(line),
@@ -248,7 +272,9 @@ fn command(item: &Value) -> Value {
 /// A command's end: its output, and the exit code of one that is no plain
 /// command line.
 fn command_end(item: &Value) -> Value {
-    let output = item["aggregatedOutput"].as_str().filter(|output| !output.is_empty());
+    let output = item["aggregatedOutput"]
+        .as_str()
+        .filter(|output| !output.is_empty());
     let mut end = json!({"content": output.map(text_content).into_iter().collect::<Vec<_>>()});
     let terminal = single_action(item).is_none_or(|action| action["type"] == "unknown");
 
@@ -279,7 +305,8 @@ fn search_title(query: Option<&str>, path: Option<&str>) -> String {
 /// `line` without the `bash -lc '…'` Codex wraps it in.
 pub(super) fn strip_shell(line: &str) -> String {
     static SHELL: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"^(?:/(?:[^\s/]+/)*)?(?:bash|zsh|sh)\s+(?:-[lc]+\s+)?").expect("a valid pattern")
+        Regex::new(r"^(?:/(?:[^\s/]+/)*)?(?:bash|zsh|sh)\s+(?:-[lc]+\s+)?")
+            .expect("a valid pattern")
     });
     let Some(shell) = SHELL.find(line) else {
         return line.to_owned();
@@ -290,10 +317,12 @@ pub(super) fn strip_shell(line: &str) -> String {
         return line.to_owned();
     }
 
-    static SINGLE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^'([^']*)'$").expect("a valid pattern"));
+    static SINGLE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^'([^']*)'$").expect("a valid pattern"));
     static DOUBLE: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r#"^"((?:[^"\\]|\\[\s\S])*)"$"#).expect("a valid pattern"));
-    static ESCAPE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"\\([$`"\\\n])"#).expect("a valid pattern"));
+    static ESCAPE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r#"\\([$`"\\\n])"#).expect("a valid pattern"));
 
     if let Some(inner) = SINGLE.captures(rest) {
         return inner[1].to_owned();
@@ -319,8 +348,14 @@ fn web_search_title(item: &Value) -> String {
             .as_str()
             .map_or_else(|| "Open page".to_owned(), |url| format!("Open page: {url}")),
         Some("findInPage") => {
-            let pattern = action["pattern"].as_str().map(|p| format!(" for '{p}'")).unwrap_or_default();
-            let url = action["url"].as_str().map(|url| format!(" in {url}")).unwrap_or_default();
+            let pattern = action["pattern"]
+                .as_str()
+                .map(|p| format!(" for '{p}'"))
+                .unwrap_or_default();
+            let url = action["url"]
+                .as_str()
+                .map(|url| format!(" in {url}"))
+                .unwrap_or_default();
             format!("Find in page{pattern}{url}")
         }
         _ => {
@@ -336,7 +371,10 @@ fn web_search_title(item: &Value) -> String {
                 .as_str()
                 .or((!joined.is_empty()).then_some(joined.as_str()))
                 .or(query);
-            query.map_or_else(|| "Web search".to_owned(), |query| format!("Web search: {query}"))
+            query.map_or_else(
+                || "Web search".to_owned(),
+                |query| format!("Web search: {query}"),
+            )
         }
     }
 }
@@ -363,8 +401,12 @@ fn diffs(change: &Value) -> Vec<Value> {
     let diff = change["diff"].as_str().unwrap_or_default();
 
     match change["kind"]["type"].as_str() {
-        Some("add") => vec![json!({"type": "diff", "path": path, "oldText": null, "newText": diff})],
-        Some("delete") => vec![json!({"type": "diff", "path": path, "oldText": diff, "newText": ""})],
+        Some("add") => {
+            vec![json!({"type": "diff", "path": path, "oldText": null, "newText": diff})]
+        }
+        Some("delete") => {
+            vec![json!({"type": "diff", "path": path, "oldText": diff, "newText": ""})]
+        }
         _ => {
             let path = change["kind"]["move_path"].as_str().unwrap_or(path);
             hunks(diff)

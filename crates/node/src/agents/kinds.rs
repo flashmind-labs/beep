@@ -1,12 +1,12 @@
 //! The agents a node knows how to start, and how it starts them.
 
+use super::adapters;
 use crate::known::{Adapter, KNOWN, Known};
-use super::{adapters};
 use crate::machine::env::locate;
+use crate::machine::wsl::{DistroName, LinuxPath};
 use beep_proto::ModelId;
 use beep_proto::node::harness::{AutoCompact, ModelCompact};
 use serde::{Deserialize, Serialize};
-use crate::machine::wsl::{DistroName, LinuxPath};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -79,7 +79,9 @@ impl Bridge {
 /// `kind` runs inside WSL, which only this node can start: its program and
 /// arguments stay as detection made them.
 pub(crate) fn in_wsl(kind: &AgentKind) -> bool {
-    kind.bridge.as_ref().is_some_and(|bridge| bridge.wsl().is_some())
+    kind.bridge
+        .as_ref()
+        .is_some_and(|bridge| bridge.wsl().is_some())
 }
 
 /// `kind`, Claude Code or Codex, run by the node's own bridge on the CLI
@@ -88,7 +90,10 @@ pub(crate) fn in_wsl(kind: &AgentKind) -> bool {
 pub(super) fn direct(kind: &AgentKind) -> Option<AgentKind> {
     let bridge = match kind.name.as_str() {
         _ if kind.bridge.is_some() => return Some(kind.clone()),
-        "claude" => Bridge::Claude { wsl: None, home: None },
+        "claude" => Bridge::Claude {
+            wsl: None,
+            home: None,
+        },
         "codex" => Bridge::Codex { wsl: None },
         _ => return None,
     };
@@ -233,7 +238,9 @@ fn in_wsl_kind(known: &'static Known) -> Option<AgentKind> {
             Launch::Ready(kind) | Launch::ViaNpx(kind) => kind,
             _ => return None,
         };
-        let bridge = Bridge::Relay { wsl: distro.clone() };
+        let bridge = Bridge::Relay {
+            wsl: distro.clone(),
+        };
         (path(&kind.program)?, kind.args, kind.env, bridge)
     };
     log::info!("{} found in WSL {distro}", known.title);

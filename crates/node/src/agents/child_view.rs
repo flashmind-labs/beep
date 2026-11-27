@@ -70,10 +70,7 @@ impl ChildView {
             title: info.title.clone(),
             last_message: cut(&info.last_message, MAX_TEXT),
             files_changed: info.state.files_touched.len(),
-            question: info
-                .question
-                .as_ref()
-                .map(|q| cut(&q.text, MAX_TEXT)),
+            question: info.question.as_ref().map(|q| cut(&q.text, MAX_TEXT)),
             turns: info.turns,
             tokens: info.tokens,
             cost_usd: info.cost_usd,

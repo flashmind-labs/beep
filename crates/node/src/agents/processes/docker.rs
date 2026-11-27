@@ -163,7 +163,8 @@ mod unix {
 
         async fn list(&self) -> anyhow::Result<Vec<RunningContainer>> {
             let filters = format!(r#"{{"label":["{LABEL}={}"]}}"#, self.shared.token);
-            let filters: String = url::form_urlencoded::byte_serialize(filters.as_bytes()).collect();
+            let filters: String =
+                url::form_urlencoded::byte_serialize(filters.as_bytes()).collect();
             let request = Request::get(format!("/containers/json?filters={filters}"))
                 .header(header::HOST, "docker")
                 .body(empty())?;
@@ -376,12 +377,7 @@ mod unix {
         };
 
         match rest.find('/') {
-            Some(at)
-                if at > 0
-                    && rest[..at]
-                        .chars()
-                        .all(|c| c.is_ascii_digit() || c == '.') =>
-            {
+            Some(at) if at > 0 && rest[..at].chars().all(|c| c.is_ascii_digit() || c == '.') => {
                 &rest[at..]
             }
             _ => path,
@@ -404,7 +400,9 @@ mod unix {
                     let bytes = collected.to_bytes();
                     let bytes = labelled(&bytes, &shared.token).map_or(bytes, Bytes::from);
                     parts.headers.remove(header::TRANSFER_ENCODING);
-                    parts.headers.insert(header::CONTENT_LENGTH, bytes.len().into());
+                    parts
+                        .headers
+                        .insert(header::CONTENT_LENGTH, bytes.len().into());
                     full(bytes)
                 }
                 Err(e) => return Ok(failure(StatusCode::BAD_REQUEST, &format!("{e}"))),

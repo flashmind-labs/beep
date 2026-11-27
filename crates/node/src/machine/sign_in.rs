@@ -188,10 +188,7 @@ fn command(tool: Tool) -> (&'static str, &'static [&'static str]) {
         // It has no sign-in command: print mode signs in first, offering
         // its link only when it streams JSON, and `/usage` then answers
         // without a model turn.
-        Tool::Agy => (
-            "agy",
-            &["-p", "/usage", "--output-format", "stream-json"],
-        ),
+        Tool::Agy => ("agy", &["-p", "/usage", "--output-format", "stream-json"]),
     }
 }
 
@@ -245,12 +242,10 @@ async fn drive(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    let child = command
-        .spawn()
-        .map_err(|e| {
-            log::info!("{tool} sign-in failed: {name} could not start: {e}");
-            format!("{name} could not start: {e}")
-        })?;
+    let child = command.spawn().map_err(|e| {
+        log::info!("{tool} sign-in failed: {name} could not start: {e}");
+        format!("{name} could not start: {e}")
+    })?;
     let mut child = GroupLeader::new(child);
     let mut stdin = child.child_mut().stdin.take();
     let (output_tx, mut output) = mpsc::channel(16);

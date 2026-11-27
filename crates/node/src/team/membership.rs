@@ -296,7 +296,11 @@ fn take(link: &TeamLink, team: &Team, entry: &Member) {
 
 /// Sends `roster` to each of `to` in the background; the send ends with the
 /// meshes of those it did not reach.
-fn send(link: &TeamLink, roster: TeamMsg, to: Vec<Member>) -> AbortOnDropHandle<BTreeSet<EndpointId>> {
+fn send(
+    link: &TeamLink,
+    roster: TeamMsg,
+    to: Vec<Member>,
+) -> AbortOnDropHandle<BTreeSet<EndpointId>> {
     let link = link.clone();
 
     AbortOnDropHandle::new(tokio::spawn(async move {

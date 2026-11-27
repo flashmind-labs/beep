@@ -1,6 +1,5 @@
 //! Authenticated command, subscription and forward connections.
 
-use tracing::Instrument;
 use super::{Offers, Session, peers::Peers};
 use iroh::{
     EndpointId,
@@ -8,6 +7,7 @@ use iroh::{
     protocol::AcceptError,
 };
 use tokio::task::JoinSet;
+use tracing::Instrument;
 
 const MAX_STREAMS: usize = 64;
 

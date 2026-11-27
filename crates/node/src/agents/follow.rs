@@ -1,17 +1,16 @@
 //! Pushes an initial snapshot and subsequent changes to an open session view.
 
 use super::{Agents, limits::MAX_TRANSCRIPT};
+use crate::events::HEARTBEAT;
 use crate::logs::claude::Followed;
 use crate::logs::found::Agent;
 use crate::logs::transcript_stage;
-use crate::events::HEARTBEAT;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{
-        Entry, EntryKind, EntryPatch, FOLLOW_READERS_FULL, FollowControl,
-        FollowSession, SessionCursor, SessionPatch, SessionSnapshot, SessionSource, SessionUpdate,
-        Status,
+        Entry, EntryKind, EntryPatch, FOLLOW_READERS_FULL, FollowControl, FollowSession,
+        SessionCursor, SessionPatch, SessionSnapshot, SessionSource, SessionUpdate, Status,
     },
 };
 use beep_proto::watched;
@@ -933,14 +932,16 @@ async fn snapshot(
                 Some(followed) => {
                     vec![
                         agents
-                            .listings.external()
+                            .listings
+                            .external()
                             .followed(followed, stale, agents.sessions.owned())
                             .await?,
                     ]
                 }
                 None => {
                     agents
-                        .listings.raw_external_of(request.agent.as_ref(), 1, Some(request.session.clone()))
+                        .listings
+                        .raw_external_of(request.agent.as_ref(), 1, Some(request.session.clone()))
                         .await?
                 }
             };
@@ -948,7 +949,9 @@ async fn snapshot(
                 .into_iter()
                 .find(|session| session.id == request.session)
                 .context("session is no longer on the machine")?;
-            agents.occupancy.settle_closed(std::slice::from_mut(&mut found));
+            agents
+                .occupancy
+                .settle_closed(std::slice::from_mut(&mut found));
             SessionSource::External(Box::new(found))
         }
     };

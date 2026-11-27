@@ -22,7 +22,11 @@ pub(super) struct Newest {
     pub(super) latest: Version,
 }
 
-pub(super) async fn newest(client: &Client, base: &str, channel: ReleaseChannel) -> Result<Newest, Error> {
+pub(super) async fn newest(
+    client: &Client,
+    base: &str,
+    channel: ReleaseChannel,
+) -> Result<Newest, Error> {
     let current: Version = CURRENT.parse()?;
     let latest = fetch(client, &url(base, Into::<&str>::into(channel))?).await?;
     let latest: Version = String::from_utf8_lossy(&latest).parse()?;
@@ -36,7 +40,11 @@ pub(super) struct Download {
 }
 
 /// Downloads `latest` and checks it against the release's `SHA256SUMS`.
-pub(super) async fn download(client: &Client, base: &str, latest: &Version) -> Result<Download, Error> {
+pub(super) async fn download(
+    client: &Client,
+    base: &str,
+    latest: &Version,
+) -> Result<Download, Error> {
     let target = Target::current()?;
     let exe = this_binary()?;
     // Fails before the download when the binary cannot be replaced.
@@ -63,7 +71,6 @@ impl Download {
         Ok(exe)
     }
 }
-
 
 /// What restarting did, in words for the user.
 pub(super) fn said(restart: &Restart, latest: &Version) -> String {

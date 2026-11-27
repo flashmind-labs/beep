@@ -11,9 +11,12 @@ async fn only_the_machines_that_did_not_answer_are_read_again() {
     let mesh = Mesh::create(&dir.path().join("mesh"), endpoint, "build-box")
         .await
         .unwrap();
-    mesh.set(Key::SkillSync, Some(SkillSync { enabled: true }.to_bytes().unwrap()))
-        .await
-        .unwrap();
+    mesh.set(
+        Key::SkillSync,
+        Some(SkillSync { enabled: true }.to_bytes().unwrap()),
+    )
+    .await
+    .unwrap();
     let mut pass = Passes {
         mesh: mesh.clone(),
         home: dir.path().join("home"),
@@ -30,7 +33,10 @@ async fn only_the_machines_that_did_not_answer_are_read_again() {
         said: None,
         skills: Skills::default(),
     };
-    let (silent, answered) = (SecretKey::generate().public(), SecretKey::generate().public());
+    let (silent, answered) = (
+        SecretKey::generate().public(),
+        SecretKey::generate().public(),
+    );
     let online = BTreeSet::from([silent, answered]);
 
     pass.ask(&online, true).await;

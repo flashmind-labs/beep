@@ -5,8 +5,10 @@
 //! `sessions.db`, read here (read-only) until flsh has imported it, which
 //! it marks with `.sqlite-imported`.
 
-use super::common::{Agent, Memos, Seen, is_jsonl, newest_files, prompt_title, read_databases, xdg_data_dir};
 use super::common::unix_seconds;
+use super::common::{
+    Agent, Memos, Seen, is_jsonl, newest_files, prompt_title, read_databases, xdg_data_dir,
+};
 use crate::logs::window::{MAX_HEAD, head_lines};
 use beep_proto::SessionId;
 use serde_json::Value;

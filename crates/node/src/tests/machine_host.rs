@@ -22,6 +22,9 @@ fn the_first_label_is_the_name_and_empty_falls_back() {
 
 #[test]
 fn a_wsl_machine_is_named_after_its_distribution_and_host() {
-    assert_eq!(cut(&in_wsl("Ubuntu-24.04", "desk-pc.example.net")), "Ubuntu-24.04 on desk-pc");
+    assert_eq!(
+        cut(&in_wsl("Ubuntu-24.04", "desk-pc.example.net")),
+        "Ubuntu-24.04 on desk-pc"
+    );
     assert_eq!(cut(&in_wsl("Ubuntu", "")), "Ubuntu");
 }

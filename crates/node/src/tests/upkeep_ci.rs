@@ -97,18 +97,21 @@ fn the_watcher_elects_over_the_projects_machines_by_its_hosts_reach() {
     // Only the last machine reaches the forge host, so it is elected from
     // the first machine's view; a reach recorded under another host name
     // counts for nothing.
-    let peers: BTreeMap<EndpointId, ForgeReach> = [
-        (machines[1], reaches(false)),
-        (machines[2], reaches(true)),
-    ]
-    .into();
+    let peers: BTreeMap<EndpointId, ForgeReach> =
+        [(machines[1], reaches(false)), (machines[2], reaches(true))].into();
     let none = HostReach::default();
     assert_eq!(
         elect(&widget.machines, machines[0], none, &peers, host),
         Some(machines[2])
     );
     assert_eq!(
-        elect(&widget.machines, machines[0], none, &peers, "other.example.com"),
+        elect(
+            &widget.machines,
+            machines[0],
+            none,
+            &peers,
+            "other.example.com"
+        ),
         Some(machines[0])
     );
 }
@@ -277,7 +280,10 @@ impl World for Alone {
         BTreeSet::new()
     }
 
-    #[allow(clippy::manual_async_fn, reason = "the future must not borrow the world")]
+    #[allow(
+        clippy::manual_async_fn,
+        reason = "the future must not borrow the world"
+    )]
     fn ask(&self, _: EndpointId) -> impl Future<Output = Result<ForgeReach>> + Send + 'static {
         async { bail!("nobody else") }
     }
@@ -308,7 +314,10 @@ impl World for Empty {
         BTreeSet::new()
     }
 
-    #[allow(clippy::manual_async_fn, reason = "the future must not borrow the world")]
+    #[allow(
+        clippy::manual_async_fn,
+        reason = "the future must not borrow the world"
+    )]
     fn ask(&self, _: EndpointId) -> impl Future<Output = Result<ForgeReach>> + Send + 'static {
         async { bail!("nobody else") }
     }

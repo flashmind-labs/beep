@@ -1,7 +1,7 @@
-use crate::agents::{AgentKind, Agents, session::Begin};
-use crate::agents::Parts;
-use beep_proto::{SessionId, watched};
 use super::{Sessions, reserve};
+use crate::agents::Parts;
+use crate::agents::{AgentKind, Agents, session::Begin};
+use beep_proto::{SessionId, watched};
 use std::{collections::BTreeMap, path::Path, sync::Arc, time::Duration};
 use tokio::{sync::watch, time::timeout};
 
@@ -32,11 +32,17 @@ fn resuming(id: &str) -> Begin {
 #[tokio::test]
 async fn an_inserted_session_is_there_for_the_next_read() {
     let kind = silent();
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
 
     assert!(agents.sessions.read().is_empty());
 
-    let session = agents.start(&kind, Some("/"), Begin::default()).await.unwrap();
+    let session = agents
+        .start(&kind, Some("/"), Begin::default())
+        .await
+        .unwrap();
 
     assert!(agents.sessions.get(&session.id).is_some());
     assert!(agents.sessions.read().contains_key(&session.id));
@@ -49,37 +55,52 @@ async fn an_inserted_session_is_there_for_the_next_read() {
 #[tokio::test]
 async fn a_start_that_has_not_finished_holds_nothing_other_sessions_need() {
     let kind = silent();
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
-    let first = agents.start(&kind, Some("/"), Begin::default()).await.unwrap();
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
+    let first = agents
+        .start(&kind, Some("/"), Begin::default())
+        .await
+        .unwrap();
     // A start between taking its id and inserting, which is where the
     // process spawns.
-    let _slow = agents
-        .sessions
-        .reserve(None)
-        .unwrap();
+    let _slow = agents.sessions.reserve(None).unwrap();
 
     let others = async {
         assert!(agents.sessions.get(&first.id).is_some());
         agents.sessions.list();
         agents.sessions.listed(true);
-        let second = agents.start(&kind, Some("/"), Begin::default()).await.unwrap();
+        let second = agents
+            .start(&kind, Some("/"), Begin::default())
+            .await
+            .unwrap();
         assert!(agents.sessions.get(&second.id).is_some());
     };
-    timeout(LONG, others).await.expect("another start was held up");
+    timeout(LONG, others)
+        .await
+        .expect("another start was held up");
 }
 
 #[tokio::test]
 async fn one_session_is_not_taken_over_while_another_takeover_starts() {
     let kind = silent();
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let id = "0f3c2a9e-1111-4222-8333-944455556666";
-    let first = agents
-        .sessions
-        .reserve(Some(SessionId::from(id)))
-        .unwrap();
+    let first = agents.sessions.reserve(Some(SessionId::from(id))).unwrap();
 
-    let refused = agents.start(&kind, Some("/"), resuming(id)).await.err().unwrap();
-    assert!(refused.to_string().contains("already runs here"), "{refused}");
+    let refused = agents
+        .start(&kind, Some("/"), resuming(id))
+        .await
+        .err()
+        .unwrap();
+    assert!(
+        refused.to_string().contains("already runs here"),
+        "{refused}"
+    );
 
     // A start that gave up frees the session and its folder.
     drop(first);
@@ -90,15 +111,11 @@ async fn one_session_is_not_taken_over_while_another_takeover_starts() {
 async fn a_new_id_skips_the_ids_of_starts_under_way() {
     let sessions = watch::Sender::new(Arc::default());
     let mut pending = Vec::new();
-    let mut ids = ["aaaaaa", "aaaaaa", "bbbbbb"].into_iter().map(SessionId::from);
-    let first = reserve(&sessions, &mut pending, None, || {
-        ids.next().unwrap()
-    })
-    .unwrap();
-    let second = reserve(&sessions, &mut pending, None, || {
-        ids.next().unwrap()
-    })
-    .unwrap();
+    let mut ids = ["aaaaaa", "aaaaaa", "bbbbbb"]
+        .into_iter()
+        .map(SessionId::from);
+    let first = reserve(&sessions, &mut pending, None, || ids.next().unwrap()).unwrap();
+    let second = reserve(&sessions, &mut pending, None, || ids.next().unwrap()).unwrap();
 
     assert_eq!(first.0, SessionId::from("aaaaaa"));
     assert_eq!(second.0, SessionId::from("bbbbbb"));
@@ -109,26 +126,50 @@ async fn recovery_blocks_new_sessions_and_open_sessions_block_recovery() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let kind = silent();
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let holds = agents.occupancy.holds();
     let hold = holds.hold(root).await.unwrap();
     let blocked = agents.start(&kind, root.to_str(), Begin::default()).await;
-    assert!(blocked.err().unwrap().to_string().contains("preserving local edits"));
+    assert!(
+        blocked
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("preserving local edits")
+    );
 
     let alias = dir.path().join("alias");
     #[cfg(unix)]
     {
         std::os::unix::fs::symlink(root, &alias).unwrap();
         let blocked = agents.start(&kind, alias.to_str(), Begin::default()).await;
-        assert!(blocked.err().unwrap().to_string().contains("preserving local edits"));
+        assert!(
+            blocked
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("preserving local edits")
+        );
     }
     #[cfg(not(unix))]
     let alias = root.to_owned();
 
     drop(hold);
-    let session = agents.start(&kind, alias.to_str(), Begin::default()).await.unwrap();
+    let session = agents
+        .start(&kind, alias.to_str(), Begin::default())
+        .await
+        .unwrap();
     let blocked = agents.occupancy.reserve(root).await;
-    assert!(blocked.err().unwrap().to_string().contains("close running sessions"));
+    assert!(
+        blocked
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("close running sessions")
+    );
 
     session.close().await;
     // No yield between the end and the check: the folder is free at once.
@@ -141,7 +182,10 @@ async fn recovery_blocks_new_sessions_and_open_sessions_block_recovery() {
 fn reading(claude: &Path) -> (Agents, tempfile::TempDir) {
     let nothing = tempfile::tempdir().unwrap();
     let agents = Agents::new(Parts {
-        occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::locate_in(claude), crate::logs::found::Stores::at(Some(nothing.path()), Some(nothing.path()), None)),
+        occupancy: crate::occupancy::Occupancy::over(
+            crate::logs::claude::Store::locate_in(claude),
+            crate::logs::found::Stores::at(Some(nothing.path()), Some(nothing.path()), None),
+        ),
         ..Parts::default()
     });
 
@@ -163,7 +207,6 @@ fn transcript(claude: &Path, id: &str, cwd: &Path, ago: Duration) -> std::path::
     file
 }
 
-
 const ID: &str = "0f3c2a9e-1111-4222-8333-944455556666";
 const LONG_AGO: Duration = Duration::from_secs(24 * 3600);
 
@@ -178,7 +221,13 @@ async fn recovery_reads_the_sessions_when_it_reserves() {
     // A session started since, with no listing in between.
     transcript(claude.path(), ID, checkout.path(), Duration::ZERO);
     let blocked = agents.occupancy.reserve(checkout.path()).await;
-    assert!(blocked.err().unwrap().to_string().contains("external session is running"));
+    assert!(
+        blocked
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("external session is running")
+    );
 }
 
 #[tokio::test]
@@ -190,12 +239,21 @@ async fn a_resumed_session_blocks_recovery() {
 
     transcript(claude.path(), ID, checkout.path(), Duration::ZERO);
     let blocked = agents.occupancy.reserve(checkout.path()).await;
-    assert!(blocked.err().unwrap().to_string().contains("external session is running"));
+    assert!(
+        blocked
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("external session is running")
+    );
 }
 
 #[tokio::test]
 async fn one_lock_serves_every_holder_of_a_stored_session() {
-    let agents = Agents::new(Parts { kinds: vec![silent()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![silent()],
+        ..Parts::default()
+    });
     let id = SessionId::from("stored-1");
 
     let first = agents.sessions.store_of(&id);
@@ -217,12 +275,18 @@ async fn one_lock_serves_every_holder_of_a_stored_session() {
 #[tokio::test]
 async fn a_subscriber_sees_an_insert_and_a_removal() {
     let kind = silent();
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let mut map = agents.sessions.subscribe();
 
     assert!(watched::read_and_update(&mut map, |map| map.is_empty()));
 
-    let session = agents.start(&kind, Some("/"), Begin::default()).await.unwrap();
+    let session = agents
+        .start(&kind, Some("/"), Begin::default())
+        .await
+        .unwrap();
 
     timeout(LONG, map.changed()).await.unwrap().unwrap();
     assert!(watched::read_and_update(&mut map, |map| map.contains_key(&session.id)));
@@ -236,8 +300,14 @@ async fn a_subscriber_sees_an_insert_and_a_removal() {
 #[tokio::test]
 async fn a_node_with_no_children_counts_none() {
     let kind = silent();
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
-    let session = agents.start(&kind, Some("/"), Begin::default()).await.unwrap();
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
+    let session = agents
+        .start(&kind, Some("/"), Begin::default())
+        .await
+        .unwrap();
     let who = agents.who_of(&session);
 
     assert_eq!(agents.sessions.local_children(&who), 0);
@@ -245,12 +315,17 @@ async fn a_node_with_no_children_counts_none() {
     assert!(agents.sessions.owned().is_empty());
 }
 
-
 #[tokio::test]
 async fn sessions_answer_the_reads_without_an_agents() {
     let kind = silent();
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
-    let session = agents.start(&kind, Some("/"), Begin::default()).await.unwrap();
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
+    let session = agents
+        .start(&kind, Some("/"), Begin::default())
+        .await
+        .unwrap();
 
     let sessions = Sessions::default();
     let reservation = sessions.reserve(None).unwrap();

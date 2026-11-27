@@ -126,7 +126,9 @@ async fn a_take_back_goes_on_when_the_next_move_stops_waiting() {
     });
 
     // The next move takes the signal, then is cancelled.
-    let waiting = moves.cleaned(&SessionId::from("s1")).expect("a take-back is going");
+    let waiting = moves
+        .cleaned(&SessionId::from("s1"))
+        .expect("a take-back is going");
     let next = tokio::spawn(waiting);
     next.abort();
     let _ = next.await;

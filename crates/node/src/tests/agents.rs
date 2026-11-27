@@ -1,17 +1,21 @@
 use super::kinds::launch;
-use crate::agents::Parts;
-use super::*;
-use crate::known::KNOWN;
-use crate::machine::env::locate::{folder, home_twins};
 use super::session::Command;
+use super::*;
+use crate::agents::Parts;
+use crate::known::KNOWN;
 use crate::logs::picture::Picture;
+use crate::machine::env::locate::{folder, home_twins};
 use beep_proto::SessionId;
 use beep_proto::node::{
     agent::{self, CheckoutPlan, SessionsReply, Status},
     harness::AgentSettings,
 };
 use beep_proto::watched;
-use std::{collections::{BTreeMap, HashMap}, path::Path, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::Path,
+    time::Duration,
+};
 
 /// A Claude Code session id, as its transcript file is named.
 #[cfg(unix)]
@@ -57,7 +61,10 @@ fn png(fill: u8) -> Vec<u8> {
 #[cfg(unix)]
 fn agents_at(root: &std::path::Path) -> Agents {
     Agents::new(Parts {
-        occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::at(root), Default::default()),
+        occupancy: crate::occupancy::Occupancy::over(
+            crate::logs::claude::Store::at(root),
+            Default::default(),
+        ),
         ..Parts::default()
     })
 }
@@ -277,12 +284,14 @@ async fn a_replayed_image_is_served_and_found_again_once_evicted() {
     assert!(agents.images.get(&session.id, &key).is_some(), "kept again");
     // A session started outside Beep is read from its file by its id.
     let outside = agents
-        .listings.image(&SessionId::from(CLAUDE_ID), &key)
+        .listings
+        .image(&SessionId::from(CLAUDE_ID), &key)
         .await
         .unwrap();
     assert_eq!(outside.map(|picture| picture.data.clone()), Some(shot));
     let missing = agents
-        .listings.image(&SessionId::from(CLAUDE_ID), &image_key(b"other"))
+        .listings
+        .image(&SessionId::from(CLAUDE_ID), &image_key(b"other"))
         .await;
     assert!(missing.unwrap().is_none());
     session.close().await;
@@ -382,7 +391,10 @@ fn another_machines_home_folder_maps_here() {
 async fn one_session_cannot_be_taken_over_twice() {
     // An adapter that never answers: the session stays starting.
     let kind = sh_agent("claude", "cat > /dev/null");
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let id = "0f3c2a9e-1111-4222-8333-944455556666";
     let begin = || Begin {
         resume: Some(SessionId::from(id)),
@@ -403,7 +415,10 @@ async fn one_session_cannot_be_taken_over_twice() {
 #[tokio::test]
 async fn an_ended_node_session_resumes_from_the_agents_session() {
     let kind = sh_agent("claude", "cat > /dev/null");
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let id = "0f3c2a9e-1111-4222-8333-944455556666";
     let begin = Begin {
         resume: Some(SessionId::from(id)),
@@ -444,7 +459,10 @@ esac
 done
 "#,
     );
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let root = tempfile::tempdir().unwrap();
     let first = agents
         .start(
@@ -526,7 +544,10 @@ while read -r line; do reply '{}'; done
 async fn a_session_goes_by_the_agents_id_and_ends_with_the_node() {
     const AGENT_ID: &str = "0199b2c3-4d5e-7f60-8a9b-0c1d2e3f4a5b";
     let kind = sh_agent("codex", NAMING_ADAPTER);
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let begin = Begin::default();
     let session = agents.start(&kind, Some("/"), begin).await.unwrap();
     assert!(session.info().id.is_empty());
@@ -573,7 +594,10 @@ esac
 done"#,
         );
     let kind = sh_agent("codex", &script);
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let first = agents
         .start(&kind, Some("/"), Begin::default())
         .await
@@ -641,7 +665,10 @@ done"#,
 async fn a_refused_start_makes_no_branch() {
     let (_dir, work) = checkout::tests::repo("refused");
     let kind = sh_agent("codex", "cat > /dev/null");
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     agents.catalog.set_settings(AgentSettings {
         harnesses: vec![beep_proto::node::harness::HarnessConfig {
             enabled: false,
@@ -667,7 +694,10 @@ async fn a_refused_start_makes_no_branch() {
 async fn a_start_git_sync_holds_back_makes_no_worktree() {
     let (_dir, work) = checkout::tests::repo("held");
     let kind = sh_agent("codex", "cat > /dev/null");
-    let agents = Arc::new(Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() }));
+    let agents = Arc::new(Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    }));
     let _hold = agents.occupancy.holds().hold(&work).await.unwrap();
     let plan = CheckoutPlan::NamedWorktree {
         base: None,
@@ -695,7 +725,10 @@ async fn a_start_git_sync_holds_back_makes_no_worktree() {
 async fn an_issue_session_reports_its_agents_id_and_worktree() {
     const AGENT_ID: &str = "0199b2c3-4d5e-7f60-8a9b-0c1d2e3f4a5b";
     let (_dir, work) = checkout::tests::repo("issue");
-    let agents = Agents::new(Parts { kinds: vec![sh_agent("codex", NAMING_ADAPTER)], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![sh_agent("codex", NAMING_ADAPTER)],
+        ..Parts::default()
+    });
     let plan = CheckoutPlan::NamedWorktree {
         base: None,
         branch: "issue-7-fix-it".to_owned(),
@@ -725,7 +758,10 @@ async fn an_issue_session_reports_its_agents_id_and_worktree() {
 async fn a_session_resumes_only_on_its_own_agent() {
     let kind = |name: &str| sh_agent(name, "cat > /dev/null");
     let (claude, codex) = (kind("claude"), kind("codex"));
-    let agents = Agents::new(Parts { kinds: vec![claude.clone(), codex.clone()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![claude.clone(), codex.clone()],
+        ..Parts::default()
+    });
     let begin = Begin {
         resume: Some(SessionId::from("0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5b").to_owned()),
         ..Begin::default()
@@ -744,7 +780,10 @@ async fn a_session_resumes_only_on_its_own_agent() {
 async fn sessions_list_with_no_agent_program_found() {
     let root = tempfile::tempdir().expect("a temp folder");
     let agents = Agents::new(Parts {
-        occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::locate_in(root.path()), Default::default()),
+        occupancy: crate::occupancy::Occupancy::over(
+            crate::logs::claude::Store::locate_in(root.path()),
+            Default::default(),
+        ),
         ..Parts::default()
     });
     assert_eq!(
@@ -760,7 +799,11 @@ async fn sessions_list_with_no_agent_program_found() {
     let line = r#"{"type":"user","cwd":"/srv/project","timestamp":"2026-11-02T10:00:00.000Z","message":{"role":"user","content":"hi"}}"#;
     let file = project.join(format!("{CLAUDE_ID}.jsonl"));
     std::fs::write(file, format!("{line}\n")).expect("a transcript");
-    let listed = agents.listings.external().list(10, None, HashMap::new()).await;
+    let listed = agents
+        .listings
+        .external()
+        .list(10, None, HashMap::new())
+        .await;
     assert_eq!(listed.expect("a list").len(), 1);
 }
 
@@ -771,7 +814,10 @@ async fn a_live_view_survives_idle_time_and_detaching_keeps_the_agent_running() 
     use tokio::time::{advance, pause, resume, timeout};
     let root = tempfile::tempdir().unwrap();
     let agents = Arc::new(Agents::new(Parts {
-        occupancy: crate::occupancy::Occupancy::over(Default::default(), crate::logs::found::Stores::default()),
+        occupancy: crate::occupancy::Occupancy::over(
+            Default::default(),
+            crate::logs::found::Stores::default(),
+        ),
         ..Parts::default()
     }));
     let kind = sh_agent("codex", THINKING_ADAPTER);
@@ -884,7 +930,10 @@ mod actor_tests {
             default_model: None,
             bridge: None,
         };
-        let agents = Arc::new(Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() }));
+        let agents = Arc::new(Agents::new(Parts {
+            kinds: vec![kind.clone()],
+            ..Parts::default()
+        }));
         let session = agents
             .start(&kind, root.path().to_str(), Begin::default())
             .await
@@ -994,14 +1043,18 @@ async fn project_history_pages_metadata_without_preview_text() {
         std::fs::write(sessions.join(format!("session-{i:03}.jsonl")), text).unwrap();
     }
     let agents = Agents::new(Parts {
-        occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::at(root.path()), crate::logs::found::Stores::at(None, Some(&root.path().join("sessions")), None)),
+        occupancy: crate::occupancy::Occupancy::over(
+            crate::logs::claude::Store::at(root.path()),
+            crate::logs::found::Stores::at(None, Some(&root.path().join("sessions")), None),
+        ),
         ..Parts::default()
     });
     let mut cursor = None;
     let mut ids = std::collections::HashSet::new();
     loop {
         let page = agents
-            .listings.sessions_page(vec!["/srv/project".into()], 50, cursor)
+            .listings
+            .sessions_page(vec!["/srv/project".into()], 50, cursor)
             .await
             .unwrap();
         assert!(page.sessions.len() <= 50);
@@ -1114,7 +1167,9 @@ async fn native_places_skip_an_unreadable_transcript() {
     std::fs::create_dir(&repo).expect("a checkout folder");
     run(&repo, &["init", "-q", "-b", "main"]);
     let config = root.path().join("claude");
-    let folder = config.join("projects").join(crate::logs::claude_dir::slug(&repo));
+    let folder = config
+        .join("projects")
+        .join(crate::logs::claude_dir::slug(&repo));
     std::fs::create_dir_all(&folder).expect("a transcript folder");
     let line = serde_json::json!({
         "type": "assistant", "cwd": repo,

@@ -1,11 +1,11 @@
 //! Native registrations and the presence held by their open connections.
 
-use beep_proto::SessionId;
 use crate::{
-    logs::{found::Agent, unix_now},
     lock,
+    logs::{found::Agent, unix_now},
 };
 use anyhow::{Result, bail};
+use beep_proto::SessionId;
 use beep_proto::node::agent::{ExternalSession, Presence};
 use serde::Deserialize;
 use std::{

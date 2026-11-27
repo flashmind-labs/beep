@@ -1,11 +1,11 @@
 //! Version negotiation and the session operations shared by both ACP versions.
 
 use super::{Offered, ResumeMethod, session};
-use session::SystemPromptFormat;
 use agent_client_protocol::{
     Error, JsonRpcMessage, UntypedMessage, v1::schema as v1, v2::schema as v2,
 };
 use serde_json::{Value, json};
+use session::SystemPromptFormat;
 use std::collections::BTreeMap;
 
 /// V1 by default. A harness opts into v2, with negotiated v1 fallback,

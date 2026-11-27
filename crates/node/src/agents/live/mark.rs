@@ -22,7 +22,9 @@ impl From<&Live> for Stand {
         match state.status {
             Status::Ended => Self::Ended,
             Status::Asking => Self::WaitingOnUser,
-            Status::Idle if live.stopped_by_user && state.last_stop == Some(StopReason::Cancelled) => {
+            Status::Idle
+                if live.stopped_by_user && state.last_stop == Some(StopReason::Cancelled) =>
+            {
                 Self::Stopped
             }
             Status::Idle if state.subagents == 0 => Self::Idle,

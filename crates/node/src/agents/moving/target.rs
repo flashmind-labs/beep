@@ -16,8 +16,8 @@ use super::{
     worktree,
 };
 use crate::agents::{SavedSession, checkouts::watch_paths, conversation};
-use crate::logs::found::Agent;
 use crate::events::paths::Paths;
+use crate::logs::found::Agent;
 use anyhow::{Context, Result, bail};
 use beep_proto::SessionId;
 use beep_proto::node::{agent::MovePhase, mesh_state::SessionMove};
@@ -26,11 +26,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::{
-    sync::Notify,
-    task::spawn_blocking,
-    time::sleep,
-};
+use tokio::{sync::Notify, task::spawn_blocking, time::sleep};
 
 /// The waits between tries to reach the source, doubling up to the last.
 const FIRST_WAIT: Duration = Duration::from_secs(1);

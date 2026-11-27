@@ -85,7 +85,10 @@ async fn source_env() -> Source {
         .expect("the mesh is made");
     let work = dir.path().join("work");
     fs::create_dir_all(&work).expect("a work folder");
-    let agents = Arc::new(Agents::new(Parts { kinds: vec![kind()], ..Parts::default() }));
+    let agents = Arc::new(Agents::new(Parts {
+        kinds: vec![kind()],
+        ..Parts::default()
+    }));
     agents.reopen(Vec::new()).await;
     let env = Env {
         agents,
@@ -137,7 +140,8 @@ async fn asking(source: &Source) -> Arc<crate::agents::Session> {
                 ..Begin::default()
             },
         )
-        .await.expect("the session starts");
+        .await
+        .expect("the session starts");
     let mut live = session.live.clone();
     timeout(
         Duration::from_secs(20),

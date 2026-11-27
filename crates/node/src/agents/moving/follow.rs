@@ -188,10 +188,9 @@ pub(super) async fn reconcile(env: &Arc<Env>, running: &mut HashMap<SessionId, R
 
         // A restart may find the previous generation's staged work before
         // it has any running task to cancel.
-        if let Some(old) = env
-            .state
-            .load(&id)
-            && old.at != record.at && old.phase == Phase::Working
+        if let Some(old) = env.state.load(&id)
+            && old.at != record.at
+            && old.phase == Phase::Working
         {
             let (work, session, at) = (env.clone(), id.clone(), old.at);
             env.agents.moves.clean(&id, async move {

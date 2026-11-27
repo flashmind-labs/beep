@@ -40,11 +40,14 @@ fn antigravity_installs_with_its_script_and_then_updates_itself() {
         .map(ToString::to_string)
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(line.ends_with(if cfg!(windows) {
-        "\"irm https://antigravity.google/cli/install.ps1 | iex\""
-    } else {
-        "\"curl -fsSL https://antigravity.google/cli/install.sh | bash\""
-    }), "{line}");
+    assert!(
+        line.ends_with(if cfg!(windows) {
+            "\"irm https://antigravity.google/cli/install.ps1 | iex\""
+        } else {
+            "\"curl -fsSL https://antigravity.google/cli/install.sh | bash\""
+        }),
+        "{line}"
+    );
 
     let installed = Target {
         cli: Some(Path::new("/srv/tools/agy")),
@@ -66,20 +69,29 @@ fn a_missing_claude_installs_with_npm_then_its_own_installer() {
         global: None,
     };
 
-    assert_eq!(plan(&missing, &without_npm), std::slice::from_ref(&installer));
+    assert_eq!(
+        plan(&missing, &without_npm),
+        std::slice::from_ref(&installer)
+    );
     assert_eq!(
         plan(&missing, &npm_none()),
         [
-            Step::new("npm", &["install", "-g", "@anthropic-ai/claude-code@latest"]),
+            Step::new(
+                "npm",
+                &["install", "-g", "@anthropic-ai/claude-code@latest"]
+            ),
             installer.clone()
         ]
     );
     let line = installer.to_string();
-    assert!(line.ends_with(if cfg!(windows) {
-        "\"irm https://claude.ai/install.ps1 | iex\""
-    } else {
-        "\"curl -fsSL https://claude.ai/install.sh | bash\""
-    }), "{line}");
+    assert!(
+        line.ends_with(if cfg!(windows) {
+            "\"irm https://claude.ai/install.ps1 | iex\""
+        } else {
+            "\"curl -fsSL https://claude.ai/install.sh | bash\""
+        }),
+        "{line}"
+    );
 }
 
 fn npm_none() -> Npm {

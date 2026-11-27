@@ -1,7 +1,7 @@
 //! Processes a session started, including children that changed groups.
 
 use crate::{actor, events::exits::Exit};
-use futures::future::join_all;
+use beep_proto::watched;
 use beep_proto::{
     SessionId,
     node::{
@@ -9,7 +9,7 @@ use beep_proto::{
         events::Topic,
     },
 };
-use beep_proto::watched;
+use futures::future::join_all;
 use std::{
     collections::{BTreeSet, HashMap},
     sync::{
@@ -31,7 +31,6 @@ mod pages;
 use crate::logs::processes::{
     Process, UNWATCHED, WATCHED, invalidate, os as process_table, read as read_table, signal,
 };
-
 
 /// How often a standalone node checks the ports its sessions' processes
 /// listen on, so a server that binds after it started still shows up.
@@ -273,7 +272,12 @@ impl Processes {
 
                 if result.is_ok() && scan {
                     ports_due = Instant::now() + PORTS;
-                    actor::job("processes", "ports", observed.scan(processes.docker.as_ref())).await;
+                    actor::job(
+                        "processes",
+                        "ports",
+                        observed.scan(processes.docker.as_ref()),
+                    )
+                    .await;
                 }
 
                 processes.publish(&observed, &result, &publish, &session);
@@ -433,8 +437,18 @@ impl Processes {
             // The first list is read, not signalled.
             signal = match (&*current, &listing) {
                 (None, _) | (_, Err(_)) => false,
-                (Some(Published { listing: Ok(last), .. }), Ok(next)) => last.rows != next.rows,
-                (Some(Published { listing: Err(_), .. }), Ok(_)) => true,
+                (
+                    Some(Published {
+                        listing: Ok(last), ..
+                    }),
+                    Ok(next),
+                ) => last.rows != next.rows,
+                (
+                    Some(Published {
+                        listing: Err(_), ..
+                    }),
+                    Ok(_),
+                ) => true,
             };
             *current = Some(Published {
                 at: Instant::now(),
@@ -617,7 +631,6 @@ impl Observed {
         rows.sort_by_key(|p| (p.started_at, p.pid));
         rows
     }
-
 }
 
 /// Tests the `listening` ports for pages, keeping what was found by owner

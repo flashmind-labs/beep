@@ -50,15 +50,19 @@ async fn a_transcript_is_read_when_the_stores_ring_not_on_a_timer() {
     fs::create_dir_all(&project).unwrap();
     let path = project.join(format!("{ID}.jsonl"));
     fs::write(&path, "{\"type\":\"permission-mode\"}\n").unwrap();
-    let occupancy = Occupancy::over(crate::logs::claude::Store::at(temp.path()), Default::default());
+    let occupancy = Occupancy::over(
+        crate::logs::claude::Store::at(temp.path()),
+        Default::default(),
+    );
     let events = crate::events::Hub::default();
     let rings = events.subscribe();
-        let link = beep_proto::node::local_link();
+    let link = beep_proto::node::local_link();
     let (node_tx, node_rx) = link.node;
     let (_tx, mut rx) = link.caller;
-    let serving = tokio::spawn(async move {
-        serve(node_tx, node_rx, &occupancy, vec![ID.into()], rings).await
-    });
+    let serving =
+        tokio::spawn(
+            async move { serve(node_tx, node_rx, &occupancy, vec![ID.into()], rings).await },
+        );
     let SessionsReply::Watching { unknown } = rx.recv().await.unwrap().unwrap() else {
         panic!("expected the watch to start");
     };

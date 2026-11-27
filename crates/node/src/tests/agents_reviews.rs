@@ -1,7 +1,7 @@
-use crate::agents::sessions;
 use super::*;
-use crate::agents::Parts;
 use crate::agents::AgentKind;
+use crate::agents::Parts;
+use crate::agents::sessions;
 use beep_proto::node::agent::{CodeFinding, CodeVerdict, FindingSeverity};
 use beep_proto::watched;
 use std::{collections::BTreeMap, path::Path, time::Duration};
@@ -62,7 +62,10 @@ impl Rig {
         let top = kind("top", &dir.path().join("top.log"));
         let kid = kind("kid", &dir.path().join("kid.log"));
         Self {
-            agents: Arc::new(Agents::new(Parts { kinds: vec![top, kid], ..Parts::default() })),
+            agents: Arc::new(Agents::new(Parts {
+                kinds: vec![top, kid],
+                ..Parts::default()
+            })),
             dir,
         }
     }
@@ -93,7 +96,8 @@ impl Rig {
         let session = self
             .agents
             .start(&top, Some(&cwd), begin)
-            .await.expect("the session starts");
+            .await
+            .expect("the session starts");
         let mut live = session.live.clone();
         timeout(
             Duration::from_secs(20),
@@ -162,11 +166,18 @@ async fn a_submitted_review_stays_with_the_parent_and_the_reviewer_goes() {
     assert_eq!(link.session, sessions::name_of(&parent));
     assert!(rig.agents.reviews.is_reviewer(&run.id));
     assert!(!rig.agents.reviews.is_reviewer(&parent.id));
-    let listed: Vec<SessionId> = rig.agents.sessions.list().into_iter().map(|info| info.id).collect();
+    let listed: Vec<SessionId> = rig
+        .agents
+        .sessions
+        .list()
+        .into_iter()
+        .map(|info| info.id)
+        .collect();
     assert_eq!(listed, [parent.info().id], "the reviewer is not listed");
     let mut all: Vec<(SessionId, bool)> = rig
         .agents
-        .sessions.listed(true)
+        .sessions
+        .listed(true)
         .into_iter()
         .map(|info| (info.id, info.reviewer))
         .collect();
@@ -185,11 +196,15 @@ async fn a_submitted_review_stays_with_the_parent_and_the_reviewer_goes() {
         "the reviewer is not kept over a restart"
     );
     assert!(
-        rig.agents.reviews.submit_review(&parent.id, found()).is_err(),
+        rig.agents
+            .reviews
+            .submit_review(&parent.id, found())
+            .is_err(),
         "only the reviewer hands in"
     );
     rig.agents
-        .reviews.submit_review(&run.id, found())
+        .reviews
+        .submit_review(&run.id, found())
         .expect("the reviewer hands in");
     // Its turn ends once the tool call is answered.
     reviewer
@@ -253,7 +268,10 @@ async fn a_finished_reviewer_leaves_no_session_on_disk() {
     let rig = Rig {
         agents: Arc::new(Agents::new(Parts {
             kinds: vec![claude],
-            occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::at(&dir.path().join("claude")), Default::default()),
+            occupancy: crate::occupancy::Occupancy::over(
+                crate::logs::claude::Store::at(&dir.path().join("claude")),
+                Default::default(),
+            ),
             ..Parts::default()
         })),
         dir,
@@ -267,7 +285,8 @@ async fn a_finished_reviewer_leaves_no_session_on_disk() {
         .await
         .expect("the review starts");
     rig.agents
-        .reviews.submit_review(&run.id, found())
+        .reviews
+        .submit_review(&run.id, found())
         .expect("the reviewer hands in");
     let reviewer = rig.agents.sessions.get(&run.id).expect("the reviewer runs");
     reviewer
@@ -323,7 +342,8 @@ async fn a_wait_on_a_review_ends_when_the_review_does() {
     tokio::task::yield_now().await;
     assert!(!wait.is_finished());
     rig.agents
-        .reviews.submit_review(&run.id, found())
+        .reviews
+        .submit_review(&run.id, found())
         .expect("the reviewer hands in");
     reviewer
         .order(Command::Cancel { by_user: false })

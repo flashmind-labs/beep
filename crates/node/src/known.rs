@@ -1,6 +1,5 @@
 //! The agents the node knows how to start (`KNOWN`) and how each one's ACP adapter runs.
 
-
 pub(crate) const CODEX_CONFIG: &str = "CODEX_CONFIG";
 /// OpenCode's permission rules, as JSON.
 pub(crate) const OPENCODE_PERMISSION: &str = "OPENCODE_PERMISSION";
@@ -30,7 +29,6 @@ pub(crate) enum Route {
         key: &'static str,
     },
 }
-
 
 /// An agent the daemon knows how to start, when its CLI is installed.
 /// Each starts with its own permission prompts off, so it never stops to

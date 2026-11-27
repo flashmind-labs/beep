@@ -63,7 +63,15 @@ pub(crate) fn agent_command(
     command
         .arg("-d")
         .arg(distro)
-        .args(["--cd", cwd.map_or("~", AsRef::as_ref), "--exec", "sh", "-lc", &script, program.as_ref()])
+        .args([
+            "--cd",
+            cwd.map_or("~", AsRef::as_ref),
+            "--exec",
+            "sh",
+            "-lc",
+            &script,
+            program.as_ref(),
+        ])
         .args(args)
         .env("WSLENV", wslenv());
     command
@@ -83,11 +91,17 @@ fn wslenv() -> String {
         .filter(|name| !HARNESSES.iter().any(|harness| harness.home_var == name))
         .collect();
 
-    joined_wslenv(std::env::var("WSLENV").ok().as_deref(), set.iter().map(String::as_str))
+    joined_wslenv(
+        std::env::var("WSLENV").ok().as_deref(),
+        set.iter().map(String::as_str),
+    )
 }
 
 /// `existing` with `names` added once each, `:` between them.
-pub(crate) fn joined_wslenv<'a>(existing: Option<&'a str>, names: impl Iterator<Item = &'a str>) -> String {
+pub(crate) fn joined_wslenv<'a>(
+    existing: Option<&'a str>,
+    names: impl Iterator<Item = &'a str>,
+) -> String {
     let mut all: Vec<&str> = existing
         .into_iter()
         .flat_map(|existing| existing.split(':'))

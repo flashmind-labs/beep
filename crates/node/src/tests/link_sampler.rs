@@ -1,6 +1,6 @@
 use super::*;
-use beep_proto::node::StatsReport;
 use crate::link::Traffic;
+use beep_proto::node::StatsReport;
 use beep_proto::watched;
 use tokio::time::timeout;
 
@@ -27,10 +27,13 @@ async fn a_disk_that_hangs_holds_up_the_disks_and_nothing_else() {
     let sampler = Sampler::default();
     let mut followed = follow(&sampler, Box::new(|| Box::pin(std::future::pending())));
 
-    timeout(LIMIT, watched::wait_for(&mut followed, |sample| sample.traffic.is_some()))
-        .await
-        .expect("the traffic came")
-        .expect("the sampler runs");
+    timeout(
+        LIMIT,
+        watched::wait_for(&mut followed, |sample| sample.traffic.is_some()),
+    )
+    .await
+    .expect("the traffic came")
+    .expect("the sampler runs");
     let sample = watched::read_and_update(&mut followed, Clone::clone);
 
     assert!(sample.stats.is_none());
@@ -43,10 +46,13 @@ async fn every_stream_follows_the_one_sample() {
     let (mut first, mut second) = (follow(&sampler, both()), follow(&sampler, both()));
 
     for followed in [&mut first, &mut second] {
-        timeout(LIMIT, watched::wait_for(followed, |sample| sample.stats.is_some()))
-            .await
-            .expect("the stats came")
-            .expect("the sampler runs");
+        timeout(
+            LIMIT,
+            watched::wait_for(followed, |sample| sample.stats.is_some()),
+        )
+        .await
+        .expect("the stats came")
+        .expect("the sampler runs");
     }
 }
 
@@ -67,8 +73,11 @@ async fn sampling_stops_with_the_last_stream_and_starts_again() {
     }
 
     let mut again = follow(&sampler, measure());
-    timeout(LIMIT, watched::wait_for(&mut again, |sample| sample.stats.is_some()))
-        .await
-        .expect("it sampled again")
-        .expect("the sampler runs");
+    timeout(
+        LIMIT,
+        watched::wait_for(&mut again, |sample| sample.stats.is_some()),
+    )
+    .await
+    .expect("it sampled again")
+    .expect("the sampler runs");
 }

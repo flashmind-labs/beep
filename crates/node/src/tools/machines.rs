@@ -4,11 +4,11 @@
 //! check first.
 
 use super::catalog::REMOTE_RUN;
-use crate::agents::machine_list::{Machine, find_named, machines, no_machine};
-use crate::agents::calls::command_name;
 use super::{Node, caller::Caller, peer_tools};
-use crate::peer_stream::{handshake, over_the_mesh};
+use crate::agents::calls::command_name;
+use crate::agents::machine_list::{Machine, find_named, machines, no_machine};
 use crate::agents::reply::{done, fail, ok};
+use crate::peer_stream::{handshake, over_the_mesh};
 use crate::{
     agents::live::Sent,
     files::transfer::{Incoming, Offer},
@@ -237,12 +237,7 @@ async fn have_fetched(
 /// Shows `session` the bytes sent of one offer after the ones `sent`
 /// counts, at most every `SHOW_SENT_EVERY`, until the offer ends or the
 /// session cannot be shown.
-async fn show_sent(
-    node: &Node,
-    session: &SessionId,
-    mut offer: watch::Receiver<u64>,
-    sent: Sent,
-) {
+async fn show_sent(node: &Node, session: &SessionId, mut offer: watch::Receiver<u64>, sent: Sent) {
     loop {
         let done = sent
             .done

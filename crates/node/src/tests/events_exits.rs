@@ -1,5 +1,5 @@
-use std::time::Duration;
 use super::*;
+use std::time::Duration;
 
 #[tokio::test]
 async fn cancelling_and_rewatching_a_pid_keeps_the_new_registration() {

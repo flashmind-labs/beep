@@ -526,7 +526,13 @@ pub(crate) fn remove_entry(path: &Path) -> Result<()> {
 /// Removes the link or file `path`. A link to a folder on Windows is a folder entry.
 fn remove_link(path: &Path) -> Result<()> {
     fs::remove_file(path)
-        .or_else(|e| if cfg!(windows) { fs::remove_dir(path) } else { Err(e) })
+        .or_else(|e| {
+            if cfg!(windows) {
+                fs::remove_dir(path)
+            } else {
+                Err(e)
+            }
+        })
         .with_context(|| format!("removing {}", path.display()))
 }
 

@@ -38,7 +38,10 @@ fn full() -> FlshSettings {
 fn pi_reads_the_routing_where_it_looks() {
     let dir = tempfile::tempdir().unwrap();
     apply(dir.path(), &full()).unwrap();
-    let all: Vec<&str> = FlshQuantization::VARIANTS.iter().map(|q| q.into()).collect();
+    let all: Vec<&str> = FlshQuantization::VARIANTS
+        .iter()
+        .map(|q| q.into())
+        .collect();
     assert_eq!(
         read(dir.path()),
         json!({"providers": {"openrouter": {
@@ -69,7 +72,10 @@ fn the_users_own_keys_stay_and_cleared_ones_go() {
     fs::write(dir.path().join(MODELS), mine.to_string()).unwrap();
     apply(dir.path(), &full()).unwrap();
     let written = read(dir.path());
-    assert_eq!(written["providers"]["example"], mine["providers"]["example"]);
+    assert_eq!(
+        written["providers"]["example"],
+        mine["providers"]["example"]
+    );
     assert_eq!(
         written["providers"]["openrouter"]["modelOverrides"]["vendor/mine"],
         json!({"name": "Mine"})
@@ -77,13 +83,16 @@ fn the_users_own_keys_stay_and_cleared_ones_go() {
 
     apply(dir.path(), &FlshSettings::default()).unwrap();
     // The user's sort was replaced by Beep's, so clearing Beep's drops it.
-    assert_eq!(read(dir.path()), json!({"providers": {
-        "openrouter": {
-            "compat": {"openRouterRouting": {"data_collection": "deny"}},
-            "modelOverrides": {"vendor/mine": {"name": "Mine"}},
-        },
-        "example": {"baseUrl": "https://provider.example/v1"},
-    }}));
+    assert_eq!(
+        read(dir.path()),
+        json!({"providers": {
+            "openrouter": {
+                "compat": {"openRouterRouting": {"data_collection": "deny"}},
+                "modelOverrides": {"vendor/mine": {"name": "Mine"}},
+            },
+            "example": {"baseUrl": "https://provider.example/v1"},
+        }})
+    );
 }
 
 #[test]

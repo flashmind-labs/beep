@@ -1,6 +1,6 @@
 use super::*;
-use crate::logs::claude::transcript::tests::FIXTURE;
 use crate::fs::paths;
+use crate::logs::claude::transcript::tests::FIXTURE;
 
 const ID: &str = "0f3c2a9e-1111-4222-8333-944455556666";
 const OTHER: &str = "7a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d";
@@ -239,7 +239,12 @@ fn a_store_lists_sessions_newest_first_with_what_they_say() {
     assert_eq!(first.last_prompt, "now run the whole suite");
     assert_eq!(first.last_message, "All 42 tests pass now.");
     assert_eq!(sessions[1].taken_over, Some(SessionId::from("a3f9c1")));
-    assert_eq!(list(&store, &snapshot, 10, Some(&SessionId::from(OTHER))).unwrap().len(), 1);
+    assert_eq!(
+        list(&store, &snapshot, 10, Some(&SessionId::from(OTHER)))
+            .unwrap()
+            .len(),
+        1
+    );
     assert!(store.find(&SessionId::from(ID)).is_some());
     assert!(store.find(&SessionId::from("../x")).is_none());
     // A transcript filed under another project is found where it went.
@@ -343,22 +348,46 @@ fn an_appended_transcript_summarizes_as_one_read_whole() {
     shown(&store);
 
     let steps = [
-        line(1, "user", r#","message":{"role":"user","content":"rename the module"}"#) + "\n",
-        line(2, "assistant", r#","message":{"content":[{"type":"text","text":"Renamed it."}]}"#) + "\n",
+        line(
+            1,
+            "user",
+            r#","message":{"role":"user","content":"rename the module"}"#,
+        ) + "\n",
+        line(
+            2,
+            "assistant",
+            r#","message":{"content":[{"type":"text","text":"Renamed it."}]}"#,
+        ) + "\n",
         r#"{"type":"ai-title","aiTitle":"Rename the module"}"#.to_owned() + "\n",
         r#"{"type":"summary","summary":"Not the title"}"#.to_owned() + "\n",
-        line(3, "user", r#","isSidechain":true,"message":{"role":"user","content":"a subagent's prompt"}"#) + "\n",
+        line(
+            3,
+            "user",
+            r#","isSidechain":true,"message":{"role":"user","content":"a subagent's prompt"}"#,
+        ) + "\n",
         // A line not yet ended is read once it is.
-        line(4, "user", r#","message":{"role":"user","content":"now the docs"}"#),
+        line(
+            4,
+            "user",
+            r#","message":{"role":"user","content":"now the docs"}"#,
+        ),
         "\n".to_owned(),
         r#"{"type":"custom-title","customTitle":"Module rename"}"#.to_owned() + "\n",
         r#"{"type":"last-prompt","lastPrompt":"recorded"}"#.to_owned() + "\n",
-        line(5, "assistant", r#","cwd":"/srv/other","message":{"content":[{"type":"text","text":"Docs done."}]}"#) + "\n",
+        line(
+            5,
+            "assistant",
+            r#","cwd":"/srv/other","message":{"content":[{"type":"text","text":"Docs done."}]}"#,
+        ) + "\n",
     ];
 
     for step in &steps {
         append(step);
-        assert_eq!(shown(&store), shown(&Store::at(root.path())), "after {step}");
+        assert_eq!(
+            shown(&store),
+            shown(&Store::at(root.path())),
+            "after {step}"
+        );
     }
 
     assert_eq!(
@@ -368,7 +397,11 @@ fn an_appended_transcript_summarizes_as_one_read_whole() {
     );
 
     // Past a tail read of appends, and after a rewrite, it reads the tail again.
-    let filler = line(6, "assistant", r#","message":{"content":[{"type":"text","text":"more"}]}"#);
+    let filler = line(
+        6,
+        "assistant",
+        r#","message":{"content":[{"type":"text","text":"more"}]}"#,
+    );
     append(&format!("{filler}\n").repeat(1024 * 1024 / filler.len() + 1));
     assert_eq!(shown(&store), shown(&Store::at(root.path())));
     fs::write(&path, FIXTURE).expect("a rewrite");
@@ -433,7 +466,8 @@ fn one_session_is_looked_up_by_its_file_without_listing_the_store() {
     fs::write(elsewhere.join(format!("{OTHER}.jsonl")), FIXTURE).expect("a transcript");
     let store = Store::at(root.path());
 
-    let found = list(&store, &Snapshot::default(), 1, Some(&SessionId::from(ID))).expect("a lookup");
+    let found =
+        list(&store, &Snapshot::default(), 1, Some(&SessionId::from(ID))).expect("a lookup");
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].id, ID);
     assert_eq!(found[0].title.as_deref(), Some("Fix the flaky test"));
@@ -441,8 +475,13 @@ fn one_session_is_looked_up_by_its_file_without_listing_the_store() {
     assert_eq!(store.memos.newest.len(), 1);
     assert_eq!(store.memos.summaries.len(), 1);
     assert!(
-        list(&store, &Snapshot::default(), 1, Some(&SessionId::from("0f3c2a9e-0000-4222-8333-944455556666")))
-            .expect("a lookup")
-            .is_empty()
+        list(
+            &store,
+            &Snapshot::default(),
+            1,
+            Some(&SessionId::from("0f3c2a9e-0000-4222-8333-944455556666"))
+        )
+        .expect("a lookup")
+        .is_empty()
     );
 }

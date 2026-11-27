@@ -1,10 +1,10 @@
-use beep_proto::SessionId;
-use crate::agents::Parts;
 use super::*;
+use crate::agents::Parts;
 use crate::{
     agents::AgentKind,
     tools::{Backend, Caller, Node, Served, peer_tools},
 };
+use beep_proto::SessionId;
 use beep_proto::node::tools::Tool;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -90,7 +90,10 @@ cat > /dev/null
         bridge: None,
     };
     let mut node = Node::test(dir.path()).await;
-    node.agents = Arc::new(Agents::new(Parts { kinds: vec![kind], ..Parts::default() }));
+    node.agents = Arc::new(Agents::new(Parts {
+        kinds: vec![kind],
+        ..Parts::default()
+    }));
     let node = Served {
         node,
         screens: Default::default(),

@@ -42,8 +42,7 @@ pub(super) fn branches(root: &Path, fallback: &str) -> Result<String> {
     let mut repo = crate::logs::found::repository(root).context("no Git repository here")?;
     // The distance walks read the same commits again for every branch.
     repo.object_cache_size_if_unset(OBJECT_CACHE);
-    let default =
-        crate::logs::found::default_branch(&repo).unwrap_or_else(|| fallback.to_owned());
+    let default = crate::logs::found::default_branch(&repo).unwrap_or_else(|| fallback.to_owned());
     let base = [
         format!("refs/remotes/origin/{default}"),
         format!("refs/heads/{default}"),

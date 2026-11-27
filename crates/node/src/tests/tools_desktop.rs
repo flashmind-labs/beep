@@ -1,10 +1,10 @@
-use beep_proto::SessionId;
 use super::*;
-use futures::future::BoxFuture;
 use crate::peer_stream::{forward, from_desktop};
-use beep_mesh::Mesh;
-use beep_proto::node::tools::Tool;
 use beep_mesh::Key;
+use beep_mesh::Mesh;
+use beep_proto::SessionId;
+use beep_proto::node::tools::Tool;
+use futures::future::BoxFuture;
 use iroh::{Endpoint, SecretKey, endpoint::presets};
 use std::time::Duration;
 
@@ -42,12 +42,20 @@ async fn a_desktop_answers_for_its_own_sessions_and_for_a_node() {
     };
 
     assert_eq!(call(&node, &request()).await, expected);
-    assert_eq!(answer(node.project_tools.as_ref(), &request()).await, expected);
+    assert_eq!(
+        answer(node.project_tools.as_ref(), &request()).await,
+        expected
+    );
 }
 
 #[tokio::test]
 async fn a_node_without_a_mesh_or_a_desktop_says_where_the_tool_runs() {
-    let Reply::Done { text, failed } = call(&Node::test(tempfile::tempdir().unwrap().path()).await, &request()).await else {
+    let Reply::Done { text, failed } = call(
+        &Node::test(tempfile::tempdir().unwrap().path()).await,
+        &request(),
+    )
+    .await
+    else {
         panic!("not done");
     };
     assert!(
@@ -75,16 +83,16 @@ async fn forward_skips_observers() {
         .await
         .unwrap();
 
-    let forwarded = tokio::time::timeout(
-        Duration::from_secs(10),
-        forward(&mesh, &request()),
-    )
-    .await
-    .expect("no dial");
+    let forwarded = tokio::time::timeout(Duration::from_secs(10), forward(&mesh, &request()))
+        .await
+        .expect("no dial");
     let Reply::Done { text, failed } = forwarded else {
         panic!("not done");
     };
-    assert!(failed && text.contains("No desktop of the mesh is online"), "{text}");
+    assert!(
+        failed && text.contains("No desktop of the mesh is online"),
+        "{text}"
+    );
 }
 
 #[test]

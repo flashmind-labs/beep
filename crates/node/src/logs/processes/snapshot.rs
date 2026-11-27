@@ -1,10 +1,10 @@
 //! One OS process-table read shared by the sessions observing their children.
 
-use super::process::Process;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use super::linux as os;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use super::macos as os;
+use super::process::Process;
 #[cfg(windows)]
 use super::windows as os;
 use crate::AsyncMutex;

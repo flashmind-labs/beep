@@ -2,17 +2,20 @@
 //! digested into prompts, text, thinking, tool calls and turn ends (`Digest`,
 //! `digest_tail`, `head`).
 
-use crate::logs::{tool_details, window::{ARTIFACT_TOOL, COMPACTED_ENTRY, SKILL_TOOL, summary_note}};
+use crate::logs::{
+    tool_details,
+    window::{ARTIFACT_TOOL, COMPACTED_ENTRY, SKILL_TOOL, summary_note},
+};
 use crate::{
     calls::Tool as BeepTool,
-    tags::{self, Part},
+    fs::fsat::{self, FileId},
     logs::{
         found::unix_millis,
         picture::{Picture, block_picture},
         window::{Excerpt, content_text, finish_tool_call, window},
     },
+    tags::{self, Part},
     text::cut,
-    fs::fsat::{self, FileId},
 };
 use beep_proto::{
     AgentToolCall,
@@ -561,11 +564,13 @@ impl Digest {
 
 /// Whether a transcript line calls a tool or carries a tool's result.
 fn runs_tool(value: &Value) -> bool {
-    value["message"]["content"].as_array().is_some_and(|blocks| {
-        blocks
-            .iter()
-            .any(|block| matches!(block["type"].as_str(), Some("tool_use" | "tool_result")))
-    })
+    value["message"]["content"]
+        .as_array()
+        .is_some_and(|blocks| {
+            blocks
+                .iter()
+                .any(|block| matches!(block["type"].as_str(), Some("tool_use" | "tool_result")))
+        })
 }
 
 fn text_field(value: &Value, key: &str) -> Option<String> {
@@ -859,8 +864,14 @@ impl Anchor {
 
 fn anchor(entry: &Entry) -> Option<Anchor> {
     match entry.kind {
-        EntryKind::User if entry.text.starts_with("<beep-context>")
-            && tags::parts(&entry.text).iter().all(|part| matches!(part, Part::Context(_))) => None,
+        EntryKind::User
+            if entry.text.starts_with("<beep-context>")
+                && tags::parts(&entry.text)
+                    .iter()
+                    .all(|part| matches!(part, Part::Context(_))) =>
+        {
+            None
+        }
         EntryKind::User | EntryKind::Agent | EntryKind::Thought => {
             // ACP streams blocks together; the native reader separates them.
             let text = cut(entry.text.trim(), MAX_ENTRY)
@@ -1250,18 +1261,25 @@ pub(crate) mod tests {
             serde_json::json!({"type": "user", "cwd": cwd, "message": {"role": "user", "content": content}})
                 .to_string()
         };
-        let tool = serde_json::json!([{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]);
+        let tool =
+            serde_json::json!([{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]);
         let lines = [
             line("/srv/project", "start".into()),
             line("/srv/project/.worktrees/fix", tool.clone()),
             line("/srv/project", "how does it work?".into()),
         ];
         let digest = Digest::read(&lines.join("\n"));
-        assert_eq!(digest.said.cwd.as_deref(), Some("/srv/project/.worktrees/fix"));
+        assert_eq!(
+            digest.said.cwd.as_deref(),
+            Some("/srv/project/.worktrees/fix")
+        );
         assert_eq!(digest.said.launched.as_deref(), Some("/srv/project"));
 
         let back = [lines.join("\n"), line("/srv/project", tool)].join("\n");
-        assert_eq!(Digest::read(&back).said.cwd.as_deref(), Some("/srv/project"));
+        assert_eq!(
+            Digest::read(&back).said.cwd.as_deref(),
+            Some("/srv/project")
+        );
     }
 
     #[test]
@@ -1527,7 +1545,9 @@ pub(crate) mod tests {
         let mut pages = 1;
 
         while before > 0 {
-            let page = entries(&path, 200, Some(before), &kept).expect("read").excerpt;
+            let page = entries(&path, 200, Some(before), &kept)
+                .expect("read")
+                .excerpt;
             assert_eq!(page.earlier + page.entries.len() as u64, before);
             before = page.earlier;
             pages += 1;

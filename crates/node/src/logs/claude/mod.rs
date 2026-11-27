@@ -1,6 +1,7 @@
 //! Claude Code's own store of the sessions started outside Beep, in a
 //! terminal or an IDE (`Store`): finding them and reading their transcripts.
 
+use crate::logs::window::Excerpt;
 use crate::{
     logs::found::{Seen as Sighting, folder_place::of_folder},
     machine::wsl::{self, DistroName},
@@ -15,7 +16,6 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::task::spawn_blocking;
-use crate::logs::window::Excerpt;
 
 pub(crate) mod discover;
 pub(crate) mod procs;

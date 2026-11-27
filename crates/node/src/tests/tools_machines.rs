@@ -6,10 +6,7 @@ use iroh::{Endpoint, SecretKey, endpoint::presets};
 #[tokio::test]
 async fn an_offline_machine_gets_one_setup_wait_across_all_retries() {
     let dir = tempfile::tempdir().unwrap();
-    let endpoint = Endpoint::builder(presets::Minimal)
-        .bind()
-        .await
-        .unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal).bind().await.unwrap();
     let mesh = Mesh::create(dir.path(), endpoint.clone(), "build-box")
         .await
         .unwrap();

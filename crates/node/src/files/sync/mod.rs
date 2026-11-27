@@ -33,11 +33,7 @@ use std::{
     },
     time::Duration,
 };
-use tokio::{
-    sync::oneshot,
-    task::spawn_blocking,
-    time::Instant,
-};
+use tokio::{sync::oneshot, task::spawn_blocking, time::Instant};
 use tokio_util::task::AbortOnDropHandle;
 
 mod actor;

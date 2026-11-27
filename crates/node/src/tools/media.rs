@@ -21,9 +21,8 @@ pub(crate) struct Media {
 impl Media {
     /// The tools the saved keys allow, for a session working in `folder`.
     pub(crate) fn new(folder: PathBuf) -> Self {
-        let key = |key: ApiKey| {
-            spawn_env::secret(key.env_var()).map(|secret| secret.expose().to_owned())
-        };
+        let key =
+            |key: ApiKey| spawn_env::secret(key.env_var()).map(|secret| secret.expose().to_owned());
 
         Self {
             tools: ToolBuilder::new().media(key, folder.clone()).build(),

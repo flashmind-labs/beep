@@ -62,7 +62,10 @@ fn adb_lists_ready_phones_by_model_without_emulators() {
 #[test]
 fn a_gesture_is_a_tap_a_long_press_or_a_swipe() {
     let short = Duration::from_millis(60);
-    assert_eq!(gesture((100.4, 200.0), (104.0, 203.0), short), "input tap 100 200");
+    assert_eq!(
+        gesture((100.4, 200.0), (104.0, 203.0), short),
+        "input tap 100 200"
+    );
     assert_eq!(
         gesture((100.0, 200.0), (104.0, 203.0), Duration::from_millis(800)),
         "input swipe 100 200 100 200 800"
@@ -94,7 +97,10 @@ fn a_foldable_shows_the_screen_that_is_on() {
         mState=ON\n\
       mState=AUTO_BRIGHTNESS_ENABLED\n";
     assert_eq!(lit_screen(dumped).as_deref(), Some("222"));
-    assert_eq!(lit_screen("    mPhysicalDisplayId=111\n    mState=ON\n"), None);
+    assert_eq!(
+        lit_screen("    mPhysicalDisplayId=111\n    mState=ON\n"),
+        None
+    );
 }
 
 #[test]

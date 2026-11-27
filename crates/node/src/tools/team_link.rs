@@ -19,11 +19,7 @@ use iroh::{
     protocol::{AcceptError, ProtocolHandler},
 };
 use std::fmt;
-use tokio::{
-    select,
-    sync::broadcast::error::RecvError,
-    time::timeout,
-};
+use tokio::{select, sync::broadcast::error::RecvError, time::timeout};
 
 /// Serves `beep-team/1` for `node`.
 pub struct TeamAlpn(Node);

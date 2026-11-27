@@ -1,7 +1,10 @@
 //! One task per checkout keeps what git says of it, so the sessions and
 //! peers that read a folder share one git run for each change to it.
 
-use super::{work_diff, work_folder::{GitStatus, git_status}};
+use super::{
+    work_diff,
+    work_folder::{GitStatus, git_status},
+};
 use crate::{actor, events::paths::Paths};
 use anyhow::{Result, anyhow};
 use beep_proto::{
@@ -237,7 +240,10 @@ struct Reading<K, V> {
 
 enum Job {
     Watched(Option<Paths>),
-    Diffed { ask: DiffAsk, read: Result<WorkDiff> },
+    Diffed {
+        ask: DiffAsk,
+        read: Result<WorkDiff>,
+    },
     Statused(Result<GitStatus>),
 }
 
@@ -389,10 +395,14 @@ impl Checkout {
     fn read_diff(&mut self, ask: DiffAsk, waiting: Vec<Reply<WorkDiff>>) {
         let (root, asked) = (self.root.clone(), ask.clone());
         self.jobs.spawn(async move {
-            let read = actor::job("checkout", "diff", spawn_blocking({
-                let asked = asked.clone();
-                move || work_diff::read(&root, &asked)
-            }))
+            let read = actor::job(
+                "checkout",
+                "diff",
+                spawn_blocking({
+                    let asked = asked.clone();
+                    move || work_diff::read(&root, &asked)
+                }),
+            )
             .await
             .unwrap_or_else(|e| Err(anyhow!("reading the diff stopped: {e}")));
 
@@ -404,9 +414,14 @@ impl Checkout {
     fn read_status(&mut self, waiting: Vec<Reply<GitStatus>>) {
         let root = self.root.clone();
         self.jobs.spawn(async move {
-            let read = actor::job("checkout", "status", spawn_blocking(move || {
-                git_status(&root).ok_or_else(|| anyhow!("{} is not a git checkout", root.display()))
-            }))
+            let read = actor::job(
+                "checkout",
+                "status",
+                spawn_blocking(move || {
+                    git_status(&root)
+                        .ok_or_else(|| anyhow!("{} is not a git checkout", root.display()))
+                }),
+            )
             .await
             .unwrap_or_else(|e| Err(anyhow!("reading the status stopped: {e}")));
 
@@ -471,10 +486,14 @@ impl Checkout {
                 anyhow::Ok(Some(watch))
             };
 
-            Job::Watched(actor::job("checkout", "watch", watch).await.unwrap_or_else(|e| {
-                log::debug!("a checkout is not watched: {e:#}");
-                None
-            }))
+            Job::Watched(
+                actor::job("checkout", "watch", watch)
+                    .await
+                    .unwrap_or_else(|e| {
+                        log::debug!("a checkout is not watched: {e:#}");
+                        None
+                    }),
+            )
         });
     }
 }

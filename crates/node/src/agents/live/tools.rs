@@ -6,12 +6,12 @@ use super::{
     limits::{ARTIFACT_TOOL, EDIT_KINDS, MAX_ENTRY, MAX_FILES, MAX_LINE, MAX_STEPS, SKILL_TOOL},
     state::{BeepCall, Sent, ToolCall},
 };
+use crate::agents::{acp::wire_name, tool_diff::diff_text};
 use crate::calls::Tool as BeepTool;
 use crate::logs::found::folder_place::call_folder;
-use crate::agents::{acp::wire_name, tool_diff::diff_text};
-use crate::logs::tool_details;
 use crate::logs::picture::{Picture, picture_of};
 use crate::logs::subagent::{Activity, Conversation, Run, Subagent};
+use crate::logs::tool_details;
 use agent_client_protocol::v1::schema::{
     ContentBlock, EmbeddedResourceResource, ToolCall as AcpToolCall, ToolCallContent, ToolCallId,
     ToolCallLocation, ToolCallStatus, ToolCallUpdate, ToolKind,

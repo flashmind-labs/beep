@@ -10,17 +10,20 @@ use super::{
 };
 use crate::AsyncMutex;
 use anyhow::{Context, Result};
-use iroh::EndpointId;
 use beep_proto::{
     SessionId,
     node::agent::{SessionDevice, SessionInfo, Status},
     watched,
 };
+use iroh::EndpointId;
 use std::{
     collections::{HashMap, HashSet, hash_map::RandomState},
     hash::BuildHasher,
     path::PathBuf,
-    sync::{Arc, Mutex, MutexGuard, Weak, atomic::{AtomicBool, Ordering}},
+    sync::{
+        Arc, Mutex, MutexGuard, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 use tokio::sync::{oneshot, watch};
 
@@ -68,8 +71,8 @@ impl Sessions {
     /// id of one taken over. Refused while another run of that session is
     /// live or starting.
     pub(super) fn reserve(&self, resume: Option<SessionId>) -> Result<Reservation> {
-        let (id, held) = reserve(&self.map, &mut self.pending(), resume, new_id)
-            .map_err(anyhow::Error::msg)?;
+        let (id, held) =
+            reserve(&self.map, &mut self.pending(), resume, new_id).map_err(anyhow::Error::msg)?;
 
         Ok(Reservation { id, _held: held })
     }
@@ -201,22 +204,22 @@ impl Sessions {
     /// one the user sees, oldest first; with those that ended and were last
     /// active at or after `ended_since`, Unix seconds, when given.
     pub(super) fn peers(&self, ended_since: Option<u64>) -> Vec<Arc<Session>> {
-        let mut peers: Vec<Arc<Session>> = self
-            .read()
-            .values()
-            .filter(|session| {
-                !session.reviewer
-                    && watched::read(&session.live, |live| {
-                        let shown = match live.status() {
-                            Status::Ended => ended_since
-                                .is_some_and(|since| live.info.last_activity >= since),
-                            _ => true,
-                        };
-                        live.agent_session.is_some() && shown
-                    })
-            })
-            .cloned()
-            .collect();
+        let mut peers: Vec<Arc<Session>> =
+            self.read()
+                .values()
+                .filter(|session| {
+                    !session.reviewer
+                        && watched::read(&session.live, |live| {
+                            let shown = match live.status() {
+                                Status::Ended => ended_since
+                                    .is_some_and(|since| live.info.last_activity >= since),
+                                _ => true,
+                            };
+                            live.agent_session.is_some() && shown
+                        })
+                })
+                .cloned()
+                .collect();
         peers.sort_by_key(|session| watched::read(&session.live, |live| live.info.started_at));
         peers
     }
@@ -319,7 +322,11 @@ impl Sessions {
     }
 
     /// The live sessions here that descend from the root `root`.
-    pub(crate) fn live_descendants(&self, root_machine: Option<EndpointId>, root: &SessionId) -> usize {
+    pub(crate) fn live_descendants(
+        &self,
+        root_machine: Option<EndpointId>,
+        root: &SessionId,
+    ) -> usize {
         self.read()
             .values()
             .filter(|session| {
@@ -370,7 +377,10 @@ fn reserve(
                     live.status() != Status::Ended && live.agent_session.as_ref() == Some(resume)
                 })
             }) {
-                return Err(format!("session {resume} already runs here as {}", running.id));
+                return Err(format!(
+                    "session {resume} already runs here as {}",
+                    running.id
+                ));
             }
 
             if pending.iter().any(|start| start.id == *resume) {
@@ -442,10 +452,7 @@ pub(crate) fn name_of(session: &Session) -> SessionId {
 }
 
 /// The session `id` names in `sessions`, by its key or the agent's id.
-pub(super) fn find_session(
-    sessions: &Map,
-    id: &SessionId,
-) -> Option<Arc<Session>> {
+pub(super) fn find_session(sessions: &Map, id: &SessionId) -> Option<Arc<Session>> {
     if let Some(found) = sessions.get(id) {
         return Some(found.clone());
     }

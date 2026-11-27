@@ -7,10 +7,10 @@
 //! other threads, on this machine. What it last saw of each is kept while
 //! the node runs: after a restart each thread is told of once more.
 
-use crate::agents::{Agents, Session, live::Live, session::Command};
+use crate::agents::acp::Prompt;
 use crate::agents::child_view::full_id;
 use crate::agents::live::{Mark, Stand};
-use crate::agents::{acp::Prompt};
+use crate::agents::{Agents, Session, live::Live, session::Command};
 use crate::text::cut;
 use beep_proto::SessionId;
 use beep_proto::node::agent::{SessionInfo, Status};
@@ -165,5 +165,8 @@ fn line(live: &Live, here: &str) -> String {
 
 /// `text` on one line, cut short.
 fn one_line(text: &str) -> String {
-    cut(&text.split_whitespace().collect::<Vec<_>>().join(" "), MAX_TEXT)
+    cut(
+        &text.split_whitespace().collect::<Vec<_>>().join(" "),
+        MAX_TEXT,
+    )
 }

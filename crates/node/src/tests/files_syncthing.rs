@@ -1,6 +1,6 @@
 use super::*;
-use crate::machine::env::syncthing::CONFIG;
 use crate::fs::paths;
+use crate::machine::env::syncthing::CONFIG;
 use std::net::SocketAddr;
 use tempfile::TempDir;
 use tokio::{

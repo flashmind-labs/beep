@@ -1,9 +1,9 @@
 //! Codex's logs (`line`): `session_meta` names the session, `turn_context`
 //! the model, and each `token_count` event the last request's tokens.
 
-use beep_proto::SessionId;
 use super::{Line, Request};
 use crate::{logs::found::unix_seconds, logs::prices::Tokens};
+use beep_proto::SessionId;
 use beep_proto::node::usage::Billing;
 use serde::Deserialize;
 use serde_json::Value;

@@ -59,9 +59,8 @@ fn flsh_releases_use_the_platform_binary_and_checksum() {
         assert_eq!(flsh_target(os, arch).as_deref(), Some(target));
 
         let flsh = release(Tool::Flsh, "0.3.2", os, arch).unwrap();
-        let url = format!(
-            "https://releases.flashmind.com/flashmind/cli/0.3.2/flsh-{target}{suffix}"
-        );
+        let url =
+            format!("https://releases.flashmind.com/flashmind/cli/0.3.2/flsh-{target}{suffix}");
         assert_eq!(flsh.name, "flsh");
         assert_eq!(flsh.url, url);
         assert!(flsh.member.is_none());
@@ -84,7 +83,10 @@ fn flsh_rejects_unsupported_platforms() {
         assert_eq!(flsh_target(os, arch), None);
 
         let error = release(Tool::Flsh, "0.3.2", os, arch).err().unwrap();
-        assert_eq!(error.to_string(), format!("no flsh release for {os} {arch}"));
+        assert_eq!(
+            error.to_string(),
+            format!("no flsh release for {os} {arch}")
+        );
     }
 }
 
@@ -182,7 +184,10 @@ fn flsh_lives_in_the_users_own_bin_folder() {
 #[test]
 fn a_flsh_in_the_nodes_folder_moves_to_the_users_own() {
     let temp = tempfile::tempdir().unwrap();
-    let (node, own) = (temp.path().join("node/bin"), temp.path().join("home/.local/bin"));
+    let (node, own) = (
+        temp.path().join("node/bin"),
+        temp.path().join("home/.local/bin"),
+    );
     let name = format!("flsh{}", env::consts::EXE_SUFFIX);
     fs::create_dir_all(&node).unwrap();
     fs::write(node.join(&name), b"old").unwrap();
@@ -196,7 +201,10 @@ fn a_flsh_in_the_nodes_folder_moves_to_the_users_own() {
 #[test]
 fn the_users_own_flsh_wins_over_the_nodes_copy() {
     let temp = tempfile::tempdir().unwrap();
-    let (node, own) = (temp.path().join("node/bin"), temp.path().join("home/.local/bin"));
+    let (node, own) = (
+        temp.path().join("node/bin"),
+        temp.path().join("home/.local/bin"),
+    );
     let name = format!("flsh{}", env::consts::EXE_SUFFIX);
     fs::create_dir_all(&node).unwrap();
     fs::create_dir_all(&own).unwrap();
@@ -212,7 +220,10 @@ fn the_users_own_flsh_wins_over_the_nodes_copy() {
 #[test]
 fn settling_with_no_flsh_anywhere_does_nothing() {
     let temp = tempfile::tempdir().unwrap();
-    let (node, own) = (temp.path().join("node/bin"), temp.path().join("home/.local/bin"));
+    let (node, own) = (
+        temp.path().join("node/bin"),
+        temp.path().join("home/.local/bin"),
+    );
 
     settle_flsh(&node, &own).unwrap();
 

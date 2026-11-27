@@ -3,8 +3,8 @@
 
 use crate::{
     process::spawn_env::{self, Scope},
-    run::lines::read_piece,
     process::{GroupLeader, STOP_GRACE, own_group},
+    run::lines::read_piece,
 };
 use anyhow::{Context, Result};
 use beep_proto::node::{

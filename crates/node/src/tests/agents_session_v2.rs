@@ -25,7 +25,13 @@ async fn v2_acceptance_does_not_end_the_turn_and_cancel_waits_for_idle() {
     let temp = tempfile::tempdir().unwrap();
     let log = temp.path().join("requests.jsonl");
     let kind = kind(&log);
-    let session = Session::start(Start { begin: Begin { prompt: Some(String::from("wait")), ..begun(None) }, ..start_on(&kind, temp.path(), None) })
+    let session = Session::start(Start {
+        begin: Begin {
+            prompt: Some(String::from("wait")),
+            ..begun(None)
+        },
+        ..start_on(&kind, temp.path(), None)
+    })
     .unwrap();
     until(&session, |live| {
         live.info.question.is_some() || live.status() == Status::Ended
@@ -68,7 +74,13 @@ async fn v2_late_acceptance_and_duplicate_idle_do_not_repeat_a_turn_or_usage() {
     let temp = tempfile::tempdir().unwrap();
     let log = temp.path().join("requests.jsonl");
     let kind = kind(&log);
-    let session = Session::start(Start { begin: Begin { prompt: Some(String::from("late")), ..begun(None) }, ..start_on(&kind, temp.path(), None) })
+    let session = Session::start(Start {
+        begin: Begin {
+            prompt: Some(String::from("late")),
+            ..begun(None)
+        },
+        ..start_on(&kind, temp.path(), None)
+    })
     .unwrap();
     settle(&session).await;
     assert_eq!(session.info().turns, 1, "{:?}", session.info().state.error);
@@ -99,7 +111,14 @@ async fn v2_replays_with_resume_and_configures_modes_and_models() {
     let temp = tempfile::tempdir().unwrap();
     let log = temp.path().join("requests.jsonl");
     let kind = kind(&log);
-    let session = Session::start(Start { begin: Begin { resume: Some("session-test".into()), mode: Some("plan".into()), ..begun(Some("other")) }, ..start_on(&kind, temp.path(), Some("other")) })
+    let session = Session::start(Start {
+        begin: Begin {
+            resume: Some("session-test".into()),
+            mode: Some("plan".into()),
+            ..begun(Some("other"))
+        },
+        ..start_on(&kind, temp.path(), Some("other"))
+    })
     .unwrap();
     settle(&session).await;
     let info = session.info();
@@ -137,7 +156,13 @@ async fn v2_failures_and_unknown_stop_reasons_still_finish() {
         let temp = tempfile::tempdir().unwrap();
         let log = temp.path().join("requests.jsonl");
         let kind = kind(&log);
-        let session = Session::start(Start { begin: Begin { prompt: Some(String::from(prompt)), ..begun(None) }, ..start_on(&kind, temp.path(), None) })
+        let session = Session::start(Start {
+            begin: Begin {
+                prompt: Some(String::from(prompt)),
+                ..begun(None)
+            },
+            ..start_on(&kind, temp.path(), None)
+        })
         .unwrap();
         settle(&session).await;
         assert_eq!(
@@ -191,7 +216,13 @@ async fn a_v2_resume_snapshot_keeps_queued_input_behind_active_work() {
     let temp = tempfile::tempdir().unwrap();
     let log = temp.path().join("requests.jsonl");
     let kind = kind(&log);
-    let session = Session::start(Start { begin: Begin { resume: Some("active-session".into()), ..begun(None) }, ..start_on(&kind, temp.path(), None) })
+    let session = Session::start(Start {
+        begin: Begin {
+            resume: Some("active-session".into()),
+            ..begun(None)
+        },
+        ..start_on(&kind, temp.path(), None)
+    })
     .unwrap();
     until(&session, |live| {
         (live.status() == Status::Working && live.info.state.queued == 1)
@@ -259,7 +290,13 @@ async fn a_finished_turn_counts_the_lines_its_checkout_changed() {
     let log = temp.path().join("requests.jsonl");
     let repo = changed_repo(temp.path());
     let kind = kind(&log);
-    let session = Session::start(Start { begin: Begin { prompt: Some(String::from("late")), ..begun(None) }, ..start_on(&kind, &repo, None) })
+    let session = Session::start(Start {
+        begin: Begin {
+            prompt: Some(String::from("late")),
+            ..begun(None)
+        },
+        ..start_on(&kind, &repo, None)
+    })
     .unwrap();
     settle(&session).await;
     until(&session, |live| live.info.changes.is_some()).await;
@@ -274,7 +311,13 @@ async fn a_session_counts_its_checkout_when_it_starts() {
     let log = temp.path().join("requests.jsonl");
     let repo = changed_repo(temp.path());
     let kind = kind(&log);
-    let session = Session::start(Start { begin: Begin { prompt: None, ..begun(None) }, ..start_on(&kind, &repo, None) })
+    let session = Session::start(Start {
+        begin: Begin {
+            prompt: None,
+            ..begun(None)
+        },
+        ..start_on(&kind, &repo, None)
+    })
     .unwrap();
     until(&session, |live| live.info.changes.is_some()).await;
 

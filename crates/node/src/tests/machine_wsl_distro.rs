@@ -145,6 +145,12 @@ fn a_mounted_drive_path_reads_as_windows() {
 #[test]
 fn a_folder_in_wsl_reads_by_its_drive_or_through_the_share() {
     let distro: DistroName = "Ubuntu".parse().expect("a name");
-    assert_eq!(windows_folder(&distro, "/mnt/c/code"), PathBuf::from(r"C:\code"));
-    assert_eq!(windows_folder(&distro, "/home/sam/app"), PathBuf::from(r"\\wsl$\Ubuntu\home\sam\app"));
+    assert_eq!(
+        windows_folder(&distro, "/mnt/c/code"),
+        PathBuf::from(r"C:\code")
+    );
+    assert_eq!(
+        windows_folder(&distro, "/home/sam/app"),
+        PathBuf::from(r"\\wsl$\Ubuntu\home\sam\app")
+    );
 }

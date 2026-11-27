@@ -2,12 +2,17 @@
 
 use super::{
     Live, TurnTokens,
-    limits::{CLAUDE_RATE_LIMIT, MAX_ENTRIES, MAX_ENTRY},
     content::{cut, detail},
+    limits::{CLAUDE_RATE_LIMIT, MAX_ENTRIES, MAX_ENTRY},
     tools::CodexChild,
 };
+use crate::agents::{
+    acp::wire_name,
+    images::Images,
+    unix_now,
+    usage::{UsageHub, claude_rate_limit, flsh_credits},
+};
 use crate::calls::Tool as BeepTool;
-use crate::agents::{acp::wire_name, images::Images, unix_now, usage::{UsageHub, claude_rate_limit, flsh_credits}};
 use crate::logs::picture::Picture;
 use crate::logs::subagent::Run;
 use crate::logs::window::window;
@@ -134,7 +139,10 @@ impl Live {
             }
 
             self.usage.update_credits(
-                &(AgentSlug::new(self.info.agent.as_str()), self.info.account.clone()),
+                &(
+                    AgentSlug::new(self.info.agent.as_str()),
+                    self.info.account.clone(),
+                ),
                 credits,
                 unix_now(),
             );
@@ -305,7 +313,10 @@ impl Live {
         let mut saved = earlier.iter().rev();
 
         for entry in self.transcript.iter_mut().rev() {
-            if let Some(index) = saved.clone().position(|old| old.kind == entry.kind && old.text == entry.text) {
+            if let Some(index) = saved
+                .clone()
+                .position(|old| old.kind == entry.kind && old.text == entry.text)
+            {
                 entry.sent_at = saved.nth(index).and_then(|old| old.sent_at);
             }
         }
@@ -373,8 +384,13 @@ impl Live {
             .name
             .as_deref()
             .or_else(|| known.and_then(|tool| tool.details.name.as_deref()));
-        let beep = BeepTool::of_call(name, &title, call.meta.as_ref(), call.fields.raw_input.as_ref())
-            .or_else(|| known.and_then(|tool| tool.beep.as_ref().map(|beep| beep.tool)));
+        let beep = BeepTool::of_call(
+            name,
+            &title,
+            call.meta.as_ref(),
+            call.fields.raw_input.as_ref(),
+        )
+        .or_else(|| known.and_then(|tool| tool.beep.as_ref().map(|beep| beep.tool)));
         let text = match beep {
             Some(tool) => {
                 let input = call

@@ -23,8 +23,8 @@ use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, LinkTx,
     device::{
-        Device, DeviceId, DeviceState, Element, Input, MAX_LOG_LINES, MAX_SIDE, Platform,
-        Reply, Request,
+        Device, DeviceId, DeviceState, Element, Input, MAX_LOG_LINES, MAX_SIDE, Platform, Reply,
+        Request,
     },
 };
 use beep_proto::{node::events::Topic, watched};
@@ -37,11 +37,7 @@ use std::{
     },
     time::Duration,
 };
-use tokio::{
-    select,
-    sync::watch,
-    time::sleep,
-};
+use tokio::{select, sync::watch, time::sleep};
 use tokio_util::task::AbortOnDropHandle;
 
 pub use beep_proto::node::device::PROTOCOL;
@@ -122,7 +118,8 @@ impl Served {
                 reason: "No device is attached.".to_owned(),
             },
             Request::Platforms { .. } => answer(
-                platforms_in(checked(path)).await
+                platforms_in(checked(path))
+                    .await
                     .map(|platforms| Reply::Platforms { platforms }),
             ),
             other => Reply::Failed {
@@ -268,10 +265,15 @@ async fn following_list<Read, Reading>(
         changed.mark_unchanged();
         let now = read().await;
         let every = [
-            (now.iter().any(|device| device.state == DeviceState::Booting), BOOTING_EVERY),
+            (
+                now.iter()
+                    .any(|device| device.state == DeviceState::Booting),
+                BOOTING_EVERY,
+            ),
             (
                 now.iter().any(|device| {
-                    device.platform == Platform::Ios && (device.phone || device.state == DeviceState::On)
+                    device.platform == Platform::Ios
+                        && (device.phone || device.state == DeviceState::On)
                 }),
                 SIMULATORS_EVERY,
             ),

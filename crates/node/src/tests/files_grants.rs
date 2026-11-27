@@ -23,7 +23,9 @@ fn only_the_granted_peer_gets_the_granted_root() {
     assert!(granted(grants.get(3, &GetRequest::all(folder))));
     // A file's hash read as a folder would reach other blobs.
     assert!(!granted(grants.get(3, &GetRequest::all(file))));
-    assert!(!granted(grants.get(3, &GetRequest::blob(Hash::new(b"other")))));
+    assert!(!granted(
+        grants.get(3, &GetRequest::blob(Hash::new(b"other")))
+    ));
     assert!(!granted(grants.get(1, &GetRequest::blob(file))));
 
     drop(guard);

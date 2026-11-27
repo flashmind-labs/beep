@@ -15,12 +15,12 @@ use beep_proto::{
 };
 use ignore::WalkBuilder;
 use std::{
-    sync::Arc,
     collections::{HashMap, HashSet, VecDeque},
     fs::{self, OpenOptions},
     io::{ErrorKind, Read, Seek, SeekFrom, Write},
     path::{Component, Path, PathBuf},
     process::Stdio,
+    sync::Arc,
     sync::{LazyLock, Mutex},
     time::{Duration, SystemTime},
 };
@@ -419,10 +419,7 @@ fn records(status: &str) -> impl Iterator<Item = (&str, &str, Option<&str>)> {
             let (Some(code), Some(path)) = (field.get(..2), field.get(3..)) else {
                 continue;
             };
-            let from = code
-                .contains(['R', 'C'])
-                .then(|| fields.next())
-                .flatten();
+            let from = code.contains(['R', 'C']).then(|| fields.next()).flatten();
 
             return Some((code, path, from));
         }

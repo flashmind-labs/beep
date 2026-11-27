@@ -15,7 +15,10 @@ use beep_proto::SessionId;
 use beep_proto::node::agent::{SessionInfo, Status};
 use beep_proto::watched;
 use futures::{StreamExt, stream::FuturesUnordered};
-use std::{path::PathBuf, sync::{Arc, Mutex}};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 use tokio::{
     sync::mpsc::{UnboundedReceiver, UnboundedSender},
     task::spawn_blocking,
@@ -139,7 +142,10 @@ impl Delete {
         };
 
         if let Some(agent_id) = &agent_id {
-            ensure!(valid_id(agent_id.as_ref()), "{agent_id:?} is not a session id");
+            ensure!(
+                valid_id(agent_id.as_ref()),
+                "{agent_id:?} is not a session id"
+            );
         }
 
         let records: Vec<(SessionId, bool)> = self
@@ -180,8 +186,12 @@ impl Delete {
         self.reopen.forget_saved(&indexed);
         spawn_blocking(move || super::uploads::remove(&attachment_agent, &attachment_id)).await??;
 
-        self.sessions
-            .remove(&records.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>());
+        self.sessions.remove(
+            &records
+                .iter()
+                .map(|(key, _)| key.clone())
+                .collect::<Vec<_>>(),
+        );
 
         if let Some(index) = self.search.get() {
             for (key, _) in records.into_iter().filter(|(key, _)| *key != indexed) {
@@ -191,8 +201,7 @@ impl Delete {
         }
 
         if let (Some(folder), Some(home)) = (conversation, dirs::home_dir()) {
-            let removed =
-                spawn_blocking(move || super::conversation::remove(&home, &folder)).await;
+            let removed = spawn_blocking(move || super::conversation::remove(&home, &folder)).await;
 
             if let Ok(Err(e)) = removed {
                 log::warn!("the deleted conversation's folder stays: {e}");
@@ -261,7 +270,8 @@ impl Delete {
         owned.remove(id);
 
         if let Some(pid) = self
-            .listings.find_external(agent, id, owned)
+            .listings
+            .find_external(agent, id, owned)
             .await?
             .and_then(|found| found.pid)
         {

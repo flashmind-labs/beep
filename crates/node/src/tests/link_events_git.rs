@@ -1,6 +1,6 @@
 use super::*;
-use crate::agents::{Agents, Parts};
 use crate::agents::checkouts::watch_paths;
+use crate::agents::{Agents, Parts};
 use crate::link::Offers;
 use beep_projects::{Shell, ShellOutput};
 use beep_proto::node::{
@@ -69,7 +69,10 @@ async fn projection(rx: &mut LinkRx, query: u64) -> GitOutput {
 }
 
 async fn subscribe(root: &Path) -> (LinkTx, LinkRx, AbortOnDropHandle<Result<()>>) {
-    let offers = Offers::from_parts(Parts { folders: vec![root.to_owned()], ..Parts::default() });
+    let offers = Offers::from_parts(Parts {
+        folders: vec![root.to_owned()],
+        ..Parts::default()
+    });
     let link = local_link();
     let task = AbortOnDropHandle::new(tokio::spawn(super::super::serve(
         link.node.0,
@@ -196,11 +199,18 @@ async fn git_reads_validate_revisions_authorize_roots_and_leave_refs_unchanged()
     let root = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();
     git(root.path(), &["init", "--initial-branch=main"]).await;
-    let agents = Agents::new(Parts { folders: vec![root.path().to_owned()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        folders: vec![root.path().to_owned()],
+        ..Parts::default()
+    });
     assert!(
-        read(&agents.reach, outside.path().to_str().unwrap(), GitRead::State)
-            .await
-            .is_err()
+        read(
+            &agents.reach,
+            outside.path().to_str().unwrap(),
+            GitRead::State
+        )
+        .await
+        .is_err()
     );
     let before = std::fs::read(root.path().join(".git/HEAD")).unwrap();
     let output = read(&agents.reach, root.path().to_str().unwrap(), GitRead::State)
@@ -303,7 +313,10 @@ mod current {
     #[tokio::test]
     async fn a_folder_that_becomes_a_repository_while_binding_pushes_its_later_commits() {
         let root = tempfile::tempdir().unwrap();
-        let offers = Offers::from_parts(Parts { folders: vec![root.path().to_owned()], ..Parts::default() });
+        let offers = Offers::from_parts(Parts {
+            folders: vec![root.path().to_owned()],
+            ..Parts::default()
+        });
         let (reached, reached_rx) = tokio::sync::oneshot::channel();
         let (release_tx, release) = tokio::sync::oneshot::channel();
         crate::lock(&offers.bind_gates).push(crate::link::events::sources::Gate {

@@ -3,7 +3,6 @@
 //! `metadata.working_dir`. The folder hash is flsh's own: the std
 //! `DefaultHasher` over the session's `Path`, as 16 hex digits.
 
-use beep_proto::SessionId;
 use super::{
     Stored,
     folder::Folders,
@@ -11,6 +10,7 @@ use super::{
 };
 use crate::{agents::AgentKind, machine::env::output};
 use anyhow::{Result, bail};
+use beep_proto::SessionId;
 use beep_proto::node::harness::{is_newer, parse_version};
 use sha2::{Digest, Sha256};
 use std::{

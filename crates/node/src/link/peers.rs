@@ -51,8 +51,8 @@ use tokio_util::task::AbortOnDropHandle;
 mod offers;
 mod own;
 
-pub use offers::{Bound, Offers};
 pub(crate) use crate::status::Own;
+pub use offers::{Bound, Offers};
 pub(crate) use offers::{Who, read_open, withheld};
 
 /// `join <ticket>`; the node answers `joined`, or `failed <why>`.

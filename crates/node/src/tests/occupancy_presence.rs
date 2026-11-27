@@ -1,5 +1,5 @@
-use beep_proto::SessionId;
 use super::*;
+use beep_proto::SessionId;
 use beep_proto::node::agent::Presence;
 use serde_json::json;
 use uuid::Uuid;
@@ -48,4 +48,3 @@ fn registration_is_validated_and_session_metadata_updates() {
         Some("Working title")
     );
 }
-

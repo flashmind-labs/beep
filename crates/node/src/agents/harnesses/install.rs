@@ -257,14 +257,33 @@ fn own_installer(agent: &str) -> Option<Step> {
     match agent {
         "claude" if cfg!(windows) => Some(Step::new(
             "powershell",
-            &["-NoProfile", "-NonInteractive", "-Command", "irm https://claude.ai/install.ps1 | iex"],
+            &[
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "irm https://claude.ai/install.ps1 | iex",
+            ],
         )),
-        "claude" => Some(Step::new("sh", &["-c", "curl -fsSL https://claude.ai/install.sh | bash"])),
+        "claude" => Some(Step::new(
+            "sh",
+            &["-c", "curl -fsSL https://claude.ai/install.sh | bash"],
+        )),
         "agy" if cfg!(windows) => Some(Step::new(
             "powershell",
-            &["-NoProfile", "-NonInteractive", "-Command", "irm https://antigravity.google/cli/install.ps1 | iex"],
+            &[
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "irm https://antigravity.google/cli/install.ps1 | iex",
+            ],
         )),
-        "agy" => Some(Step::new("sh", &["-c", "curl -fsSL https://antigravity.google/cli/install.sh | bash"])),
+        "agy" => Some(Step::new(
+            "sh",
+            &[
+                "-c",
+                "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+            ],
+        )),
         _ => None,
     }
 }

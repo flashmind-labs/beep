@@ -401,7 +401,8 @@ impl Ledger {
     /// Notes that `session` of `agent` changed.
     pub(crate) fn touch(&mut self, agent: Agent, session: SessionId) {
         self.revision += 1;
-        self.touched.insert(SessionKey { agent, session }, self.revision);
+        self.touched
+            .insert(SessionKey { agent, session }, self.revision);
     }
 
     /// The latest hour `key` spent in, to send the newest sessions first.

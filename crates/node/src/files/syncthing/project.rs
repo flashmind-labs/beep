@@ -1,7 +1,7 @@
 //! Per-project Syncthing exclusions, stored in the shared folder's ignore file.
 
-use super::{Gui, Managed, Syncthing, TIMEOUT, get, query_value, real, timeout};
 use super::stignore::{BEGIN, END};
+use super::{Gui, Managed, Syncthing, TIMEOUT, get, query_value, real, timeout};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::sync::SyncthingFiles;
 use serde::{Deserialize, Serialize};
@@ -82,10 +82,9 @@ impl Syncthing {
         }
 
         let share = managed.root.clone();
-        let ignored = tokio::task::spawn_blocking(move || {
-            super::stignore::project_ignored(&folder, &share)
-        })
-        .await??;
+        let ignored =
+            tokio::task::spawn_blocking(move || super::stignore::project_ignored(&folder, &share))
+                .await??;
         Ok(SyncthingFiles {
             available: true,
             enabled: !ignored,

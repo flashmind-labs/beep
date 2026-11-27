@@ -49,6 +49,9 @@ async fn a_job_records_how_long_it_took() {
 
     assert_eq!(answer, 7);
     let text = handle.render();
-    let sum = value(&text, r#"beep_actor_job_seconds_sum{actor="test",job="scan"}"#);
+    let sum = value(
+        &text,
+        r#"beep_actor_job_seconds_sum{actor="test",job="scan"}"#,
+    );
     assert!((sum - 1.5).abs() < 1e-9, "{sum}");
 }

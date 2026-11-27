@@ -98,10 +98,13 @@ impl Rosters {
     /// The changes waiting for a desktop to write them: what each pending
     /// record changed from the mesh's.
     pub(crate) fn pending(&self) -> Vec<TeamRecord> {
-        let changes = self.pending.iter().map(|(repo, pending)| match self.records.get(repo) {
-            Some(written) => pending.since(written),
-            None => pending.clone(),
-        });
+        let changes = self
+            .pending
+            .iter()
+            .map(|(repo, pending)| match self.records.get(repo) {
+                Some(written) => pending.since(written),
+                None => pending.clone(),
+            });
 
         changes.collect()
     }

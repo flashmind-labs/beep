@@ -9,7 +9,10 @@ use super::{
     board::CHANGES,
     cards::{Facts, IssueTitles, card_of, midnight, settle},
     home::{FORGE_LIMIT, Home, Project},
-    link::{TeamLink, board_io::{Followed, Heard, follow}},
+    link::{
+        TeamLink,
+        board_io::{Followed, Heard, follow},
+    },
     membership::{self, Membership, Team},
     pickup::{Pickups, Round, branch_of, read_assigned},
     sightings::{self, Sight, Sighted},
@@ -17,14 +20,12 @@ use super::{
 use crate::{
     agents::{
         Agents,
-        ci::Ci,
-        child_view::ChildView,
         calls::command_name,
+        child_view::ChildView,
+        ci::Ci,
         family::peer::{Listed, in_the_mesh},
     },
-    machine::{
-        elect::{Reaches, elect, gather, online, ranked},
-    },
+    machine::elect::{Reaches, elect, gather, online, ranked},
 };
 use beep_mesh::Mesh;
 use beep_projects::commands::OpenIssue;
@@ -240,7 +241,11 @@ impl Gateway {
         self.step();
 
         loop {
-            let round = if self.held.is_empty() { None } else { self.round_due };
+            let round = if self.held.is_empty() {
+                None
+            } else {
+                self.round_due
+            };
             let ask = ask_again_at(self.asked.as_ref());
 
             select! {
@@ -455,7 +460,10 @@ impl Gateway {
     /// The machines to ask for their sessions: those that do not push them, and
     /// those that have not pushed yet.
     fn unheard(&self) -> BTreeSet<EndpointId> {
-        let silent = self.sightings.keys().filter(|peer| !self.rows.contains_key(*peer));
+        let silent = self
+            .sightings
+            .keys()
+            .filter(|peer| !self.rows.contains_key(*peer));
 
         self.refused.iter().chain(silent).copied().collect()
     }
@@ -481,7 +489,9 @@ impl Gateway {
         let held = &self.held;
 
         self.link.publish(|served| {
-            for Made { repo, cards, now } in made.into_iter().filter(|made| held.contains(&made.repo)) {
+            for Made { repo, cards, now } in
+                made.into_iter().filter(|made| held.contains(&made.repo))
+            {
                 let old = served.boards.cards(&repo).unwrap_or_default();
                 served.boards.set(&repo, settle(&old, cards, now));
             }
@@ -499,7 +509,11 @@ impl Gateway {
 
         let link = self.link.clone();
         self.checking.spawn(async move {
-            join_all(due.iter().map(|team| membership::check_members(&link, team))).await;
+            join_all(
+                due.iter()
+                    .map(|team| membership::check_members(&link, team)),
+            )
+            .await;
         });
     }
 
@@ -681,8 +695,14 @@ impl Cards {
         let ended_since = midnight(SystemTime::now());
         // The machines that push their sessions are heard; the others are asked.
         let sessions = async {
-            let mut listed =
-                in_the_mesh(agents, Some(mesh), &caller, Some(refused), Some(ended_since)).await;
+            let mut listed = in_the_mesh(
+                agents,
+                Some(mesh),
+                &caller,
+                Some(refused),
+                Some(ended_since),
+            )
+            .await;
             listed.extend(
                 rows.iter()
                     .flat_map(|(peer, rows)| pushed_sessions(mesh, *peer, rows, ended_since)),
@@ -698,7 +718,8 @@ impl Cards {
                 .map(|team| async move { (&team.repo, read_assigned(link, team).await) }),
         );
         let (listed, titles, assigned) = tokio::join!(sessions, titles, assigned);
-        let mut assigned: BTreeMap<&TeamRepo, Option<Vec<OpenIssue>>> = assigned.into_iter().collect();
+        let mut assigned: BTreeMap<&TeamRepo, Option<Vec<OpenIssue>>> =
+            assigned.into_iter().collect();
         let read: BTreeMap<&TeamRepo, IssueTitles> = due
             .iter()
             .zip(titles)
@@ -782,7 +803,9 @@ impl Cards {
     /// Whether `repo`'s issues are read again: every `BUSY` while a session
     /// on its board works, every `QUIET` otherwise.
     fn titles_due(&self, link: &TeamLink, repo: &TeamRepo) -> bool {
-        let cards = link.served(|served| served.boards.cards(repo)).unwrap_or_default();
+        let cards = link
+            .served(|served| served.boards.cards(repo))
+            .unwrap_or_default();
         let working = cards.iter().any(|card| card.lane == Lane::Working {});
         let wait = if working { BUSY } else { QUIET };
 

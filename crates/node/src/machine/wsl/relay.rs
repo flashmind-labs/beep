@@ -22,7 +22,14 @@ pub(crate) enum Toward {
 }
 
 /// Keys whose string value is a path.
-const PATH_KEYS: &[&str] = &["cwd", "path", "file_path", "notebook_path", "abs_path", "filePath"];
+const PATH_KEYS: &[&str] = &[
+    "cwd",
+    "path",
+    "file_path",
+    "notebook_path",
+    "abs_path",
+    "filePath",
+];
 /// Keys whose value is a list of paths.
 const PATH_LISTS: &[&str] = &["additionalDirectories", "additional_directories"];
 

@@ -99,7 +99,11 @@ fn task_path_children_are_linked_only_to_their_parent_and_refresh_independently(
         codex: Some(root.path().to_owned()),
         ..Default::default()
     };
-    assert!(stores.codex_children(&SessionId::from("unrelated")).is_empty());
+    assert!(
+        stores
+            .codex_children(&SessionId::from("unrelated"))
+            .is_empty()
+    );
     assert!(
         stores.codex_children(&SessionId::from(THREAD)).is_empty(),
         "no grandchildren here"

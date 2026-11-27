@@ -118,7 +118,11 @@ pub(super) fn node_program(kind: &AgentKind) -> String {
         return kind.program.clone();
     }
     let bin = if cfg!(windows) { "node.exe" } else { "node" };
-    if let Some(sibling) = path.parent().map(|dir| dir.join(bin)).filter(|p| p.exists()) {
+    if let Some(sibling) = path
+        .parent()
+        .map(|dir| dir.join(bin))
+        .filter(|p| p.exists())
+    {
         return sibling.to_string_lossy().into_owned();
     }
     if let Some(found) = crate::machine::env::locate::find("node", dirs::home_dir().as_deref()) {

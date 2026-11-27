@@ -3,10 +3,7 @@
 //! readers of files and times.
 
 use super::memo::Memo;
-use beep_proto::{
-    AgentSlug, SessionId,
-    node::agent::Presence,
-};
+use beep_proto::{AgentSlug, SessionId, node::agent::Presence};
 use rusqlite::{Connection, OpenFlags};
 use std::{
     cmp::Reverse,
@@ -166,9 +163,15 @@ pub(super) fn read_databases(
     let mut seen = Vec::new();
 
     for db in databases {
-        match memos.databases.read_database(&db, || read(&db).map(Arc::new)) {
+        match memos
+            .databases
+            .read_database(&db, || read(&db).map(Arc::new))
+        {
             Ok(found) => seen.extend(found.iter().cloned()),
-            Err(e) => log::debug!("{name} sessions not read; database={} error={e}", db.display()),
+            Err(e) => log::debug!(
+                "{name} sessions not read; database={} error={e}",
+                db.display()
+            ),
         }
     }
 
@@ -231,7 +234,11 @@ pub(super) fn header_sessions(
 
 /// The files under `dir` for which `wanted` holds,
 /// `depth` folders down, newest first.
-pub(crate) fn newest_files(dir: &Path, depth: usize, wanted: &dyn Fn(&Path) -> bool) -> Vec<(PathBuf, u64)> {
+pub(crate) fn newest_files(
+    dir: &Path,
+    depth: usize,
+    wanted: &dyn Fn(&Path) -> bool,
+) -> Vec<(PathBuf, u64)> {
     let mut found = Vec::new();
     walk_files(dir, depth, wanted, &mut |entry, path| {
         let at = entry

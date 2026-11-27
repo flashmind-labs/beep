@@ -4,7 +4,6 @@
 //! `beep-node mcp --session <id>`. `tools` sits above `team` and `agents` and
 //! below `link`, which builds its `Node`.
 
-use beep_proto::SessionId;
 use crate::{
     agents::{
         Answered, Asking,
@@ -14,6 +13,7 @@ use crate::{
     run::local_socket::{self, Listener},
 };
 use anyhow::{Context, Result, bail};
+use beep_proto::SessionId;
 use beep_proto::node::tools::{Reply, Request, Tool};
 use serde::Deserialize;
 use serde_json::Value;
@@ -40,21 +40,20 @@ pub(crate) mod desktop_call;
 mod devices;
 pub(crate) mod harness;
 mod machines;
-pub(crate) mod peer_tools;
 mod media;
 mod node;
+pub(crate) mod peer_tools;
 pub(crate) mod review;
 mod server;
 pub(crate) mod team;
 pub(crate) mod team_link;
 mod transcripts;
 
-
 pub use crate::agents::calls::{SERVER_NAME, command_name};
 pub use crate::agents::mcp_launch::Invocation;
-pub use node::Node;
 pub(crate) use caller::Caller;
 pub use desktop_call::ProjectTools;
+pub use node::Node;
 pub(crate) use server::Backend;
 use server::Called;
 
@@ -99,8 +98,8 @@ pub fn bind(dir: &Path) -> Option<Socket> {
     };
     let dir = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
     let launch = Arc::new(Launch::new(exe, dir));
-    let listener = socket::prepare(&launch.socket, &launch.dir)
-        .and_then(|()| Listener::bind(&launch.socket));
+    let listener =
+        socket::prepare(&launch.socket, &launch.dir).and_then(|()| Listener::bind(&launch.socket));
 
     match listener {
         Ok(listener) => Some(Socket { launch, listener }),
@@ -205,7 +204,11 @@ impl Backend for Served {
     }
 
     fn media(&self, session: &SessionId) -> Option<media::Media> {
-        self.node.agents.sessions.folder_of(session).map(media::Media::new)
+        self.node
+            .agents
+            .sessions
+            .folder_of(session)
+            .map(media::Media::new)
     }
 }
 
@@ -227,7 +230,10 @@ struct Hello {
 /// question in the session; every other call goes to the mesh over
 /// `tools/1`.
 async fn listen(socket: Socket, node: Node) -> Result<()> {
-    let Socket { launch, mut listener } = socket;
+    let Socket {
+        launch,
+        mut listener,
+    } = socket;
     log::info!(
         "serving the Beep MCP server on {}",
         local_socket::shown(&launch.socket)

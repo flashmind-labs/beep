@@ -5,23 +5,19 @@ use super::screen::{Phase, Screen};
 use crate::lock;
 use crate::process::spawn_env::{self, Scope};
 use anyhow::{Context, Result};
-use beep_proto::{node::events::Topic, watched};
 use beep_proto::node::{
     EnvSecret,
     process::{Task, TaskId, TaskState},
     terminal::Size,
 };
+use beep_proto::{node::events::Topic, watched};
 use portable_pty::{
     Child, ChildKiller, CommandBuilder, ExitStatus, MasterPty, PtySize, native_pty_system,
 };
 use std::{
     io::{self, Read, Write},
     path::PathBuf,
-    sync::{
-        Arc, Mutex,
-        atomic::AtomicBool,
-        mpsc as std_mpsc,
-    },
+    sync::{Arc, Mutex, atomic::AtomicBool, mpsc as std_mpsc},
     thread,
     time::Duration,
 };

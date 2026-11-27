@@ -1,6 +1,9 @@
 //! Where Claude Code keeps its files, and how it names a folder's sessions.
 
-use std::{ffi::OsString, path::{Path, PathBuf}};
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+};
 
 /// Claude Code's own folder: `~/.claude`, unless `CLAUDE_CONFIG_DIR` says
 /// otherwise. `None` without a home folder.

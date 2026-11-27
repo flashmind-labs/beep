@@ -3,9 +3,14 @@
 //! counting a root's agents, asking about a parent, and reading a child's
 //! state without making a transcript read wait for it.
 
-use crate::agents::sessions;
 use super::links::{ChildNote, NO_AGENT, Parent, RemoteKid, Views};
-use crate::agents::{Agents, child_view::ChildView, machine_list::{Machine, machine_name}, reply::json_of};
+use crate::agents::sessions;
+use crate::agents::{
+    Agents,
+    child_view::ChildView,
+    machine_list::{Machine, machine_name},
+    reply::json_of,
+};
 use crate::peer_stream::over_the_mesh;
 use beep_mesh::Mesh;
 use beep_proto::SessionId;
@@ -13,12 +18,7 @@ use beep_proto::node::tools::{Reply, Request, Tool};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{
-    collections::BTreeSet,
-    borrow::Cow,
-    future::Future,
-    time::Duration,
-};
+use std::{borrow::Cow, collections::BTreeSet, future::Future, time::Duration};
 use tokio::time::{Instant, sleep, timeout};
 use tokio_util::task::AbortOnDropHandle;
 
@@ -389,7 +389,8 @@ pub(crate) fn listed_here(agents: &Agents, ended_since: Option<u64>) -> Vec<List
     let mesh = agents.links.mesh();
 
     agents
-        .sessions.peers(ended_since)
+        .sessions
+        .peers(ended_since)
         .iter()
         .map(|session| {
             let info = session.info();
@@ -420,7 +421,11 @@ pub(crate) async fn in_the_mesh(
 ) -> Vec<Listed> {
     let here = machine_name(mesh);
     let display = mesh
-        .and_then(|mesh| mesh.code_hosts().into_iter().find(|status| status.device.id == mesh.me()))
+        .and_then(|mesh| {
+            mesh.code_hosts()
+                .into_iter()
+                .find(|status| status.device.id == mesh.me())
+        })
         .map(|status| status.device.name)
         .unwrap_or_default();
     let mut listed: Vec<Listed> = listed_here(agents, ended_since)

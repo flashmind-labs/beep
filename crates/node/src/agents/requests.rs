@@ -1,10 +1,16 @@
 //! The `agents/1` requests: one answer each, or a stream the caller follows.
 
-use beep_proto::SessionId;
-use super::{Agents, AlertHub, claude, harnesses, limits::{MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP}, media_file, reach, spend::Reports, work_folder, worktrees};
+use super::{
+    Agents, AlertHub, claude, harnesses,
+    limits::{MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP},
+    media_file, reach,
+    spend::Reports,
+    work_folder, worktrees,
+};
 use crate::{custom_agents, files::transfer::Transfers};
 use anyhow::{Context, Result};
 use beep_mesh::machine::thumb::{Picture, thumb_of};
+use beep_proto::SessionId;
 use beep_proto::media_mime;
 use beep_proto::node::{
     LinkRx, LinkTx,
@@ -37,7 +43,10 @@ pub(crate) async fn serve_transcripts(
             last,
             before,
             ..
-        }) if !session.as_ref().trim().is_empty() && session.as_ref().len() <= 512 && (1..=50).contains(&last) => {
+        }) if !session.as_ref().trim().is_empty()
+            && session.as_ref().len() <= 512
+            && (1..=50).contains(&last) =>
+        {
             agents.transcript_reply(&session, last, false, before).await
         }
         _ => SessionsReply::Error {
@@ -192,18 +201,21 @@ pub async fn serve_sessions(
             limit,
             session,
         } => agents
-            .listings.external_of(&agent, limit, session)
+            .listings
+            .external_of(&agent, limit, session)
             .await
             .map_or_else(failed, |sessions| SessionsReply::External { sessions }),
         SessionsRequest::ExternalNamed { sessions } => SessionsReply::External {
             sessions: agents.listings.external_named(sessions).await,
         },
         SessionsRequest::Folders { limit } => agents
-            .listings.found_folders(limit)
+            .listings
+            .found_folders(limit)
             .await
             .map_or_else(failed, |folders| SessionsReply::Folders { folders }),
         SessionsRequest::InFolders { folders, limit } => agents
-            .listings.sessions_in(folders, limit)
+            .listings
+            .sessions_in(folders, limit)
             .await
             .map_or_else(failed, |sessions| SessionsReply::External { sessions }),
         SessionsRequest::InFoldersPage {
@@ -211,7 +223,8 @@ pub async fn serve_sessions(
             limit,
             before,
         } => agents
-            .listings.sessions_page(folders, limit, before)
+            .listings
+            .sessions_page(folders, limit, before)
             .await
             .map_or_else(failed, |page| SessionsReply::SessionPage { page }),
         SessionsRequest::Live { session } => live_reply(&agents, &session, None).await,
@@ -225,12 +238,20 @@ pub async fn serve_sessions(
             let _stores = agents.bridge.watch_event_sources().await;
 
             return trace
-                .stream(claude::watch::serve(tx, rx, &agents.occupancy, sessions, rings))
+                .stream(claude::watch::serve(
+                    tx,
+                    rx,
+                    &agents.occupancy,
+                    sessions,
+                    rings,
+                ))
                 .await;
         }
         SessionsRequest::FollowImages {} => failed("this node does not send pictures"),
         SessionsRequest::FollowPresence {} => {
-            return trace.stream(super::presence_stream::follow(tx, rx, &agents)).await;
+            return trace
+                .stream(super::presence_stream::follow(tx, rx, &agents))
+                .await;
         }
         SessionsRequest::FollowAlerts {} => {
             return trace
@@ -302,9 +323,7 @@ pub async fn serve_sessions(
             path,
             ignored,
             depth,
-        } => {
-            folder_reply(&agents, &root, path, ignored, depth).await
-        }
+        } => folder_reply(&agents, &root, path, ignored, depth).await,
         SessionsRequest::ReadFile {
             root,
             path,
@@ -388,7 +407,10 @@ pub async fn serve_sessions(
         } => {
             let lookup = async {
                 let real = agents.reach.reachable(&root, reach::Access::Work).await?;
-                agents.lsp.definition(&real, &path, line, column, text).await
+                agents
+                    .lsp
+                    .definition(&real, &path, line, column, text)
+                    .await
             };
 
             match lookup.await {
@@ -406,7 +428,10 @@ pub async fn serve_sessions(
         }
         SessionsRequest::Diff { ask } => {
             let read = async {
-                let real = agents.reach.reachable(&ask.root, reach::Access::Diff).await?;
+                let real = agents
+                    .reach
+                    .reachable(&ask.root, reach::Access::Diff)
+                    .await?;
                 agents.checkouts.diff(real, ask).await
             };
 
@@ -426,7 +451,8 @@ pub async fn serve_sessions(
             let makers: Vec<_> = match session {
                 Some(_) => Vec::new(),
                 None => agents
-                    .reopen.saved_sessions()
+                    .reopen
+                    .saved_sessions()
                     .into_iter()
                     .map(|saved| (saved.info.id, saved.info.worktrees))
                     .filter(|(_, made)| !made.is_empty())
@@ -451,14 +477,14 @@ pub async fn serve_sessions(
                 .unwrap_or_default(),
         },
         SessionsRequest::Processes { session } => match agents.sessions.get(&session) {
-            Some(found) if found.info().state.status != agent::Status::Ended => found
-                .processes
-                .list()
-                .await
-                .map_or_else(failed, |running| SessionsReply::Processes {
-                    processes: running.processes,
-                    containers: running.containers,
-                }),
+            Some(found) if found.info().state.status != agent::Status::Ended => {
+                found.processes.list().await.map_or_else(failed, |running| {
+                    SessionsReply::Processes {
+                        processes: running.processes,
+                        containers: running.containers,
+                    }
+                })
+            }
             _ => SessionsReply::Processes {
                 processes: Vec::new(),
                 containers: Vec::new(),
@@ -481,7 +507,8 @@ pub async fn serve_sessions(
             _ => failed("the session has ended"),
         },
         SessionsRequest::CloseExternal { agent, session } => agents
-            .listings.close_external(&agent, &session)
+            .listings
+            .close_external(&agent, &session)
             .await
             .map_or_else(failed, |()| SessionsReply::ProcessStopped {}),
         SessionsRequest::RelocateSession {
@@ -494,7 +521,8 @@ pub async fn serve_sessions(
             .await
             .map_or_else(failed, |()| SessionsReply::Deleted {}),
         SessionsRequest::DeleteSession { agent, session } => agents
-            .delete.delete_session(&agent, &session)
+            .delete
+            .delete_session(&agent, &session)
             .await
             .map_or_else(failed, |()| SessionsReply::Deleted {}),
         SessionsRequest::Models { agent } => match agents.catalog.models(&agent).await {
@@ -628,7 +656,11 @@ fn end_trace(
     }
 }
 
-async fn live_reply(agents: &Agents, session: &SessionId, steer: Option<agent::Steer>) -> SessionsReply {
+async fn live_reply(
+    agents: &Agents,
+    session: &SessionId,
+    steer: Option<agent::Steer>,
+) -> SessionsReply {
     agents
         .occupancy
         .live(session, steer, agents.sessions.owned())
@@ -711,7 +743,10 @@ async fn folder_reply(
             SessionsReply::Folder { folder }
         } else {
             let tree = work_folder::tree(&root, &path, ignored, depth, kept)?;
-            SessionsReply::Tree { tree, changed: Vec::new() }
+            SessionsReply::Tree {
+                tree,
+                changed: Vec::new(),
+            }
         })
     })
     .await
@@ -742,9 +777,7 @@ async fn work_request(
     file_job(move || job(real)).await
 }
 
-async fn file_job(
-    job: impl FnOnce() -> Result<SessionsReply> + Send + 'static,
-) -> SessionsReply {
+async fn file_job(job: impl FnOnce() -> Result<SessionsReply> + Send + 'static) -> SessionsReply {
     match spawn_blocking(job).await {
         Ok(Ok(reply)) => reply,
         Ok(Err(e)) => failed(e),

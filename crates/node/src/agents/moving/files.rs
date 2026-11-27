@@ -16,7 +16,10 @@ pub(super) const MAX_FILES: u64 = 1024 * 1024 * 1024;
 /// Writes what `folder` holds to `out`, leaving out the folders in `apart`.
 /// A folder that is gone packs as nothing. Blocks.
 pub(super) fn pack(folder: &Path, apart: &[PathBuf], out: impl Write) -> Result<()> {
-    let mut tar = Builder::new(Capped { out, left: MAX_FILES });
+    let mut tar = Builder::new(Capped {
+        out,
+        left: MAX_FILES,
+    });
     tar.follow_symlinks(false);
     add(&mut tar, folder, Path::new(""), apart)?;
     tar.finish().context("ending the archive")

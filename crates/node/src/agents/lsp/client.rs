@@ -4,7 +4,8 @@ use crate::{
     AsyncMutex,
     fs::paths,
     lock,
-    machine::env, process::spawn_env,
+    machine::env,
+    process::spawn_env,
     process::{GroupLeader, STOP_GRACE, command, own_group},
 };
 use anyhow::{Context, Result, bail};
@@ -91,7 +92,10 @@ impl Client {
         let mut child = cmd
             .spawn()
             .with_context(|| format!("starting language server {}", binary.display()))?;
-        let mut stdin = child.stdin.take().context("language server missing stdin")?;
+        let mut stdin = child
+            .stdin
+            .take()
+            .context("language server missing stdin")?;
         let stdout = child
             .stdout
             .take()

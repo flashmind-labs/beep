@@ -103,7 +103,10 @@ fn only_stopped_sessions_leave_a_folder_idle() {
         Presence::Recent,
         Presence::Unknown,
     ] {
-        assert!(!idle(&[session(Presence::Stopped), session(busy)]), "{busy}");
+        assert!(
+            !idle(&[session(Presence::Stopped), session(busy)]),
+            "{busy}"
+        );
     }
 
     let many = vec![session(Presence::Stopped); MAX_IN_FOLDERS];

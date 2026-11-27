@@ -62,4 +62,3 @@ pub(crate) const UNWATCHED: Duration = Duration::from_secs(60);
 pub(crate) async fn table() -> anyhow::Result<Arc<HashMap<u32, Process>>> {
     read(WATCHED).await
 }
-

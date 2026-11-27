@@ -156,7 +156,12 @@ fn a_new_remote_or_worktree_shows_in_the_checkout() {
 
     run(
         &repo,
-        &["remote", "add", "origin", "https://example.com/org/proj.git"],
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://example.com/org/proj.git",
+        ],
     );
     let after = checkout(&repo).expect("a checkout");
     assert_eq!(after.origin, "https://example.com/org/proj.git");
@@ -198,7 +203,8 @@ fn a_head_is_kept_until_a_commit_and_a_missing_one_is_not() {
     let read = || {
         head(&repo, || {
             asks.set(asks.get() + 1);
-            git(&repo, &["rev-parse", "-q", "--verify", "HEAD^{commit}"]).map(|said| said.trim().to_owned())
+            git(&repo, &["rev-parse", "-q", "--verify", "HEAD^{commit}"])
+                .map(|said| said.trim().to_owned())
         })
     };
 

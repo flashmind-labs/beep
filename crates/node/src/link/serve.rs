@@ -354,7 +354,11 @@ fn commands_off(offers: &Offers) -> Option<String> {
 /// desktop in this process, which has the node's own key, is the user at
 /// this machine and is never held back; a desktop of the mesh, a phone
 /// included, is when this machine is not lent.
-fn desktop_commands_off(offers: &Offers, peer: iroh::EndpointId, own: iroh::EndpointId) -> Option<String> {
+fn desktop_commands_off(
+    offers: &Offers,
+    peer: iroh::EndpointId,
+    own: iroh::EndpointId,
+) -> Option<String> {
     (peer != own).then(|| commands_off(offers)).flatten()
 }
 
@@ -461,7 +465,9 @@ pub(super) async fn serve_open(
             SessionProtocol::Device => offers.agents.reach.serve_device(tx, rx).await,
             SessionProtocol::DeviceVideo => device::video::serve(tx, rx).await,
             SessionProtocol::SignIn => crate::machine::sign_in::serve(tx, rx).await,
-            SessionProtocol::McpServers => tools::configured::serve(offers.agents.catalog.clone(), tx, rx).await,
+            SessionProtocol::McpServers => {
+                tools::configured::serve(offers.agents.catalog.clone(), tx, rx).await
+            }
             SessionProtocol::Commands => {
                 super::commands::serve_open(tx, rx, offers, who.id()).await
             }

@@ -13,13 +13,7 @@ fn creates_renames_copies_moves_and_deletes_without_overwriting() {
     let t = tempfile::tempdir().unwrap();
     let r = root(&t);
     edit(&r, &FileAction::CreateFolder { path: rel("src") }).unwrap();
-    edit(
-        &r,
-        &FileAction::CreateFile {
-            path: rel("src/a"),
-        },
-    )
-    .unwrap();
+    edit(&r, &FileAction::CreateFile { path: rel("src/a") }).unwrap();
     fs::write(t.path().join("src/a"), "hello").unwrap();
     edit(
         &r,
@@ -222,7 +216,10 @@ fn write_replaces_a_file_and_keeps_its_mode() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o750);
+        assert_eq!(
+            fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+            0o750
+        );
     }
 
     fs::create_dir(t.path().join("dir")).unwrap();

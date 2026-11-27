@@ -16,14 +16,14 @@
 //! hears of it instead (`changes`). A parent on another machine is told as
 //! before.
 
-use crate::agents::sessions;
-use beep_proto::SessionId;
 use super::links::{ChildNote, NoteState, Waits};
-use crate::agents::{Agents, Session, live::Live, session::Command};
-use crate::agents::live::Mark;
-use crate::agents::child_view::{ChildView, full_id};
 use super::peer::NoteFailed;
+use crate::agents::child_view::{ChildView, full_id};
+use crate::agents::live::Mark;
+use crate::agents::sessions;
+use crate::agents::{Agents, Session, live::Live, session::Command};
 use crate::membership::Membership;
+use beep_proto::SessionId;
 use beep_proto::node::agent::{Status, StopReason};
 use beep_proto::watched;
 use iroh::EndpointId;
@@ -33,10 +33,7 @@ use std::{
     sync::{Arc, Weak},
     time::Duration,
 };
-use tokio::{
-    sync::watch,
-    time::sleep,
-};
+use tokio::{sync::watch, time::sleep};
 
 /// What a text handed to a session is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,7 +104,8 @@ impl Agents {
         note: &ChildNote,
     ) -> Result<(), String> {
         let kid = self
-            .links.remote_kids(parent)
+            .links
+            .remote_kids(parent)
             .into_iter()
             .find(|kid| {
                 kid.machine == peer && !kid.ended && (kid.id == note.id || kid.id == note.key)
@@ -148,7 +146,8 @@ impl Agents {
 
     /// The live session here a team knows by `id`: its own id or its agent's.
     pub(crate) fn teammates_session(&self, id: &SessionId) -> Option<Arc<Session>> {
-        self.sessions.peers(None)
+        self.sessions
+            .peers(None)
             .into_iter()
             .find(|session| session.id == *id || sessions::name_of(session) == *id)
     }
@@ -251,10 +250,11 @@ async fn follow(child: Child, to: To, membership: Membership) {
                 quiet,
             })
         });
-        let user = take && match session.upgrade() {
-            Some(session) => session.take_user_turn().await,
-            None => false,
-        };
+        let user = take
+            && match session.upgrade() {
+                Some(session) => session.take_user_turn().await,
+                None => false,
+            };
         let told = told.map(|told| Told {
             quiet: told.quiet || user,
             ..told
@@ -269,7 +269,10 @@ async fn follow(child: Child, to: To, membership: Membership) {
             To::Here { parent, waits } => match parent.upgrade() {
                 Some(parent) => {
                     let mesh = membership.get();
-                    let id = full_id(note.id.as_ref(), &crate::agents::machine_list::machine_name(mesh.as_ref()));
+                    let id = full_id(
+                        note.id.as_ref(),
+                        &crate::agents::machine_list::machine_name(mesh.as_ref()),
+                    );
                     let seen = Seen {
                         child: &key,
                         mark,
@@ -314,7 +317,9 @@ where
         match send().await {
             Ok(()) => return Ok(()),
             Err(NoteFailed::Refused(why)) => return Err(why),
-            Err(NoteFailed::Silent(why)) => log::info!("a parent was not told, trying again: {why}"),
+            Err(NoteFailed::Silent(why)) => {
+                log::info!("a parent was not told, trying again: {why}")
+            }
         }
 
         sleep(NOTE_RETRY).await;

@@ -276,7 +276,10 @@ fn a_thread_that_moves_with_its_chat_stays_its_chats() {
     let begin = thread.begin("moved".into(), "brief".into(), me);
     let parent = begin.parent.expect("it keeps its parent");
     assert_eq!((parent.machine, parent.root_machine), (Some(me), Some(me)));
-    assert_eq!((parent.session.as_ref(), parent.key.as_ref()), ("chat-1", "chat-1"));
+    assert_eq!(
+        (parent.session.as_ref(), parent.key.as_ref()),
+        ("chat-1", "chat-1")
+    );
     assert!(begin.named);
 
     // One that came ended is kept in its folder here, under its chat.
@@ -302,5 +305,8 @@ fn a_thread_that_moves_with_its_chat_stays_its_chats() {
         chat: false,
         ..remote
     };
-    assert_eq!(project.begin("moved".into(), "brief".into(), me).parent, None);
+    assert_eq!(
+        project.begin("moved".into(), "brief".into(), me).parent,
+        None
+    );
 }

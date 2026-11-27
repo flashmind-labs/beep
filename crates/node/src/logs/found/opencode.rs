@@ -2,8 +2,8 @@
 //! folder, opened read-only; one that is locked or of another shape is
 //! skipped.
 
-use beep_proto::SessionId;
 use super::common::{Agent, Memos, Seen, prompt_title, read_databases, xdg_data_dir};
+use beep_proto::SessionId;
 use std::{
     env,
     ffi::OsStr,

@@ -6,10 +6,13 @@ use super::{
     server::{AppServer, Incoming, TooLong},
     settings::{INITIAL_MODE, Mode, Model, Settings, Started},
 };
-use crate::agents::{acp::{
+use crate::agents::{
+    acp::{
         self,
         bridge::{CODEX_NAME, Event, Start, notify, parse_start, unknown_session},
-    }, launch::Cli};
+    },
+    launch::Cli,
+};
 use crate::machine::wsl::DistroName;
 use agent_client_protocol::{
     Client, ConnectionTo, JsonRpcMessage, Responder, UntypedMessage,
@@ -249,7 +252,11 @@ impl Bridge {
         else {
             return;
         };
-        let Some(running) = session.running.as_mut().filter(|running| !running.cancelled) else {
+        let Some(running) = session
+            .running
+            .as_mut()
+            .filter(|running| !running.cancelled)
+        else {
             return;
         };
         let Some(turn) = running.turn.clone() else {
@@ -427,7 +434,11 @@ impl Bridge {
         else {
             return "failed";
         };
-        let Some(turn) = session.running.as_ref().and_then(|running| running.turn.clone()) else {
+        let Some(turn) = session
+            .running
+            .as_ref()
+            .and_then(|running| running.turn.clone())
+        else {
             return "promptRequired";
         };
         let Ok(prompt) = Vec::<ContentBlock>::deserialize(&params["prompt"]) else {

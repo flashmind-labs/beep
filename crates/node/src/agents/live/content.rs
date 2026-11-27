@@ -1,9 +1,9 @@
 //! Reading what the agent sends: pictures, cut text and thoughts.
 
 use super::limits::MAX_LINE;
+use crate::logs::picture::{Picture, data_url, picture_of};
 pub(crate) use crate::text::cut;
 pub(super) use crate::text::push_cut;
-use crate::logs::picture::{Picture, data_url, picture_of};
 use agent_client_protocol::v1::schema::{ImageContent, ToolCallId};
 use serde_json::Value;
 

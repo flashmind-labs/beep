@@ -154,7 +154,12 @@ async fn incomplete_v2_options_preserve_working_configuration_controls() {
         ] {
             actor.v2_options(&cx, &answer);
             assert_eq!(
-                actor.offers.thinking.as_ref().map(ToString::to_string).as_deref(),
+                actor
+                    .offers
+                    .thinking
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .as_deref(),
                 Some("effort")
             );
             assert_eq!(
@@ -191,7 +196,12 @@ async fn a_valid_v2_option_replaces_only_its_own_selector() {
             "currentValue":"high", "options":[{"value":"high", "name":"High"}]
         }]}));
         assert_eq!(
-            actor.offers.thinking.as_ref().map(ToString::to_string).as_deref(),
+            actor
+                .offers
+                .thinking
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
             Some("new-effort")
         );
         assert_eq!(
@@ -426,9 +436,7 @@ async fn a_steer_during_an_autonomous_turn_goes_out_as_a_prompt() {
         assert!(actor.turn.is_none(), "waits while the question is open");
         assert_eq!(actor.steers.len(), 1);
 
-        let id = watched::read_sent(&actor.live, |live| {
-            live.info.question.as_ref().unwrap().id
-        });
+        let id = watched::read_sent(&actor.live, |live| live.info.question.as_ref().unwrap().id);
         actor
             .command(
                 &cx,
@@ -456,7 +464,10 @@ async fn a_steer_during_an_autonomous_turn_goes_out_as_a_prompt() {
             .push_back(Prompt::from("held until task ends".to_owned()));
         actor.show_queued();
         actor.event(&cx, ended("turn-2")).unwrap();
-        assert!(actor.turn.is_some(), "autonomous turn end drains waiting steers");
+        assert!(
+            actor.turn.is_some(),
+            "autonomous turn end drains waiting steers"
+        );
         assert!(actor.steers.is_empty());
     })
     .await;

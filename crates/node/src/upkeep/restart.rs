@@ -2,16 +2,16 @@
 //! and terminals, and `listen` and `client::drain` let `beep-node update` wait
 //! for the node to be idle.
 
-use beep_proto::SessionId;
 use crate::{
     agents::{Agents, OpenSession, SavedSession},
     fs::note,
     run::local_socket::{Listener, Stream},
-    watchdog::{self, Step},
     run::terminal::{self, OpenTerminal},
+    watchdog::{self, Step},
 };
 use anyhow::{Context, Result};
 use beep_proto::ModelId;
+use beep_proto::SessionId;
 use serde::{Deserialize, Serialize};
 use std::{path::Path, sync::Arc};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, split};

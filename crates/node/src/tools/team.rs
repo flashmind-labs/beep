@@ -6,11 +6,11 @@
 //! and has a machine with the project start a session on an issue newly
 //! assigned to the user (`Tool::TeamPickup`).
 
-use crate::agents::sessions;
 use super::{Node, desktop, server::ASK_LIMIT};
-use crate::agents::reply::{fail, json_of, ok, parse};
 use crate::agents::child_view::full_id;
 use crate::agents::machine_list::{find, machine_name};
+use crate::agents::reply::{fail, json_of, ok, parse};
+use crate::agents::sessions;
 use crate::peer_stream::over_the_mesh;
 use crate::{
     agents::{Agents, Answered, Asking},
@@ -85,7 +85,8 @@ pub(super) fn team_of(node: &Node, session: &SessionId) -> Option<(TeamLink, Tea
     let link = node.team.clone();
     let folder = node.agents.sessions.folder_of(session)?;
     let repo = link.home(|home| home.team_of(&folder))?;
-    link.with(|teams| teams.rosters.get(&repo).is_some()).then_some(())?;
+    link.with(|teams| teams.rosters.get(&repo).is_some())
+        .then_some(())?;
 
     Some((link, repo))
 }
@@ -141,12 +142,15 @@ pub(super) async fn join_call(node: &Node, request: &Request) -> Reply {
         ],
     };
 
-    match timeout(ASK_LIMIT, node.agents.sessions.ask(&request.session, question)).await {
+    match timeout(
+        ASK_LIMIT,
+        node.agents.sessions.ask(&request.session, question),
+    )
+    .await
+    {
         Ok(Ok(Answered::Picked(option))) if option.id == JOIN_CONFIRM => {}
         Ok(Ok(_)) => {
-            return fail(
-                "The user did not join the team. Do not try again unless they ask.",
-            );
+            return fail("The user did not join the team. Do not try again unless they ask.");
         }
         Ok(Err(e)) => return fail(format!("Could not ask the user: {e:#}")),
         Err(_) => return fail("Not joined: the user did not answer within an hour."),
@@ -212,9 +216,7 @@ pub(super) async fn call(node: &Node, request: &Request) -> Reply {
 
     let gateway = link.served(|served| served.gateways.get(&repo).copied());
     let reply = match gateway {
-        Some(gateway) if gateway == mesh.me() => {
-            answer(&link, &node.agents, None, &request).await
-        }
+        Some(gateway) if gateway == mesh.me() => answer(&link, &node.agents, None, &request).await,
         Some(gateway) => over_the_mesh(&mesh, gateway, &request)
             .await
             .unwrap_or_else(|e| {
@@ -388,12 +390,22 @@ async fn team(link: &TeamLink, repo: &TeamRepo) -> Reply {
             let ours = served.boards.cards(repo)?;
             let theirs = served.teammates.get(repo).map(Teammates::cards);
 
-            Some(ours.into_iter().chain(theirs.unwrap_or_default()).collect::<Vec<Card>>())
+            Some(
+                ours.into_iter()
+                    .chain(theirs.unwrap_or_default())
+                    .collect::<Vec<Card>>(),
+            )
         })
         .and_then(|cards| {
             let members = link.with(|teams| {
                 let record = teams.rosters.get(repo)?;
-                Some(record.members.iter().map(|member| member.login.to_string()).collect::<Vec<String>>())
+                Some(
+                    record
+                        .members
+                        .iter()
+                        .map(|member| member.login.to_string())
+                        .collect::<Vec<String>>(),
+                )
             })?;
 
             Some((members, cards))
@@ -431,39 +443,44 @@ async fn team(link: &TeamLink, repo: &TeamRepo) -> Reply {
 
 /// Hands `text` to the session on `card`, here or on the machine of this
 /// mesh that runs it.
-pub(super) async fn deliver(node: &Node, card: &str, delivery: Delivery, text: String) -> Result<(), String> {
-        let no_session = || format!("No session {card} runs on this mesh");
-        let (_, machine) = card.split_once('@').ok_or_else(no_session)?;
-        let mesh = node.mesh.get().ok_or_else(no_session)?;
-        let machine = find(&mesh, machine).ok_or_else(no_session)?;
+pub(super) async fn deliver(
+    node: &Node,
+    card: &str,
+    delivery: Delivery,
+    text: String,
+) -> Result<(), String> {
+    let no_session = || format!("No session {card} runs on this mesh");
+    let (_, machine) = card.split_once('@').ok_or_else(no_session)?;
+    let mesh = node.mesh.get().ok_or_else(no_session)?;
+    let machine = find(&mesh, machine).ok_or_else(no_session)?;
 
-        if machine.id == mesh.me() {
-            return here(&node.agents, card, delivery, text).await;
+    if machine.id == mesh.me() {
+        return here(&node.agents, card, delivery, text).await;
+    }
+
+    let handed = Handed {
+        card: card.to_owned(),
+        delivery,
+        text,
+    };
+    let request = Request {
+        session: SessionId::default(),
+        tool: Tool::TeamDeliver,
+        args: serde_json::to_string(&handed).map_err(|e| e.to_string())?,
+        approved: Approved::No,
+    };
+
+    match timeout(LIMIT, over_the_mesh(&mesh, machine.id, &request)).await {
+        Ok(Ok(Reply::Done { failed: false, .. })) => Ok(()),
+        Ok(Ok(Reply::Done { text, .. })) => Err(text),
+        Ok(other) => {
+            log::info!("an ask did not reach {card}: {other:?}");
+            Err(format!("The machine that runs {card} did not take it"))
         }
-
-        let handed = Handed {
-            card: card.to_owned(),
-            delivery,
-            text,
-        };
-        let request = Request {
-            session: SessionId::default(),
-            tool: Tool::TeamDeliver,
-            args: serde_json::to_string(&handed).map_err(|e| e.to_string())?,
-            approved: Approved::No,
-        };
-
-        match timeout(LIMIT, over_the_mesh(&mesh, machine.id, &request)).await {
-            Ok(Ok(Reply::Done { failed: false, .. })) => Ok(()),
-            Ok(Ok(Reply::Done { text, .. })) => Err(text),
-            Ok(other) => {
-                log::info!("an ask did not reach {card}: {other:?}");
-                Err(format!("The machine that runs {card} did not take it"))
-            }
-            Err(_) => Err(format!(
-                "The machine that runs {card} did not answer in time"
-            )),
-        }
+        Err(_) => Err(format!(
+            "The machine that runs {card} did not answer in time"
+        )),
+    }
 }
 
 /// Puts what `from` handed into its session here, when that session works

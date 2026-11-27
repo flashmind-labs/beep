@@ -3,11 +3,11 @@
 //! and `task_complete` with what it answered.
 
 use super::common::{Child, newest_files};
-use crate::logs::subagent::RunStep;
-use crate::logs::subagent::Run as SubagentRun;
-use crate::text::cut;
 use crate::logs::subagent::Conversation;
+use crate::logs::subagent::Run as SubagentRun;
+use crate::logs::subagent::RunStep;
 use crate::logs::window::{content_text, titled_call};
+use crate::text::cut;
 use beep_proto::SessionId;
 use serde_json::Value;
 use std::{
@@ -137,9 +137,7 @@ impl Reader {
 
         match (value["type"].as_str(), payload["type"].as_str()) {
             (Some("turn_context"), _) => {
-                if let Some(model) = payload["model"]
-                    .as_str()
-                    .map(str::trim)
+                if let Some(model) = payload["model"].as_str().map(str::trim)
                     && !model.is_empty()
                 {
                     self.run.model = Some(cut(model, MAX_STEP));
@@ -171,9 +169,7 @@ impl Reader {
             (Some("event_msg"), Some("task_complete" | "turn_aborted")) => {
                 self.run.working = false;
 
-                if let Some(last) = payload["last_agent_message"]
-                    .as_str()
-                    .map(str::trim)
+                if let Some(last) = payload["last_agent_message"].as_str().map(str::trim)
                     && !last.is_empty()
                 {
                     self.run.result = Some(cut(last, MAX_RESULT));

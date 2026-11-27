@@ -8,21 +8,18 @@ use super::{
     online, store,
 };
 use crate::{
-    agents::{
-        conversation, project_folder, sessions::Sessions,
-        skill_disk,
-    },
+    agents::{conversation, project_folder, sessions::Sessions, skill_disk},
     events::{Change, Hub},
     files::syncthing::expand,
 };
 use anyhow::{Context, Result, bail};
 use beep_mesh::{Key, Mesh, PeerClient};
-use beep_proto::watched;
 use beep_proto::node::{
     LinkRx, LinkTx,
     mesh_state::{ProjectSkills, SkillLibrary, StateValue},
     skill_library::{PROTOCOL, Problem, Reply, Request},
 };
+use beep_proto::watched;
 use futures::{StreamExt, stream, stream::FuturesUnordered};
 use iroh::EndpointId;
 use std::{
@@ -80,7 +77,10 @@ pub(crate) async fn follow(
             return;
         }
     };
-    libraries.shared.global.send_replace(Some(record.global_names()));
+    libraries
+        .shared
+        .global
+        .send_replace(Some(record.global_names()));
     let mut said = None;
 
     loop {
@@ -242,7 +242,10 @@ impl Pass<'_> {
             let chats = lib.library.chats.keys().cloned().map(Place::Chat);
             projects.chain(chats)
         });
-        let installed = record.installs.values().map(|install| install.place.clone());
+        let installed = record
+            .installs
+            .values()
+            .map(|install| install.place.clone());
         let places: BTreeSet<Place> = picked.chain(installed).collect();
 
         places
@@ -499,7 +502,12 @@ fn chat_folders(home: &Path, chat: &str, folders: &BTreeSet<PathBuf>) -> Vec<Pat
 
 /// Whether any place picks the library's skill `name`.
 fn picked(library: &SkillLibrary, name: &str) -> bool {
-    library.global.has(name) || library.projects.values().chain(library.chats.values()).any(|pick| pick.has(name))
+    library.global.has(name)
+        || library
+            .projects
+            .values()
+            .chain(library.chats.values())
+            .any(|pick| pick.has(name))
 }
 
 /// Fetches the repository at `url` and lists its skills.

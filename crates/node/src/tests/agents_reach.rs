@@ -157,7 +157,10 @@ fn claude_codes_temp_folder_is_in_tmp_by_uid() {
 async fn a_shared_folder_is_reached_through_the_agents() {
     let project = TempDir::new().unwrap();
     fs::write(project.path().join("model.glb"), "glTF").unwrap();
-    let agents = Agents::new(Parts { folders: vec![project.path().to_owned()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        folders: vec![project.path().to_owned()],
+        ..Parts::default()
+    });
     let asked = project.path().join("model.glb");
     let real = agents
         .reach
@@ -236,7 +239,11 @@ fn reach_is_built_from_sessions_and_occupancy_alone() {
         folders,
         sessions,
         occupancy,
-    } = Reach::new(vec![PathBuf::from("/srv/work")], Arc::default(), Occupancy::default());
+    } = Reach::new(
+        vec![PathBuf::from("/srv/work")],
+        Arc::default(),
+        Occupancy::default(),
+    );
     let _: &Vec<PathBuf> = &folders;
     let _: &Arc<Sessions> = &sessions;
     let _: &Occupancy = &occupancy;

@@ -121,7 +121,10 @@ fn the_report_skill_is_listed_and_adds_the_final_response_rule() {
     install(dir, report, &mut record(dir)).unwrap();
 
     let text = brief(dir).unwrap();
-    assert!(text.starts_with(&format!("## Beep skills\n\n{REPORT_RULE}")), "{text}");
+    assert!(
+        text.starts_with(&format!("## Beep skills\n\n{REPORT_RULE}")),
+        "{text}"
+    );
     assert!(text.contains("Beep keeps skills of its own"), "{text}");
     assert!(text.contains("- report:"), "{text}");
     assert!(!text.contains("<skill"), "{text}");
@@ -130,7 +133,10 @@ fn the_report_skill_is_listed_and_adds_the_final_response_rule() {
 
     install(dir, &SKILL, &mut record(dir)).unwrap();
     let text = brief(dir).unwrap();
-    assert!(text.starts_with(&format!("## Beep skills\n\n{REPORT_RULE}")), "{text}");
+    assert!(
+        text.starts_with(&format!("## Beep skills\n\n{REPORT_RULE}")),
+        "{text}"
+    );
     assert!(text.contains("- github:"), "{text}");
     assert!(text.contains("- report:"), "{text}");
 

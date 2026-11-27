@@ -11,11 +11,7 @@ use tokio::sync::broadcast::error::RecvError;
 
 /// Sends the known presence first, then after every open, update, close or
 /// ownership change.
-pub(super) async fn follow(
-    mut tx: LinkTx,
-    mut rx: LinkRx,
-    agents: &Agents,
-) -> Result<()> {
+pub(super) async fn follow(mut tx: LinkTx, mut rx: LinkRx, agents: &Agents) -> Result<()> {
     let mut changes = agents.occupancy.presence().subscribe();
     let mut events = agents.events.subscribe();
     let mut sent: Option<Vec<ExternalSession>> = None;

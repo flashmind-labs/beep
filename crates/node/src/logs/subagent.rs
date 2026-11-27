@@ -2,9 +2,9 @@
 //! call that started one, and what its entry says of it (written in
 //! `super::live`).
 
-use beep_proto::SessionId;
 use crate::text::valid_id;
 use anyhow::{Context, Result, bail};
+use beep_proto::SessionId;
 use beep_proto::node::agent::{Entry, EntryKind};
 use serde_json::Value;
 

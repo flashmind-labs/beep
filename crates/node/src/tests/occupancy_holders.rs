@@ -12,7 +12,10 @@ fn a_recent_write_with_nothing_holding_it_is_stopped() {
         settle(Presence::Recent, None, Holding::Open(7)),
         Presence::Recent
     );
-    assert_eq!(settle(Presence::Stopped, None, Holding::Open(7)), Presence::Running);
+    assert_eq!(
+        settle(Presence::Stopped, None, Holding::Open(7)),
+        Presence::Running
+    );
     // When nothing can say, a recent write still counts.
     assert_eq!(
         settle(Presence::Recent, None, Holding::Unknown),
@@ -286,10 +289,7 @@ async fn old_answers_are_checked_again_together() {
     tokio::time::advance(KEPT_FOR).await;
     // A process opened `a` without writing to it.
     fake.hold(&a, std::process::id());
-    assert_eq!(
-        ask(&holders, &a).await,
-        Holding::Open(std::process::id())
-    );
+    assert_eq!(ask(&holders, &a).await, Holding::Open(std::process::id()));
     assert_eq!(ask(&holders, &b).await, Holding::Closed);
 
     let real = |file: &Path| fs::canonicalize(file).unwrap();

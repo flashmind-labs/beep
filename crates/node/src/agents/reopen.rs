@@ -1,14 +1,21 @@
 //! What the node keeps of its sessions across a stop: the note the next
 //! start resumes from, and whether it has done so.
 
-use super::{acp::Prompt, family::{RemoteKid, links::Links}, sessions::Sessions};
+use super::{
+    acp::Prompt,
+    family::{RemoteKid, links::Links},
+    sessions::Sessions,
+};
 use beep_proto::{AccountName, SessionId};
 use beep_proto::{
     ModelId,
     node::agent::{Effort, Entry, ParentLink, Persona, SessionDevice, SessionInfo},
 };
 use serde::{Deserialize, Serialize};
-use std::{path::PathBuf, sync::{Arc, Mutex}};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 use tokio::sync::watch;
 
 /// The sessions kept from before the last stop, and whether they were

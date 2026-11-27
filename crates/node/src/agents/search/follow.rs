@@ -150,7 +150,8 @@ pub(super) async fn conversations(agents: &Agents) -> Vec<Conversation> {
 
     let owned = agents.sessions.owned();
     let mut live: HashMap<SessionId, SessionInfo> = agents
-        .sessions.listed(true)
+        .sessions
+        .listed(true)
         .into_iter()
         .map(|info| (info.id.clone(), info))
         .collect();

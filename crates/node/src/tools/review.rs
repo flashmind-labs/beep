@@ -2,9 +2,9 @@
 //! temporary reviewer it starts as a child (`agents::reviews`), and the
 //! reviewer hands its findings in. Both run on the caller's own node.
 
+use super::Node;
 use crate::agents::reply::{fail, json_done, ok, parse};
 use crate::agents::{Agents, family::WAIT_LIMIT, reviews::MAX_FINDINGS};
-use super::Node;
 use beep_proto::SessionId;
 use beep_proto::node::{
     agent::{ReviewOrder, ReviewRun, SubmittedReview},
@@ -160,7 +160,9 @@ fn submit_review(node: &Node, request: &Request) -> Result<Reply, String> {
         ));
     }
 
-    node.agents.reviews.submit_review(&request.session, review)?;
+    node.agents
+        .reviews
+        .submit_review(&request.session, review)?;
 
     Ok(ok("Submitted. The review is done: end your turn."))
 }

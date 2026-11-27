@@ -130,14 +130,16 @@ impl Form {
         choose: impl Fn(&[AnswerOption], &str) -> Option<AnswerOption>,
     ) -> Result<Answer, agent_client_protocol::Error> {
         let Some(field) = self.fields.pop_front() else {
-            self.responder.respond(response(ElicitationAction::Cancel))?;
+            self.responder
+                .respond(response(ElicitationAction::Cancel))?;
             return Ok(Answer::Sent("cancelled".into()));
         };
         let options = &field.question.options;
         let picked = choose(options, reply);
 
         if picked.as_ref().is_some_and(|option| option.id == SKIP) {
-            self.responder.respond(response(ElicitationAction::Decline))?;
+            self.responder
+                .respond(response(ElicitationAction::Decline))?;
             return Ok(Answer::Sent("skipped".into()));
         }
 
@@ -175,7 +177,10 @@ impl Field {
 
         match (self.value, picked) {
             (Value::Boolean, Some(option)) => {
-                put(&self.key, ElicitationContentValue::Boolean(option.id == "true"));
+                put(
+                    &self.key,
+                    ElicitationContentValue::Boolean(option.id == "true"),
+                );
                 option.name
             }
             (Value::Pick, Some(option)) => {

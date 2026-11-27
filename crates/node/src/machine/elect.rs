@@ -22,7 +22,10 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::{sync::watch, time::{sleep, timeout}};
+use tokio::{
+    sync::watch,
+    time::{sleep, timeout},
+};
 use tokio_util::task::AbortOnDropHandle;
 
 /// How long a follow waits before it follows a machine that dropped again.
@@ -178,7 +181,10 @@ impl Reaches {
 
     /// How `peer` reaches the hosts: what it pushed last; asked once while it
     /// has not said, and each time while it does not push.
-    pub(crate) fn ask(&self, peer: EndpointId) -> impl Future<Output = Result<ForgeReach>> + Send + 'static {
+    pub(crate) fn ask(
+        &self,
+        peer: EndpointId,
+    ) -> impl Future<Output = Result<ForgeReach>> + Send + 'static {
         let reaches = self.clone();
 
         async move {
@@ -198,14 +204,20 @@ impl Reaches {
 
     /// Whether `peer` has pushed its reach and so keeps pushing changes.
     pub(crate) fn pushes(&self, peer: EndpointId) -> bool {
-        matches!(crate::lock(&self.hear.said).get(&peer), Some(Said::Reach(_)))
+        matches!(
+            crate::lock(&self.hear.said).get(&peer),
+            Some(Said::Reach(_))
+        )
     }
 
     /// Starts following `peer`, unless it is followed already.
     fn follow(&self, peer: EndpointId) {
         let mut follows = crate::lock(&self.follows);
 
-        if follows.get(&peer).is_some_and(|follow| !follow.is_finished()) {
+        if follows
+            .get(&peer)
+            .is_some_and(|follow| !follow.is_finished())
+        {
             return;
         }
 

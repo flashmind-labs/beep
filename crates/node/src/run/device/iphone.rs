@@ -21,8 +21,7 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(20);
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(300);
 /// Opens a URL given to `launch`.
 const SAFARI: &str = "com.apple.mobilesafari";
-pub(super) const NO_INPUT: &str =
-    "Beep cannot tap or type on an iPhone yet: use the phone itself.";
+pub(super) const NO_INPUT: &str = "Beep cannot tap or type on an iPhone yet: use the phone itself.";
 
 /// The iPhones and iPads this Mac reaches.
 pub(super) async fn list() -> Vec<Device> {
@@ -128,7 +127,11 @@ pub(super) fn parse_devices(text: &str) -> Result<Vec<Device>> {
 /// Installs the `.app` at `path` on iPhone `id`.
 pub(super) async fn install(id: &DeviceId, path: &Path) -> Result<()> {
     let path = path.to_str().context("the path is not text")?;
-    devicectl(&["device", "install", "app", "-d", &id.0, path], INSTALL_TIMEOUT).await?;
+    devicectl(
+        &["device", "install", "app", "-d", &id.0, path],
+        INSTALL_TIMEOUT,
+    )
+    .await?;
 
     Ok(())
 }
@@ -179,7 +182,15 @@ async fn screenshots(id: &DeviceId, max_side: u32, screen: &watch::Sender<Screen
     let mut last = Vec::new();
 
     while !screen.is_closed() {
-        let args = ["device", "capture", "screenshot", "-d", &id.0, "--destination", destination];
+        let args = [
+            "device",
+            "capture",
+            "screenshot",
+            "-d",
+            &id.0,
+            "--destination",
+            destination,
+        ];
         devicectl(&args, CALL_TIMEOUT).await?;
         let png = tokio::fs::read(&shot).await?;
 

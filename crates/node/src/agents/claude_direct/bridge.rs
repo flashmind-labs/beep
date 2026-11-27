@@ -6,10 +6,14 @@ use super::{
     cli::{Cli, Launch, disallowed_tools},
     updates,
 };
-use crate::agents::{acp::{
+use crate::agents::{
+    acp::{
         self,
         bridge::{ClientReply, ClientRequest, Event, Start, notify, parse_start, unknown_session},
-    }, launch, pipe::Frame};
+    },
+    launch,
+    pipe::Frame,
+};
 use crate::machine::wsl::{self, DistroName, LinuxPath};
 use agent_client_protocol::{
     Client, ConnectionTo, JsonRpcMessage, Responder, UntypedMessage,
@@ -461,7 +465,11 @@ impl Bridge {
 
                 session.streamed.clear();
 
-                if let Some(Turn { responder, cancelled }) = session.turn.take() {
+                if let Some(Turn {
+                    responder,
+                    cancelled,
+                }) = session.turn.take()
+                {
                     match updates::stop(&frame, cancelled) {
                         Ok(stop) => responder.respond(
                             PromptResponse::new(stop).usage(updates::turn_usage(&frame)),

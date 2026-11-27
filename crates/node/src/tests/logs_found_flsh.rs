@@ -110,11 +110,7 @@ fn a_generated_title_in_the_header_names_the_session() {
     let root = tempfile::tempdir().expect("a temp folder");
     let dir = root.path().join("0123456789abcdef");
     fs::create_dir_all(&dir).expect("folders");
-    let titled = FIXTURE.replacen(
-        r#""title":null"#,
-        r#""title":"Run the app's tests""#,
-        1,
-    );
+    let titled = FIXTURE.replacen(r#""title":null"#, r#""title":"Run the app's tests""#, 1);
     fs::write(dir.join("a.jsonl"), titled).expect("a session file");
 
     let found = sessions(root.path(), &Memos::default());

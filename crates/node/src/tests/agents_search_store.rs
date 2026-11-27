@@ -15,29 +15,51 @@ fn texts(of: &[&str]) -> Vec<String> {
 #[test]
 fn every_word_must_be_in_one_session_newest_first() -> Result<()> {
     let mut store = Store::open(Path::new(":memory:"))?;
-    store.save(&indexed("old", 1, true), &texts(&["Improve the worktree search bar"]), Progress::NEW)?;
+    store.save(
+        &indexed("old", 1, true),
+        &texts(&["Improve the worktree search bar"]),
+        Progress::NEW,
+    )?;
     store.save(
         &indexed("split", 2, true),
         &texts(&["Add worktree support", "The agent polished the bar"]),
         Progress::NEW,
     )?;
-    store.save(&indexed("partial", 3, true), &texts(&["worktree only"]), Progress::NEW)?;
+    store.save(
+        &indexed("partial", 3, true),
+        &texts(&["worktree only"]),
+        Progress::NEW,
+    )?;
 
     let found = store.find("  BAR Worktree bar  ", &[])?;
     let sessions: Vec<&str> = found.iter().map(|hit| hit.session.as_ref()).collect();
     assert_eq!(sessions, ["split", "old"]);
-    assert_eq!(found[0].texts, ["The agent polished the bar", "Add worktree support"]);
+    assert_eq!(
+        found[0].texts,
+        ["The agent polished the bar", "Add worktree support"]
+    );
     assert!(store.find("worktree z", &[])?.is_empty());
     assert_eq!(store.find("wo bar", &[])?.len(), 2, "short words match too");
-    assert!(store.find("b", &[])?.is_empty(), "one character finds nothing");
+    assert!(
+        store.find("b", &[])?.is_empty(),
+        "one character finds nothing"
+    );
     Ok(())
 }
 
 #[test]
 fn a_text_is_kept_once_and_rows_come_in_order() -> Result<()> {
     let mut store = Store::open(Path::new(":memory:"))?;
-    store.save(&indexed("one", 1, false), &texts(&["first", "second"]), Progress::NEW)?;
-    store.save(&indexed("one", 1, true), &texts(&["second", "third"]), Progress::NEW)?;
+    store.save(
+        &indexed("one", 1, false),
+        &texts(&["first", "second"]),
+        Progress::NEW,
+    )?;
+    store.save(
+        &indexed("one", 1, true),
+        &texts(&["second", "third"]),
+        Progress::NEW,
+    )?;
 
     let rows = store.rows_after(0, 10)?;
     let added: Vec<Option<&str>> = rows.iter().map(|row| row.text.as_deref()).collect();
@@ -159,7 +181,11 @@ fn words_are_literal_and_fold_every_capital() -> Result<()> {
         &texts(&["Ärger im Build", "Привет мир", "call my_function"]),
         Progress::NEW,
     )?;
-    store.save(&indexed("two", 2, true), &texts(&["call my function"]), Progress::NEW)?;
+    store.save(
+        &indexed("two", 2, true),
+        &texts(&["call my function"]),
+        Progress::NEW,
+    )?;
 
     assert_eq!(store.find("ärger", &[])?.len(), 1);
     assert_eq!(store.find("ÄRGER build", &[])?.len(), 1);
@@ -172,14 +198,21 @@ fn words_are_literal_and_fold_every_capital() -> Result<()> {
     assert_eq!(underscored, ["one"], "_ is not a wildcard");
     assert!(store.find("__", &[])?.is_empty());
     assert!(store.find("%%", &[])?.is_empty());
-    assert!(store.find("\"call", &[])?.is_empty(), "quotes are taken as written");
+    assert!(
+        store.find("\"call", &[])?.is_empty(),
+        "quotes are taken as written"
+    );
     Ok(())
 }
 
 #[test]
 fn a_search_can_keep_to_named_sessions() -> Result<()> {
     let mut store = Store::open(Path::new(":memory:"))?;
-    store.save(&indexed("listed", 1, true), &texts(&["retry"]), Progress::NEW)?;
+    store.save(
+        &indexed("listed", 1, true),
+        &texts(&["retry"]),
+        Progress::NEW,
+    )?;
     store.save(&indexed("past", 2, true), &texts(&["retry"]), Progress::NEW)?;
 
     let hits: Vec<String> = store
@@ -199,7 +232,11 @@ fn a_walk_in_progress_is_kept_and_is_not_current() -> Result<()> {
         done: 0,
         walk: Some(Walk { top: 600, low: 400 }),
     };
-    store.save(&indexed("one", 5, false), &texts(&["Newest request"]), walking)?;
+    store.save(
+        &indexed("one", 5, false),
+        &texts(&["Newest request"]),
+        walking,
+    )?;
     assert_eq!(store.progress(&SessionId::from("one"))?, walking);
     assert!(!store.current(&SessionId::from("one"), "5")?);
     assert_eq!(store.find("newest", &[])?.len(), 1, "saved page by page");
@@ -233,8 +270,16 @@ fn a_file_keeps_its_epoch_and_a_new_file_gets_another() -> Result<()> {
 #[test]
 fn a_copy_follows_rows_resets_and_a_new_epoch() -> Result<()> {
     let mut node = Store::open(Path::new(":memory:"))?;
-    node.save(&indexed("gone", 1, true), &texts(&["retry the build"]), Progress::NEW)?;
-    node.save(&indexed("kept", 2, true), &texts(&["retry the upload"]), Progress::NEW)?;
+    node.save(
+        &indexed("gone", 1, true),
+        &texts(&["retry the build"]),
+        Progress::NEW,
+    )?;
+    node.save(
+        &indexed("kept", 2, true),
+        &texts(&["retry the upload"]),
+        Progress::NEW,
+    )?;
     let epoch = node.epoch()?;
 
     let mut copy = IndexCopy::open(Path::new(":memory:"))?;
@@ -242,18 +287,29 @@ fn a_copy_follows_rows_resets_and_a_new_epoch() -> Result<()> {
     copy.apply(&epoch, &node.rows_after(after, 1)?)?;
     let (_, after) = copy.position()?;
     copy.apply(&epoch, &node.rows_after(after, 10)?)?;
-    let order: Vec<String> = copy.find("retry", &[])?.into_iter().map(|hit| String::from(hit.session)).collect();
+    let order: Vec<String> = copy
+        .find("retry", &[])?
+        .into_iter()
+        .map(|hit| String::from(hit.session))
+        .collect();
     assert_eq!(order, ["kept", "gone"], "newest activity first");
     assert_eq!(copy.position()?, (epoch.clone(), node.newest()?));
 
     node.forget(&SessionId::from("gone"))?;
     let (_, after) = copy.position()?;
     copy.apply(&epoch, &node.rows_after(after, 10)?)?;
-    let found: Vec<String> = copy.find("retry", &[])?.into_iter().map(|hit| String::from(hit.session)).collect();
+    let found: Vec<String> = copy
+        .find("retry", &[])?
+        .into_iter()
+        .map(|hit| String::from(hit.session))
+        .collect();
     assert_eq!(found, ["kept"]);
 
     copy.apply("another", &[])?;
-    assert!(copy.find("retry", &[])?.is_empty(), "another index starts over");
+    assert!(
+        copy.find("retry", &[])?.is_empty(),
+        "another index starts over"
+    );
     assert_eq!(copy.position()?, ("another".to_owned(), 0));
     Ok(())
 }
@@ -261,7 +317,11 @@ fn a_copy_follows_rows_resets_and_a_new_epoch() -> Result<()> {
 #[test]
 fn a_hit_carries_only_the_text_around_its_word() -> Result<()> {
     let mut store = Store::open(Path::new(":memory:"))?;
-    let long = format!("{}İstanbul retry button{}", "a ".repeat(2000), " b".repeat(2000));
+    let long = format!(
+        "{}İstanbul retry button{}",
+        "a ".repeat(2000),
+        " b".repeat(2000)
+    );
     store.save(&indexed("long", 1, true), &texts(&[&long]), Progress::NEW)?;
 
     let texts = &store.find("retry", &[])?[0].texts;
@@ -274,7 +334,9 @@ fn a_hit_carries_only_the_text_around_its_word() -> Result<()> {
 #[test]
 fn a_batch_of_rows_ends_once_it_carries_enough_text() -> Result<()> {
     let mut store = Store::open(Path::new(":memory:"))?;
-    let big: Vec<String> = (0..3).map(|n| format!("{n}{}", "x".repeat(BATCH_BYTES / 2))).collect();
+    let big: Vec<String> = (0..3)
+        .map(|n| format!("{n}{}", "x".repeat(BATCH_BYTES / 2)))
+        .collect();
     store.save(&indexed("big", 1, true), &big, Progress::NEW)?;
 
     assert_eq!(store.rows_after(0, 500)?.len(), 2);

@@ -5,9 +5,9 @@
 
 use super::saved::{Folder, Outgoing, Previous, SentTree, valid_id};
 use crate::{AsyncMutex, lock};
-use beep_proto::{SessionId, watched};
-use beep_proto::node::events::{MOVE_PROGRESS_TOPIC, Topic};
 use beep_proto::node::agent::{MoveEntry, MovePhase, MoveProgress};
+use beep_proto::node::events::{MOVE_PROGRESS_TOPIC, Topic};
+use beep_proto::{SessionId, watched};
 use iroh::EndpointId;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -341,7 +341,9 @@ impl Moves {
     pub(super) fn target(&self, id: &SessionId, at: u64) -> Target {
         lock(&self.tracked)
             .find(id, at)
-            .map_or(Target::Unknown, |one| watched::read_sent(&one.tracker.0, Landing::target))
+            .map_or(Target::Unknown, |one| {
+                watched::read_sent(&one.tracker.0, Landing::target)
+            })
     }
 
     pub(super) fn owns_target(&self, id: &SessionId, at: u64, source: EndpointId) -> bool {
@@ -361,7 +363,8 @@ impl Moves {
     /// The target of the move of `id` read from this machine.
     pub(super) fn contact(&self, id: &SessionId) {
         if lock(&self.contacted).insert(id.to_owned()) {
-            self.reached.send_modify(|count| *count = count.wrapping_add(1));
+            self.reached
+                .send_modify(|count| *count = count.wrapping_add(1));
         }
     }
 
@@ -370,7 +373,8 @@ impl Moves {
     }
 
     fn release(&self) {
-        self.released.send_modify(|count| *count = count.wrapping_add(1));
+        self.released
+            .send_modify(|count| *count = count.wrapping_add(1));
     }
 
     /// Serves session `id` as running until the guard drops.

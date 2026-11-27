@@ -1,7 +1,7 @@
-use std::time::Duration;
 use super::*;
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
+use std::time::Duration;
 
 struct Fixture {
     dir: PathBuf,

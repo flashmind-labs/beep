@@ -236,9 +236,9 @@ impl Pair {
         let inviter = TeamLink::new(endpoint.clone(), inviter_forge.clone());
         let router = Router::builder(endpoint)
             .accept(
-            beep_proto::team::ALPN,
-            crate::tools::team_link::TeamAlpn::new(crate::tools::Node::of_link(&inviter)),
-        )
+                beep_proto::team::ALPN,
+                crate::tools::team_link::TeamAlpn::new(crate::tools::Node::of_link(&inviter)),
+            )
             .spawn();
         let secret = JoinSecret::generate();
         let alice_mesh = mesh_id();
@@ -411,8 +411,7 @@ fn with_carol(pair: &Pair, carol: EndpointId, device: EndpointId) {
 }
 
 fn invites(pair: &Pair) -> Vec<TeamInviteArgs> {
-    pair.inviter
-        .invites_waiting()
+    pair.inviter.invites_waiting()
 }
 
 #[tokio::test]
@@ -425,7 +424,11 @@ async fn join_admits_with_proof() {
     assert_eq!(logins, ["alice", "bob"]);
     let pending = pair.inviter_pending();
     assert_eq!(pending.len(), 1);
-    let bob = pending[0].members.iter().find(|m| m.login == login("bob")).unwrap();
+    let bob = pending[0]
+        .members
+        .iter()
+        .find(|m| m.login == login("bob"))
+        .unwrap();
     assert!(bob.proof.is_some(), "the entry keeps the proof commit");
     no_proof_refs(&pair.remote).await;
 }
@@ -738,7 +741,13 @@ async fn an_invite_that_outlives_its_day_goes_by_its_own_deadline() {
         repo: repo(),
         ticket: ticket_to(repo()),
     };
-    pair.inviter.inner.invites.lock().unwrap().keep(args, past).unwrap();
+    pair.inviter
+        .inner
+        .invites
+        .lock()
+        .unwrap()
+        .keep(args, past)
+        .unwrap();
     assert_eq!(pair.inviter.next_expiry(), Some(past + DAY));
     pair.inviter.expire_now();
     assert_eq!(pair.inviter.next_expiry(), None);
@@ -772,11 +781,7 @@ async fn a_joiner_refuses_a_roster_that_changes_its_own_entry() {
         let joiner = pair.joiner.clone();
         let sent = &sent;
         let inviter = pair.inviter_id;
-        async move {
-            joiner
-                .check_roster(&repo(), &members, inviter, sent)
-                .await
-        }
+        async move { joiner.check_roster(&repo(), &members, inviter, sent).await }
     };
 
     assert!(check(member("bob", mesh, device)).await.is_ok());
@@ -1028,9 +1033,7 @@ fn a_member_let_back_in_is_taken_everywhere() {
     };
     let applied = rosters.apply(alice_device, None, &roster).unwrap();
     assert_eq!(applied.newcomers, std::slice::from_ref(&again));
-    rosters
-        .add(&repo(), alice_device, None, again)
-        .unwrap();
+    rosters.add(&repo(), alice_device, None, again).unwrap();
 
     assert!(rosters.allows(carol_device, &repo()));
     assert!(rosters.get(&repo()).unwrap().removed.is_empty());
@@ -1338,7 +1341,10 @@ async fn a_newcomer_waits_for_the_forge_to_say_yes() {
     let sent = pair.joiner.send(&alice, &roster).await;
     match sent {
         Err(TeamError::Refused(reason)) => {
-            assert_eq!(reason, "Could not check dave on github.com/org/repo's forge");
+            assert_eq!(
+                reason,
+                "Could not check dave on github.com/org/repo's forge"
+            );
         }
         other => panic!("expected a refusal, got {other:?}"),
     }
@@ -1375,7 +1381,11 @@ async fn a_newcomer_is_taken_on_the_proof_they_marked() {
 
 #[tokio::test(start_paused = true)]
 async fn a_checkout_is_taken_from_the_home_the_moment_it_is_published() {
-    let link = joiner_link(&EndpointAddr::new(mesh_id()), Forge::signed_in("bob", Answer::Yes)).await;
+    let link = joiner_link(
+        &EndpointAddr::new(mesh_id()),
+        Forge::signed_in("bob", Answer::Yes),
+    )
+    .await;
     let checkout = Checkout {
         folder: PathBuf::from("/srv/project"),
         remote: "origin".to_owned(),
@@ -1400,14 +1410,26 @@ async fn a_checkout_is_taken_from_the_home_the_moment_it_is_published() {
 
 #[tokio::test(start_paused = true)]
 async fn a_project_that_never_arrives_is_not_imported() {
-    let link = joiner_link(&EndpointAddr::new(mesh_id()), Forge::signed_in("bob", Answer::Yes)).await;
+    let link = joiner_link(
+        &EndpointAddr::new(mesh_id()),
+        Forge::signed_in("bob", Answer::Yes),
+    )
+    .await;
 
-    assert!(crate::team::join::checkout_for(&link, &repo()).await.is_none());
+    assert!(
+        crate::team::join::checkout_for(&link, &repo())
+            .await
+            .is_none()
+    );
 }
 
 #[tokio::test]
 async fn a_message_goes_to_all_members_at_once() {
-    let link = joiner_link(&EndpointAddr::new(mesh_id()), Forge::signed_in("bob", Answer::Yes)).await;
+    let link = joiner_link(
+        &EndpointAddr::new(mesh_id()),
+        Forge::signed_in("bob", Answer::Yes),
+    )
+    .await;
     // Machines that take the packets and never answer: each dial runs for DIAL.
     let silent = [
         tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap(),

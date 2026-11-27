@@ -1,10 +1,10 @@
 use super::{Reaches, Said, elect, ranked};
 use beep_mesh::Mesh;
-use iroh::{Endpoint, endpoint::presets};
-use std::time::Duration;
 use beep_proto::node::tools::{ForgeReach, HostReach};
+use iroh::{Endpoint, endpoint::presets};
 use iroh::{EndpointId, SecretKey};
 use std::collections::{BTreeMap, BTreeSet};
+use std::time::Duration;
 
 const HOST: &str = "git.example.com";
 
@@ -95,7 +95,10 @@ fn the_candidates_are_ranked_as_the_election_goes() {
     // answer is no candidate.
     assert_eq!(order, [tried, me, fresh]);
     assert!(!order.contains(&silent));
-    assert_eq!(elect(&machines, me, reach(false, 0), &peers, HOST), Some(tried));
+    assert_eq!(
+        elect(&machines, me, reach(false, 0), &peers, HOST),
+        Some(tried)
+    );
 }
 
 /// The follows of a machine's reach end with the last `Reaches`, so a node that

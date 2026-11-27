@@ -3,10 +3,10 @@
 //! node and a standalone node in that folder; a node run with another
 //! `--dir` keeps its own there, so it never replaces the installed node's.
 
-use beep_proto::SessionId;
 use super::{Registration, Registry};
 use crate::run::local_socket::{Listener, Stream};
 use anyhow::{Context, Result, bail};
+use beep_proto::SessionId;
 use serde::Serialize;
 use std::{
     ffi::OsString,

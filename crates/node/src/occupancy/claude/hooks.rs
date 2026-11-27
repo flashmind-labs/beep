@@ -2,10 +2,10 @@
 //! node: `install` adds them to Claude Code's settings, and each runs
 //! `beep-node hook` (`forward`), which hands the event over `socket_path`.
 
-use beep_proto::SessionId;
-use crate::text::cut;
 use crate::run::local_socket as socket;
+use crate::text::cut;
 use anyhow::{Context, Result, bail};
+use beep_proto::SessionId;
 use beep_proto::node::agent::{Activity, ActivityKind, PlanEntry, PlanStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};

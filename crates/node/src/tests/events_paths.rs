@@ -127,7 +127,6 @@ fn replacing_a_file_in_a_watched_checkout_keeps_its_watch() {
     assert_eq!(lost(&roots, Path::new("/srv")).count(), 3);
 }
 
-
 #[test]
 fn a_checkout_watch_leaves_out_linked_worktrees_and_build_output() {
     let root = Path::new("/srv/project");
@@ -193,7 +192,10 @@ async fn a_folder_made_after_the_walk_is_watched_and_one_removed_is_let_go() {
 
     while changes.try_recv().is_ok() {}
     std::fs::write(made.join("example.txt"), "changed").unwrap();
-    assert_eq!(timeout_change(&mut changes).await, std::slice::from_ref(&root));
+    assert_eq!(
+        timeout_change(&mut changes).await,
+        std::slice::from_ref(&root)
+    );
 
     std::fs::remove_dir_all(&made).unwrap();
     until_reconciled(&watcher, |held| !held.folders[&root].contains(&made)).await;

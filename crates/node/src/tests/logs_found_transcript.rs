@@ -126,7 +126,11 @@ fn saved_pi_subagent_calls_show_as_agent_cards() {
     fs::write(&path, format!("{line}\n")).expect("a session file");
     let entries = pi(&path).expect("the session reads");
     assert_eq!(entries.len(), 2);
-    assert!(entries[0].text.contains("[agent] scout"), "{}", entries[0].text);
+    assert!(
+        entries[0].text.contains("[agent] scout"),
+        "{}",
+        entries[0].text
+    );
     assert_eq!(entries[1].kind, EntryKind::Tool);
 }
 
@@ -160,7 +164,10 @@ fn saved_pi_provider_errors_appear_in_transcript_and_custom_messages_stay_hidden
         entries,
         [
             (EntryKind::Tool, "bash: echo hi".into()),
-            (EntryKind::Other, "Provider finish_reason: content_filter".into()),
+            (
+                EntryKind::Other,
+                "Provider finish_reason: content_filter".into()
+            ),
             (EntryKind::Other, "Upstream 502".into()),
         ]
     );

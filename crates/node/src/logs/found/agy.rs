@@ -5,7 +5,7 @@
 //! session started as subagents, are in `conversation_summaries.db` beside
 //! the folder.
 
-use super::common::{Summaries, Agent, Memos, Seen, newest_files, open_database, prompt_title};
+use super::common::{Agent, Memos, Seen, Summaries, newest_files, open_database, prompt_title};
 use beep_proto::SessionId;
 use prost::Message;
 use rusqlite::OptionalExtension;
@@ -58,7 +58,12 @@ pub(crate) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
             let mut seen = memos
                 .heads
                 .read_database(&path, || head(&path))
-                .inspect_err(|e| log::debug!("agy conversation not read; path={} error={e}", path.display()))
+                .inspect_err(|e| {
+                    log::debug!(
+                        "agy conversation not read; path={} error={e}",
+                        path.display()
+                    )
+                })
                 .ok()??;
 
             if summaries.children.contains(&seen.id) {
@@ -91,7 +96,9 @@ fn read_summaries(path: &Path) -> rusqlite::Result<Summaries> {
     // Titles are read last, so they win over first prompts.
     for query in [FIRST_PROMPTS, TITLES] {
         let mut statement = conn.prepare(query)?;
-        let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
 
         for row in rows {
             let (id, text) = row?;

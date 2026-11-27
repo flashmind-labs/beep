@@ -52,10 +52,7 @@ fn roots(paths: &[RelPath]) -> Result<Vec<PathBuf>> {
         bail!("Select between 1 and {MAX_ITEMS} items");
     }
 
-    let all = paths
-        .iter()
-        .map(checked)
-        .collect::<Result<Vec<_>>>()?;
+    let all = paths.iter().map(checked).collect::<Result<Vec<_>>>()?;
     let lookup: HashSet<_> = all.iter().cloned().collect();
     let mut seen = HashSet::new();
     Ok(all

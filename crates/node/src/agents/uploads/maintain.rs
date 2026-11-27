@@ -1,10 +1,21 @@
 //! The hourly cleanup of old attachments.
 
 use super::{WRITING, folder, owner, sweep};
-use crate::{agents::{sessions::Map, work_folder::{self, prune}}, lock};
+use crate::{
+    agents::{
+        sessions::Map,
+        work_folder::{self, prune},
+    },
+    lock,
+};
 use anyhow::Result;
 use beep_proto::{node::agent::Status, watched};
-use std::{collections::HashSet, path::PathBuf, sync::Arc, time::{Duration, SystemTime}};
+use std::{
+    collections::HashSet,
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 use tokio::sync::watch;
 use tokio_util::task::AbortOnDropHandle;
 

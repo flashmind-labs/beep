@@ -2,9 +2,9 @@
 //! from its stdout, with paths turned across when it runs in WSL.
 
 use super::launch::{Cli, Process};
-use crate::process::line_reader::{Line, LineReader, MAX_MESSAGE};
 use crate::machine::wsl::{self, Toward};
 use crate::process::STOP_GRACE;
+use crate::process::line_reader::{Line, LineReader, MAX_MESSAGE};
 use anyhow::Result;
 use serde_json::Value;
 use tokio::{
@@ -39,7 +39,12 @@ pub(super) struct Pipe {
 impl Pipe {
     /// Starts `process`, the agent `name` on `cli`, which runs in WSL when
     /// `in_wsl`. Its stderr is the agent's, as the session reads it.
-    pub(super) fn start(cli: &mut Cli, process: Command, name: &'static str, in_wsl: bool) -> Result<Self> {
+    pub(super) fn start(
+        cli: &mut Cli,
+        process: Command,
+        name: &'static str,
+        in_wsl: bool,
+    ) -> Result<Self> {
         let (process, mut stdin, stdout) = cli.spawn(process, name)?;
         let (lines, mut written) = mpsc::unbounded_channel::<String>();
         let (sent, frames) = mpsc::channel(FRAMES);
@@ -94,7 +99,10 @@ impl Pipe {
             in_wsl,
             frames,
             process,
-            _tasks: [AbortOnDropHandle::new(writer), AbortOnDropHandle::new(reader)],
+            _tasks: [
+                AbortOnDropHandle::new(writer),
+                AbortOnDropHandle::new(reader),
+            ],
         })
     }
 
@@ -114,7 +122,12 @@ impl Pipe {
     /// Ends the CLI as a session ends its agent: its stdin closes and its
     /// group is asked to end, then killed after `STOP_GRACE`.
     pub(super) async fn stop(self) {
-        let Self { lines, process, _tasks, .. } = self;
+        let Self {
+            lines,
+            process,
+            _tasks,
+            ..
+        } = self;
         drop(lines);
         process.stop(STOP_GRACE).await;
     }

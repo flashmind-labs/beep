@@ -12,10 +12,7 @@ fn rollout(root: &std::path::Path, id: &str) {
 }
 
 fn over(root: &std::path::Path) -> Occupancy {
-    Occupancy::over(
-        Store::locate_in(root),
-        Stores::at(Some(root), None, None),
-    )
+    Occupancy::over(Store::locate_in(root), Stores::at(Some(root), None, None))
 }
 
 #[tokio::test]

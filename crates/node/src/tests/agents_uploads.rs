@@ -1,7 +1,7 @@
+use super::maintain::read;
 use super::*;
 use crate::agents::Parts;
 use crate::agents::{Agents, work_folder::prune};
-use super::maintain::read;
 use tempfile::TempDir;
 
 fn put(cache: &Path, session: &str, name: &str, bytes: &[u8]) -> String {
@@ -43,7 +43,17 @@ fn parts_survive_a_restart_and_cannot_cross_sessions_or_change_size() {
     let session = owner("codex", &SessionId::from("session-one"));
     let path = write_in(&cache, &session, "clip.mp4", 0, 6, b"one").unwrap();
     assert!(!Path::new(&path).exists());
-    assert!(write_in(&cache, &owner("codex", &SessionId::from("session-two")), &path, 3, 6, b"two").is_err());
+    assert!(
+        write_in(
+            &cache,
+            &owner("codex", &SessionId::from("session-two")),
+            &path,
+            3,
+            6,
+            b"two"
+        )
+        .is_err()
+    );
     assert!(write_in(&cache, &session, &path, 3, 8, b"two").is_err());
     assert!(write_in(&cache, &session, &path, 2, 6, b"two").is_err());
     // No process-local record is needed to finish after restarting.
@@ -133,14 +143,24 @@ fn attachments_go_a_day_after_their_session_ends_unless_it_runs_again() {
     let open = put(dir.path(), "open", "c.txt", b"c");
 
     for session in ["ended", "resumed"] {
-        fs::write(dir.path().join(owner("codex", &SessionId::from(session))).join(ENDED), b"").unwrap();
+        fs::write(
+            dir.path()
+                .join(owner("codex", &SessionId::from(session)))
+                .join(ENDED),
+            b"",
+        )
+        .unwrap();
     }
 
     let running = HashSet::from([owner("codex", &SessionId::from("resumed"))]);
     sweep(dir.path(), SystemTime::now() + DAY / 2, &running).unwrap();
     assert!(Path::new(&ended).exists(), "within a day of the end");
     sweep(dir.path(), SystemTime::now() + DAY * 2, &running).unwrap();
-    assert!(!dir.path().join(owner("codex", &SessionId::from("ended"))).exists());
+    assert!(
+        !dir.path()
+            .join(owner("codex", &SessionId::from("ended")))
+            .exists()
+    );
     assert!(Path::new(&resumed).exists());
     assert!(Path::new(&open).exists());
 }
@@ -235,7 +255,10 @@ done
         default_model: None,
         bridge: None,
     };
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let session = agents
         .start(&kind, Some(&dir.path().to_string_lossy()), Begin::default())
         .await

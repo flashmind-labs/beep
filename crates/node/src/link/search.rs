@@ -4,8 +4,8 @@
 use crate::{
     AsyncMutex,
     agents::listings::Listings,
-    logs::found,
     link::state::{self, Search},
+    logs::found,
     protocol::{Protocol, Session},
 };
 use anyhow::Result;

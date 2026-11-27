@@ -196,7 +196,10 @@ pub(crate) fn linux_path(path: &Path) -> Option<LinuxPath> {
 
     let rest = rest.replace('\\', "/");
     let rest = rest.trim_end_matches('/');
-    Some(LinuxPath(format!("/mnt/{}{rest}", drive.to_ascii_lowercase())))
+    Some(LinuxPath(format!(
+        "/mnt/{}{rest}",
+        drive.to_ascii_lowercase()
+    )))
 }
 
 /// A path on a mounted drive inside a distribution as Windows names it,
@@ -266,7 +269,9 @@ pub(crate) fn found(printed: &str) -> Found {
 
         match (words.next(), words.next(), words.next()) {
             (Some("home"), Some(home), None) => found.home = home.parse().ok(),
-            (Some(kind @ ("agent" | "tool")), Some(name), Some(path)) if !path.starts_with("/mnt/") => {
+            (Some(kind @ ("agent" | "tool")), Some(name), Some(path))
+                if !path.starts_with("/mnt/") =>
+            {
                 let list = match kind {
                     "agent" => &mut found.agents,
                     _ => &mut found.tools,

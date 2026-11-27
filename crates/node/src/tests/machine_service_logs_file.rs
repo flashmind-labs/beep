@@ -31,12 +31,16 @@ fn a_followed_log_prints_a_line_when_it_is_appended_and_after_a_rollover() {
     let followed = path.clone();
     std::thread::spawn(move || {
         let mut reader = BufReader::new(file);
-        let mut printer = Printer::new(&LogOptions {
-            since: std::time::Duration::ZERO,
-            follow: true,
-            lines: None,
-            all: true,
-        }, 0, Sink(sent));
+        let mut printer = Printer::new(
+            &LogOptions {
+                since: std::time::Duration::ZERO,
+                follow: true,
+                lines: None,
+                all: true,
+            },
+            0,
+            Sink(sent),
+        );
         let mut pending = Vec::new();
         let read = drain(&mut reader, &mut pending, &mut printer).expect("the log reads");
         let _ = follow(&followed, reader, pending, read, &mut printer);
@@ -52,7 +56,10 @@ fn a_followed_log_prints_a_line_when_it_is_appended_and_after_a_rollover() {
     next(&mut text);
     assert_eq!(text, line("first"));
 
-    let mut log = fs::OpenOptions::new().append(true).open(&path).expect("the log opens");
+    let mut log = fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .expect("the log opens");
     write!(log, "{}", line("second")).expect("the log grows");
     text.clear();
     next(&mut text);

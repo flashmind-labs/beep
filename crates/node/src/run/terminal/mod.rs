@@ -14,14 +14,14 @@ use beep_proto::node::{LinkRx, LinkTx};
 use serve::Link;
 #[cfg(not(all(unix, feature = "cli")))]
 use serve::serve_with;
+use std::path::Path;
 #[cfg(not(all(unix, feature = "cli")))]
 use std::sync::LazyLock;
-use std::path::Path;
 #[cfg(not(all(unix, feature = "cli")))]
 use terminals::Terminals;
 
-pub(crate) use terminals::OpenTerminal;
 pub use beep_proto::node::terminal::PROTOCOL;
+pub(crate) use terminals::OpenTerminal;
 
 /// The node's terminals, when it keeps them itself: one set per process,
 /// like the background tasks.

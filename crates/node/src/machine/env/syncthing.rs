@@ -44,7 +44,6 @@ pub struct Daemon {
     home: Option<PathBuf>,
 }
 
-
 impl Daemon {
     /// The Syncthing of the user running the node, in its usual places.
     pub fn local() -> Self {
@@ -76,7 +75,6 @@ impl Daemon {
         Ok(events.iter().map(|event| event.id).max())
     }
 
-
     /// The GUI to ask, from `config.xml`.
     pub(crate) async fn gui(&self) -> Result<Gui> {
         let homes = self.homes.clone();
@@ -85,7 +83,6 @@ impl Daemon {
             .context("reading Syncthing's config did not finish")??
             .context("Syncthing has no config here")
     }
-
 
     /// The folders the API lists, or `None` when it cannot be asked.
     pub async fn folders(&self) -> Option<Vec<SyncthingFolder>> {

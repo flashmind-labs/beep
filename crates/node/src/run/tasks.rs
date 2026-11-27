@@ -5,8 +5,8 @@
 use crate::{actor, lock};
 use crate::{
     process::spawn_env::{self, Scope},
-    run::lines::read_piece,
     process::{Group, GroupLeader, STOP_GRACE, own_group},
+    run::lines::read_piece,
     run::shell,
 };
 use anyhow::{Context, Result};
@@ -26,14 +26,14 @@ use std::{
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+#[cfg(test)]
+use tokio::sync::oneshot;
 use tokio::{
     io::BufReader,
     process::ChildStdout,
     sync::watch,
-        time::{Instant, sleep_until, timeout},
+    time::{Instant, sleep_until, timeout},
 };
-#[cfg(test)]
-use tokio::sync::oneshot;
 use tokio_util::{sync::CancellationToken, task::AbortOnDropHandle};
 
 pub use beep_proto::node::process::PROTOCOL;
@@ -391,9 +391,7 @@ impl Tasks {
         for entry in entries {
             // A finished task's leader is reaped, so its group id may be
             // someone else's now.
-            if let Some(group) = entry
-                .group
-                .as_ref()
+            if let Some(group) = entry.group.as_ref()
                 && !watched::read(&entry.done, |done| *done)
             {
                 group.kill();

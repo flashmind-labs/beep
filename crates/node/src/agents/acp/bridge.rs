@@ -7,14 +7,15 @@ use agent_client_protocol::{
     UntypedMessage, on_receive_dispatch,
     schema::ProtocolVersion,
     v1::schema::{
-        AGENT_METHOD_NAMES, AgentCapabilities, CancelNotification, ContentBlock, CreateElicitationRequest,
-        CreateElicitationResponse, HttpHeader, Implementation, InitializeRequest,
-        InitializeResponse, LoadSessionRequest, LoadSessionResponse, McpCapabilities, McpServer,
-        McpServerStdio, Meta, NewSessionRequest, NewSessionResponse, PromptCapabilities,
-        RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-        ResumeSessionRequest, ResumeSessionResponse, SessionCapabilities, SessionConfigOption,
-        SessionId, SessionModeState, SessionNotification, SessionResumeCapabilities,
-        SessionSystemPromptCapabilities, SessionUpdate, SystemPrompt, SystemPromptMode,
+        AGENT_METHOD_NAMES, AgentCapabilities, CancelNotification, ContentBlock,
+        CreateElicitationRequest, CreateElicitationResponse, HttpHeader, Implementation,
+        InitializeRequest, InitializeResponse, LoadSessionRequest, LoadSessionResponse,
+        McpCapabilities, McpServer, McpServerStdio, Meta, NewSessionRequest, NewSessionResponse,
+        PromptCapabilities, RequestPermissionOutcome, RequestPermissionRequest,
+        RequestPermissionResponse, ResumeSessionRequest, ResumeSessionResponse,
+        SessionCapabilities, SessionConfigOption, SessionId, SessionModeState, SessionNotification,
+        SessionResumeCapabilities, SessionSystemPromptCapabilities, SessionUpdate, SystemPrompt,
+        SystemPromptMode,
     },
 };
 use anyhow::{Context, Result};

@@ -53,7 +53,11 @@ fn simctl_lists_the_available_iphones_and_ipads_with_their_ios() {
         ]
     );
     assert_eq!(devices[0].id.0, "00000000-0000-0000-0000-000000000002");
-    assert!(devices.iter().all(|device| device.platform == Platform::Ios));
+    assert!(
+        devices
+            .iter()
+            .all(|device| device.platform == Platform::Ios)
+    );
 }
 
 #[test]

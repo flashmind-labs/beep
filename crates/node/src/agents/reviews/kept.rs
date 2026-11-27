@@ -1,10 +1,13 @@
 //! The reviews this node ran and runs, and the one that lists them.
 
 use crate::agents::family::Who;
+use crate::agents::sessions::Sessions;
 use beep_proto::SessionId;
 use beep_proto::node::agent::ReviewRun;
-use crate::agents::sessions::Sessions;
-use std::{collections::VecDeque, sync::{Arc, Mutex}};
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex},
+};
 use tokio::sync::Notify;
 use tokio_util::task::AbortOnDropHandle;
 

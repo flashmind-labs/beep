@@ -5,8 +5,8 @@
 use crate::agents::{child_view::ChildView, live::Live};
 use crate::{logs::unix_now, membership::Membership, tags};
 use beep_proto::SessionId;
-use beep_proto::{AccountName, CustomAgent, ModelId};
 use beep_proto::node::agent::Effort;
+use beep_proto::{AccountName, CustomAgent, ModelId};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -14,10 +14,7 @@ use std::{
     sync::{Arc, Mutex, Weak},
     time::Duration,
 };
-use tokio::{
-    sync::Notify,
-    time::Instant,
-};
+use tokio::{sync::Notify, time::Instant};
 use tokio_util::task::AbortOnDropHandle;
 
 /// How many starts deep a chain may go: a session started by a session
@@ -73,7 +70,13 @@ impl Links {
 
     /// Whether `kid` is one `parent` keeps on `machine`: by the id its machine
     /// lists it under or the one it had when it started.
-    pub(super) fn keeps(&self, parent: &SessionId, machine: EndpointId, id: &SessionId, key: &SessionId) -> bool {
+    pub(super) fn keeps(
+        &self,
+        parent: &SessionId,
+        machine: EndpointId,
+        id: &SessionId,
+        key: &SessionId,
+    ) -> bool {
         crate::lock(&self.remote).iter().any(|kid| {
             kid.parent == *parent
                 && kid.machine == machine

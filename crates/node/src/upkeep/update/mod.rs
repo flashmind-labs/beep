@@ -12,20 +12,23 @@ mod target;
 mod types;
 
 use crate::{
-    upkeep::restart::{self, Drained},
     machine::service,
+    upkeep::restart::{self, Drained},
 };
 use beep_proto::node::update::ReleaseChannel;
 use http::{base, client};
 use install::this_binary;
 use release::{Newest, download, newest, said};
-use std::{cmp::Ordering, path::{Path, PathBuf}, time::Duration};
+use std::{
+    cmp::Ordering,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 use tokio::task::spawn_blocking;
 
 pub use remote::{Updates, WAIT_MINUTES};
 pub use target::Target;
 pub use types::{Error, Version};
-
 
 /// `beep-node update`: installs the newest release over this binary and
 /// restarts its service. With `check`, only says whether there is one.
@@ -50,7 +53,9 @@ pub async fn update(check: bool, wait: Option<Duration>, dir: PathBuf) -> Result
                     Ok(())
                 }
                 Some(running) if running < current => {
-                    println!("beep-node {current} is installed; restarting the node from {running}");
+                    println!(
+                        "beep-node {current} is installed; restarting the node from {running}"
+                    );
                     let connection = idle(wait, &dir).await;
                     restarted(this_binary()?, connection, &latest).await
                 }

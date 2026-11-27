@@ -1,17 +1,17 @@
 //! A transcript read from the files Codex, pi and flsh keep (`Stores::transcript`):
 //! the last entries as the node answers a transcript request with them.
 
-use beep_proto::SessionId;
+use super::common::Agent;
 use super::{Stores, codex_run};
-use super::common::{Agent};
-use crate::logs::subagent::Run as SubagentRun;
-use crate::logs::window::Excerpt;
-use crate::text::cut;
-use crate::logs::subagent::Subagent;
 use crate::calls::Tool as BeepTool;
-use crate::tags;
+use crate::logs::subagent::Run as SubagentRun;
+use crate::logs::subagent::Subagent;
+use crate::logs::window::Excerpt;
 use crate::logs::window::{content_text, finish_tool_call, tail_lines, titled_call, window};
+use crate::tags;
+use crate::text::cut;
 use anyhow::{Result, bail};
+use beep_proto::SessionId;
 use beep_proto::node::agent::{Entry, EntryKind};
 use serde_json::Value;
 use std::{
@@ -43,8 +43,7 @@ impl Stores {
         let Some(seen) = self.seen(None, id) else {
             return Ok(None);
         };
-        let (parse, file): (Parse, _) = match (seen.agent, &seen.file)
-        {
+        let (parse, file): (Parse, _) = match (seen.agent, &seen.file) {
             (Agent::Codex, Some(file)) => (codex, file),
             (Agent::Pi, Some(file)) => (pi, file),
             (Agent::Flsh, Some(file)) => (flsh, file),
@@ -58,7 +57,10 @@ impl Stores {
             .transcripts
             .read(file, || parse(file).map(Arc::new))?;
         if seen.agent == Agent::Codex {
-            let parent = id.as_ref().strip_prefix("subagent:codex:").map_or_else(|| id.clone(), Into::<SessionId>::into);
+            let parent = id
+                .as_ref()
+                .strip_prefix("subagent:codex:")
+                .map_or_else(|| id.clone(), Into::<SessionId>::into);
             let children = self.codex_children(&parent);
             if !children.is_empty() {
                 Arc::make_mut(&mut entries)
@@ -327,15 +329,17 @@ fn flsh(path: &Path) -> io::Result<Vec<Entry>> {
 
                 for call in message["toolCalls"].as_array().into_iter().flatten() {
                     let name = call["name"].as_str().unwrap_or("tool");
-                    if let Some(sub) = Subagent::of_call(
-                        Some(name), name, Some(&call["arguments"]),
-                    ) {
-                        entries.push(SubagentRun {
-                            task: sub.title,
-                            name: sub.name,
-                            model: sub.model,
-                            ..Default::default()
-                        }.entry());
+                    if let Some(sub) = Subagent::of_call(Some(name), name, Some(&call["arguments"]))
+                    {
+                        entries.push(
+                            SubagentRun {
+                                task: sub.title,
+                                name: sub.name,
+                                model: sub.model,
+                                ..Default::default()
+                            }
+                            .entry(),
+                        );
                         continue;
                     }
 

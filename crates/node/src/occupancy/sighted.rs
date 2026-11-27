@@ -9,9 +9,7 @@ use anyhow::Result;
 use std::{
     collections::BTreeMap,
     path::PathBuf,
-    sync::{
-        Arc, Weak,
-    },
+    sync::{Arc, Weak},
 };
 use tokio::sync::watch;
 

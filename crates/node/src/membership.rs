@@ -6,7 +6,11 @@ use beep_proto::node::{
     MachineCredentials,
     mesh_state::{Credential, Place, ProjectRecord, StateValue},
 };
-use beep_proto::{lenient, team::{TeamRecord, TeamRepo}, watched};
+use beep_proto::{
+    lenient,
+    team::{TeamRecord, TeamRepo},
+    watched,
+};
 use iroh::EndpointId;
 use std::{
     collections::BTreeMap,
@@ -134,9 +138,11 @@ pub(crate) fn team_repo_of(mesh: &Mesh, folder: &Path) -> Option<TeamRepo> {
         .collect();
     deepest(
         folder,
-        projects.iter().map(|(repo, checkout)| (repo, checkout.as_deref())),
+        projects
+            .iter()
+            .map(|(repo, checkout)| (repo, checkout.as_deref())),
     )
-        .filter(|repo| team_record(mesh, repo).is_some())
+    .filter(|repo| team_record(mesh, repo).is_some())
 }
 
 /// The repository whose checkout holds `folder`, the deepest checkout when several do.

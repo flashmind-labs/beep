@@ -60,7 +60,10 @@ impl Agents {
         id: &SessionId,
         request: Request,
     ) -> Result<SessionInfo, String> {
-        let found = self.sessions.get(id).filter(|session| session.agent == agent);
+        let found = self
+            .sessions
+            .get(id)
+            .filter(|session| session.agent == agent);
         let message = matches!(
             request,
             Request::Prompt { .. } | Request::PromptImages { .. } | Request::Steer { .. }

@@ -9,7 +9,9 @@ use super::{
     ledger::{Database, Ledger, LogFile, Part, Stamp},
     pi,
 };
-use crate::logs::found::{self, Agent, LogRoots, codex::is_rollout, is_jsonl, wal_path, walk_files};
+use crate::logs::found::{
+    self, Agent, LogRoots, codex::is_rollout, is_jsonl, wal_path, walk_files,
+};
 use beep_proto::SessionId;
 use std::{
     cmp::Reverse,
@@ -341,7 +343,14 @@ fn list_databases(roots: &Roots, since: u64) -> Vec<(Agent, PathBuf)> {
 
     if let Some(root) = &roots.agy {
         let mut files = Vec::new();
-        collect(Agent::Agy, root, 0, &found::agy::is_conversation, since, &mut files);
+        collect(
+            Agent::Agy,
+            root,
+            0,
+            &found::agy::is_conversation,
+            since,
+            &mut files,
+        );
         out.extend(files.into_iter().map(|file| (Agent::Agy, file.path)));
     }
 

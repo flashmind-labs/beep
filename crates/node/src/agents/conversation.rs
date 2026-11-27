@@ -69,7 +69,10 @@ fn made_new(folders: impl Iterator<Item = PathBuf>) -> io::Result<PathBuf> {
         }
     }
 
-    Err(io::Error::new(io::ErrorKind::AlreadyExists, "every folder tried is taken"))
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "every folder tried is taken",
+    ))
 }
 
 /// Whether `folder` is a conversation's: a named folder directly under the
@@ -105,11 +108,15 @@ pub(super) fn remove(home: &Path, folder: &Path) -> io::Result<()> {
 pub(super) fn moved(home: &Path, path: &str) -> Option<PathBuf> {
     let plain = |name: &&str| {
         let mut parts = Path::new(name).components();
-        matches!((parts.next(), parts.next()), (Some(Component::Normal(_)), None))
+        matches!(
+            (parts.next(), parts.next()),
+            (Some(Component::Normal(_)), None)
+        )
     };
-    path.split('/')
-        .all(|name| plain(&name))
-        .then(|| path.split('/').fold(root(home), |folder, name| folder.join(name)))
+    path.split('/').all(|name| plain(&name)).then(|| {
+        path.split('/')
+            .fold(root(home), |folder, name| folder.join(name))
+    })
 }
 
 fn root(home: &Path) -> PathBuf {

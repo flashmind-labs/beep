@@ -75,7 +75,8 @@ fn edit(doc: &mut Value, settings: &FlshSettings, before: &Owned) -> Result<Owne
     let mut owned = Owned::default();
     let provider = [OPENROUTER.as_slice(), &ROUTING].concat();
 
-    let quantizations = (!settings.quantizations.is_empty()).then(|| names(&settings.quantizations));
+    let quantizations =
+        (!settings.quantizations.is_empty()).then(|| names(&settings.quantizations));
     let routing = [
         (RoutingKey::Zdr, settings.zdr.map(Value::Bool)),
         (RoutingKey::Quantizations, quantizations),
@@ -129,7 +130,10 @@ fn overridden(model: &str) -> Vec<&str> {
 
 /// Quantizations as OpenRouter spells them.
 fn names(quantizations: &[FlshQuantization]) -> Value {
-    quantizations.iter().map(|q| Value::from(<&str>::from(*q))).collect()
+    quantizations
+        .iter()
+        .map(|q| Value::from(<&str>::from(*q)))
+        .collect()
 }
 
 /// The object at `path` in `doc`, made when missing.
@@ -140,9 +144,7 @@ fn object<'a>(doc: &'a mut Value, path: &[&str]) -> Result<&'a mut Map<String, V
         let Value::Object(map) = at else {
             bail!("`{key}` in pi's models.json is not inside an object");
         };
-        at = map
-            .entry(*key)
-            .or_insert_with(|| Value::Object(Map::new()));
+        at = map.entry(*key).or_insert_with(|| Value::Object(Map::new()));
     }
 
     match at {
@@ -162,11 +164,15 @@ fn remove(doc: &mut Value, path: &[&str], key: &str) {
 
     for depth in (1..=path.len()).rev() {
         let (last, parent) = (path[depth - 1], &path[..depth - 1]);
-        let Some(Value::Object(map)) = parent.iter().try_fold(&mut *doc, |at, key| at.get_mut(*key))
+        let Some(Value::Object(map)) = parent
+            .iter()
+            .try_fold(&mut *doc, |at, key| at.get_mut(*key))
         else {
             return;
         };
-        let empty = map.get(last).is_some_and(|v| v.as_object().is_some_and(Map::is_empty));
+        let empty = map
+            .get(last)
+            .is_some_and(|v| v.as_object().is_some_and(Map::is_empty));
 
         if !empty {
             return;

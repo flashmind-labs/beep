@@ -1,16 +1,15 @@
 //! Starting, finding and stopping the sessions this node runs.
 
-use crate::machine::env::locate::folder;
-use super::{AgentKind, Agents, Session, checkout, harnesses, machine_list, projects, session::{Begin, Start}, sessions::new_id};
-use crate::{
-    agents::child_reach,
-    process::spawn_env,
+use super::{
+    AgentKind, Agents, Session, checkout, harnesses, machine_list, projects,
+    session::{Begin, Start},
+    sessions::new_id,
 };
+use crate::machine::env::locate::folder;
+use crate::{agents::child_reach, process::spawn_env};
 use anyhow::{Context, Result};
 use beep_proto::SessionId;
-use beep_proto::node::{
-    agent::{self, CheckoutPlan, Status},
-};
+use beep_proto::node::agent::{self, CheckoutPlan, Status};
 use beep_proto::watched;
 use beep_proto::{AccountName, AgentAccount};
 use std::time::Duration;
@@ -34,7 +33,10 @@ impl Agents {
         let history = self.listings.claude_history(session, last, before).await;
         let (native, dropped) = history.as_ref().map_or((0, 0), |h| (h.native, h.dropped));
         let live_before = before.map(|end| end.saturating_sub(native).saturating_add(dropped));
-        let (mut entries, earlier) = self.listings.codex_transcript(session, last, live_before).await;
+        let (mut entries, earlier) = self
+            .listings
+            .codex_transcript(session, last, live_before)
+            .await;
 
         if session.agent == "claude" {
             let (id, calls) = {
@@ -50,7 +52,8 @@ impl Agents {
                 && !calls.is_empty()
             {
                 match self
-                    .listings.external()
+                    .listings
+                    .external()
                     .attach_children(&id, calls, entries.clone())
                     .await
                 {
@@ -69,7 +72,8 @@ impl Agents {
             let end = before.unwrap_or(native).min(native);
             if end > 0 {
                 match self
-                    .listings.external()
+                    .listings
+                    .external()
                     .page(history.path, last - entries.len(), Some(end))
                     .await
                 {
@@ -98,7 +102,8 @@ impl Agents {
 
                 loop {
                     interval.tick().await;
-                    harnesses::refresh_versions(&agents.catalog.kinds(), &agents.catalog.latest).await;
+                    harnesses::refresh_versions(&agents.catalog.kinds(), &agents.catalog.latest)
+                        .await;
                 }
             };
             let background_children = async {
@@ -114,7 +119,8 @@ impl Agents {
     /// stopped: for the node shutting down.
     pub async fn shutdown(&self) {
         self.sessions.begin_stopping();
-        let running: Vec<Arc<Session>> = self.sessions
+        let running: Vec<Arc<Session>> = self
+            .sessions
             .read()
             .values()
             .filter(|session| watched::read(&session.live, |live| live.status() != Status::Ended))
@@ -168,7 +174,8 @@ impl Agents {
         prompt: String,
     ) -> Result<(SessionId, String)> {
         let kind = self
-            .catalog.auto_harness()
+            .catalog
+            .auto_harness()
             .context("this machine has no coding agent")?;
         let begin = Begin {
             prompt: Some(prompt),
@@ -192,9 +199,16 @@ impl Agents {
         let kind = &self.catalog.settings.configured(kind)?;
         signs_in(&kind.name, begin.account.as_ref())?;
         let own = own_folder(cwd, &begin)?;
-        let (cwd, brief) = in_project(own.as_deref().or(cwd), begin.resume.is_some(), begin.brief.take())?;
+        let (cwd, brief) = in_project(
+            own.as_deref().or(cwd),
+            begin.resume.is_some(),
+            begin.brief.take(),
+        )?;
         let brief = match begin.instructions.take() {
-            Some(instructions) => super::session::standing(brief.map(Cow::into_owned), Some(&instructions)).map(Cow::Owned),
+            Some(instructions) => {
+                super::session::standing(brief.map(Cow::into_owned), Some(&instructions))
+                    .map(Cow::Owned)
+            }
             None => brief,
         };
         // Only the first start reads the earlier session; a resume has it.
@@ -205,7 +219,11 @@ impl Agents {
                         .sessions
                         .get(earlier)
                         .and_then(|session| session.info().title)
-                        .or_else(|| self.reopen.saved(earlier).and_then(|saved| saved.info.title))
+                        .or_else(|| {
+                            self.reopen
+                                .saved(earlier)
+                                .and_then(|saved| saved.info.title)
+                        })
                         .filter(|title| !title.trim().is_empty())
                 {
                     begin.title = Some(title);
@@ -220,7 +238,8 @@ impl Agents {
             None => brief,
         };
         let team = self
-            .links.mesh()
+            .links
+            .mesh()
             .and_then(|mesh| crate::membership::team_repo_of(&mesh, &cwd));
         let brief = match team {
             Some(_) => Some(Cow::Owned(match brief {
@@ -250,7 +269,9 @@ impl Agents {
         let running = self.occupancy.holds().running(cwd.clone());
         self.occupancy.holds().check_start(&cwd)?;
         // A reviewer changes nothing, so it needs no git rule.
-        let rule = checkout::rule(&cwd).filter(|_| !begin.review).map(str::to_owned);
+        let rule = checkout::rule(&cwd)
+            .filter(|_| !begin.review)
+            .map(str::to_owned);
         let instructions = crate::lock(&self.catalog.instructions)
             .clone()
             .filter(|text| !text.trim().is_empty());
@@ -267,9 +288,9 @@ impl Agents {
                 .as_ref()
                 .map(|mesh| machine_list::machine_name(Some(mesh)))
                 .filter(|name| !name.is_empty()),
-            project: mesh.as_ref().and_then(|mesh| {
-                projects::of_folder(mesh, &cwd.to_string_lossy(), mesh.me())
-            }),
+            project: mesh
+                .as_ref()
+                .and_then(|mesh| projects::of_folder(mesh, &cwd.to_string_lossy(), mesh.me())),
             multi_machine: mesh.as_ref().is_some_and(|mesh| !machine_list::alone(mesh)),
             rust_or_c: super::brief::has_native_build(&cwd),
         };
@@ -277,7 +298,10 @@ impl Agents {
         let review = begin.review;
         // A WSL agent cannot reach a socket on Windows.
         let docker = match !super::kinds::in_wsl(kind) && docker_containers(mesh.as_ref()) {
-            true => super::processes::Docker::open(kind.env.get("DOCKER_HOST").map(String::as_str)).await,
+            true => {
+                super::processes::Docker::open(kind.env.get("DOCKER_HOST").map(String::as_str))
+                    .await
+            }
             false => None,
         };
         let mut session = Session::start(Start {
@@ -437,8 +461,8 @@ fn own_folder(cwd: Option<&str>, begin: &Begin) -> Result<Option<String>> {
     }
 
     let home = dirs::home_dir().context("this machine has no home folder")?;
-    let made = super::conversation::own(&home, cwd, new_id)
-        .context("making the conversation's folder")?;
+    let made =
+        super::conversation::own(&home, cwd, new_id).context("making the conversation's folder")?;
     Ok(made.map(|folder| folder.to_string_lossy().into_owned()))
 }
 
@@ -446,7 +470,11 @@ impl Agents {
     /// The subfolder of its own, made now, that a child called `title`
     /// starts in when its parent names none and `parent` is in an assistant
     /// conversation's folder. `None` anywhere else: it starts in the parent's.
-    pub(crate) fn child_folder(&self, parent: &Session, title: Option<&str>) -> Result<Option<PathBuf>> {
+    pub(crate) fn child_folder(
+        &self,
+        parent: &Session,
+        title: Option<&str>,
+    ) -> Result<Option<PathBuf>> {
         let Some(home) = dirs::home_dir() else {
             return Ok(None);
         };

@@ -20,7 +20,9 @@ pub async fn local_status(dir: &Path) -> Result<Option<LocalStatus>> {
         return Ok(None);
     };
     let (read, mut write) = split(stream);
-    write.write_all(format!("{STATUS_LINE}\n").as_bytes()).await?;
+    write
+        .write_all(format!("{STATUS_LINE}\n").as_bytes())
+        .await?;
     let mut bytes = Vec::new();
     timeout(STATUS_LIMIT, read.take(MAX_STATUS).read_to_end(&mut bytes))
         .await

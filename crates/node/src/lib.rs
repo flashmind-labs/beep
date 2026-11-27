@@ -20,41 +20,41 @@ pub mod tags;
 #[cfg(feature = "host")]
 pub mod actor;
 #[cfg(feature = "host")]
-pub mod machine;
+pub(crate) mod calls;
 #[cfg(feature = "host")]
-pub mod peer_stream;
-#[cfg(feature = "host")]
-mod membership;
-#[cfg(feature = "host")]
-pub mod status;
-#[cfg(feature = "host")]
-mod known;
-#[cfg(feature = "host")]
-pub mod occupancy;
-#[cfg(feature = "host")]
-mod process;
+mod custom_agents;
 #[cfg(feature = "host")]
 mod fs;
 #[cfg(feature = "host")]
-pub(crate) mod calls;
+mod known;
 #[cfg(feature = "host")]
 mod logs;
 #[cfg(feature = "host")]
-pub(crate) mod socket;
+pub mod machine;
 #[cfg(feature = "host")]
-mod text;
+mod membership;
+#[cfg(feature = "host")]
+pub mod occupancy;
+#[cfg(feature = "host")]
+pub mod peer_stream;
+#[cfg(feature = "host")]
+mod process;
 #[cfg(feature = "host")]
 mod run;
 #[cfg(feature = "host")]
+pub(crate) mod socket;
+#[cfg(feature = "host")]
+pub mod status;
+#[cfg(feature = "host")]
 mod team;
 #[cfg(feature = "host")]
-pub(crate) mod watchdog;
-#[cfg(feature = "host")]
-mod custom_agents;
+mod text;
 #[cfg(feature = "host")]
 pub mod tools;
 #[cfg(feature = "host")]
 pub mod upkeep;
+#[cfg(feature = "host")]
+pub(crate) mod watchdog;
 
 /// Kills every background task and terminal still running, at once. For
 /// a host about to exit, such as the Mac app: a process exit drops nothing,

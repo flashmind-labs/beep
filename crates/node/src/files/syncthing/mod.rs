@@ -141,8 +141,7 @@ impl Syncthing {
             }
             // An unreadable ignore file leaves ownership with Syncthing.
             managed.filter(|managed| {
-                !stignore::project_ignored(&folder, &managed.root)
-                    .unwrap_or(false)
+                !stignore::project_ignored(&folder, &managed.root).unwrap_or(false)
             })
         })
         .await;
@@ -155,7 +154,6 @@ impl Syncthing {
             }
         }
     }
-
 }
 
 /// These rules go first because Syncthing uses the first matching rule.

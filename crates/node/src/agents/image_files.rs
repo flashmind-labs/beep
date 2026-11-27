@@ -2,8 +2,8 @@
 //! (`named_in`), written by its edits or saved by its commands, read when
 //! the turn ends (`read`, `read_since`), only inside the session's folder.
 
-use crate::logs::picture::Picture;
 use crate::fs::paths;
+use crate::logs::picture::Picture;
 use beep_proto::sniff_image;
 use std::{
     io::Read,

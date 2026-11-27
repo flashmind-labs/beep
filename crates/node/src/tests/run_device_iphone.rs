@@ -48,7 +48,11 @@ fn lists_reachable_iphones_and_ipads_only() {
 #[tokio::test]
 #[ignore = "needs an iPhone plugged into this Mac"]
 async fn shows_a_plugged_in_iphone() {
-    let iphone = list().await.into_iter().next().expect("an iPhone is plugged in");
+    let iphone = list()
+        .await
+        .into_iter()
+        .next()
+        .expect("an iPhone is plugged in");
     let mut live = attach(&iphone.id, 512).await.expect("the iPhone attaches");
 
     let shown = tokio::time::timeout(CALL_TIMEOUT, async {

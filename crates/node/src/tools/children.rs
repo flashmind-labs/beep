@@ -7,13 +7,17 @@
 //! starts it and checks the limits. An agent stops and checks only its own
 //! children; it lists and messages any agent the user runs.
 
-use crate::agents::sessions;
-use crate::agents::machine_list::Machine;
-use crate::agents::child_view::{ChildView, full_id};
-use crate::agents::reply::{fail, json_of, ok, parse};
-use crate::agents::{Agents, Session, live::Live, family::{ChildNote, ChildStart, RemoteKid, WAIT_LIMIT, Waiting, Who}};
-use crate::agents::child_reach::{ChildId, Found, Reach};
 use super::Node;
+use crate::agents::child_reach::{ChildId, Found, Reach};
+use crate::agents::child_view::{ChildView, full_id};
+use crate::agents::machine_list::Machine;
+use crate::agents::reply::{fail, json_of, ok, parse};
+use crate::agents::sessions;
+use crate::agents::{
+    Agents, Session,
+    family::{ChildNote, ChildStart, RemoteKid, WAIT_LIMIT, Waiting, Who},
+    live::Live,
+};
 use beep_mesh::Mesh;
 use beep_proto::SessionId;
 use beep_proto::node::{
@@ -26,14 +30,14 @@ use beep_proto::{AccountName, CustomAgent, ModelId};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 
-use std::{path::Path, sync::Arc, time::Duration};
 use std::future::Future;
+use std::{path::Path, sync::Arc, time::Duration};
 use tokio::{sync::watch, time::sleep};
 
 use crate::agents::family::peer::{
-    Answer, Call, in_the_mesh, listed, CountCall, GONE, KEPT, PeerCall, REMOTE_LIMIT, fetch_view, parse_view, stop_remote,
+    Answer, Call, CountCall, GONE, KEPT, PeerCall, REMOTE_LIMIT, fetch_view, in_the_mesh, listed,
+    parse_view, stop_remote,
 };
-
 
 /// What `start_agent` sends the machine that starts the child.
 #[derive(Debug, Serialize, Deserialize)]
@@ -76,7 +80,6 @@ pub(crate) async fn answer_peer(agents: &Agents, peer: EndpointId, request: Requ
         .unwrap_or_else(fail)
 }
 
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StartArgs {
@@ -117,10 +120,6 @@ struct SendArgs {
     text: String,
 }
 
-
-
-
-
 /// What `StartArgs` hands on without the `wait`.
 struct StartParts {
     harness: String,
@@ -132,8 +131,6 @@ struct StartParts {
 }
 
 impl Reach<'_> {
-
-
     /// `text` as the caller `sender` sends it, tagged with `id`, the id
     /// the receiver answers to, so its log tells it from the user's words.
     fn tagged(sender: &Session, id: &str, text: &str) -> String {
@@ -142,8 +139,6 @@ impl Reach<'_> {
 
         crate::tags::from_session(id, &name, text)
     }
-
-
 
     async fn dispatch(&self, session: &Arc<Session>, request: &Request) -> Result<Reply, String> {
         match request.tool {
@@ -164,7 +159,6 @@ impl Reach<'_> {
             other => Err(format!("{other} is not an agent tool.")),
         }
     }
-
 
     async fn start(&self, parent: &Arc<Session>, args: StartArgs) -> Result<Reply, String> {
         let StartArgs {
@@ -228,7 +222,13 @@ impl Reach<'_> {
         // takes, so only an explicit `model` picks one.
         let harness = match (harness, &persona) {
             (Some(harness), _) => harness,
-            (None, Some(persona)) if self.agents.catalog.named(persona.harness.as_ref()).is_some() => {
+            (None, Some(persona))
+                if self
+                    .agents
+                    .catalog
+                    .named(persona.harness.as_ref())
+                    .is_some() =>
+            {
                 persona.harness.as_ref().to_owned()
             }
             (None, _) => parent.agent.clone(),
@@ -327,7 +327,8 @@ impl Reach<'_> {
         };
         let me = &self.who.session;
         self.agents
-            .links.adopt_remote(parent, RemoteKid::expected(me, machine.id, &machine.name));
+            .links
+            .adopt_remote(parent, RemoteKid::expected(me, machine.id, &machine.name));
 
         let text = match Call::to_machine(mesh, me, machine)
             .ask(Tool::StartAgent, &order, REMOTE_LIMIT)
@@ -347,15 +348,19 @@ impl Reach<'_> {
         };
         let view = parse_view(&machine.name, &text)?.named(&machine.name);
         self.agents
-            .links.settle_remote(me, machine.id, &ChildId::from(view.id.as_str()).session);
+            .links
+            .settle_remote(me, machine.id, &ChildId::from(view.id.as_str()).session);
 
         Ok(view)
     }
 
-
     async fn status(&self, id: &str) -> Result<Reply, String> {
         // A review's id: its reviewer is gone once it is done.
-        if let Some(run) = self.agents.reviews.review_for(self.who, &ChildId::from(id).session) {
+        if let Some(run) = self
+            .agents
+            .reviews
+            .review_for(self.who, &ChildId::from(id).session)
+        {
             return Ok(super::review::standing(run));
         }
 
@@ -368,7 +373,6 @@ impl Reach<'_> {
             Found::There(kid) => self.view_there(&kid).await,
         }
     }
-
 
     async fn view_there(&self, kid: &RemoteKid) -> Result<ChildView, String> {
         let view = fetch_view(self.mesh()?, &self.who.session, kid).await?;
@@ -447,12 +451,17 @@ impl Reach<'_> {
                 Some(crate::agents::projects::project_name(mesh, &name)?)
             }
         };
-        let mut views: Vec<ChildView> =
-            in_the_mesh(self.agents, self.mesh.as_ref(), &self.who.session, None, None)
-                .await
-                .into_iter()
-                .map(|listed| listed.view)
-                .collect();
+        let mut views: Vec<ChildView> = in_the_mesh(
+            self.agents,
+            self.mesh.as_ref(),
+            &self.who.session,
+            None,
+            None,
+        )
+        .await
+        .into_iter()
+        .map(|listed| listed.view)
+        .collect();
 
         if let Some(project) = project {
             views.retain(|view| view.project.as_ref() == Some(&project));
@@ -525,7 +534,10 @@ impl Reach<'_> {
             Ok(Found::There(_)) => (None, true),
             Err(_) => (None, false),
         };
-        let mut view = wait_for_settled(&waiting, live, remote, view, |id| async move { self.view_of(&id).await }).await;
+        let mut view = wait_for_settled(&waiting, live, remote, view, |id| async move {
+            self.view_of(&id).await
+        })
+        .await;
 
         if view.state == "idle" {
             view.note = Some(
@@ -614,14 +626,13 @@ async fn find_persona(at: String, name: String, harness: String) -> Result<Custo
     let home = dirs::home_dir();
 
     tokio::task::spawn_blocking(move || {
-        let folder = crate::machine::env::locate::folder(Some(&at)).map_err(|e| format!("{e:#}"))?;
+        let folder =
+            crate::machine::env::locate::folder(Some(&at)).map_err(|e| format!("{e:#}"))?;
         crate::custom_agents::persona(&folder, home.as_deref(), &name, &harness)
     })
     .await
     .map_err(|e| format!("The custom agents were not read: {e}"))?
 }
-
-
 
 async fn serve_peer(agents: &Agents, peer: EndpointId, request: &Request) -> Result<Reply, String> {
     let who = Who {

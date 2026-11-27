@@ -3,19 +3,27 @@
 //! its own place among the finished turns. Plan usage is the
 //! latest report per agent, from `plans` or Claude Code's rate limit events.
 
-use crate::agents::{AlertHub, catalog::Catalog, plans::{self, claude_window}, spend::Spend};
+use crate::agents::{
+    AlertHub,
+    catalog::Catalog,
+    plans::{self, claude_window},
+    spend::Spend,
+};
 use crate::process::spawn_env;
 use anyhow::Result;
 use beep_proto::AgentAccount;
-use futures::{StreamExt, stream::FuturesUnordered};
 use beep_proto::{
     AccountName, AgentSlug, ProviderCredits,
     node::usage::{LimitWindow, PlanUsage, TurnUsage},
 };
+use futures::{StreamExt, stream::FuturesUnordered};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex, Weak, atomic::{AtomicBool, Ordering}},
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 use tokio::{sync::watch, time::Instant};

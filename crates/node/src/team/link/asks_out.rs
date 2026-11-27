@@ -72,7 +72,11 @@ impl TeamLink {
 
     /// Sends `msg` to the first of `member`'s devices that takes it. A device
     /// that is not their gateway, or holds no ask an answer is for, passes.
-    pub(in crate::team) async fn reach(&self, member: &Member, msg: &TeamMsg) -> Result<(), String> {
+    pub(in crate::team) async fn reach(
+        &self,
+        member: &Member,
+        msg: &TeamMsg,
+    ) -> Result<(), String> {
         let passes = |reason: &str| match msg {
             TeamMsg::Ask { repo, .. } => reason == not_served(repo),
             _ => reason == NOT_WAITING,
@@ -211,4 +215,3 @@ fn outgoing(
 
     Ok((member, msg, id, None))
 }
-

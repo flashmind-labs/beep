@@ -5,8 +5,8 @@
 //! it asks neither.
 
 pub mod claude;
-pub mod holds;
 mod holders;
+pub mod holds;
 pub(crate) mod presence;
 mod read;
 mod reserve;
@@ -16,8 +16,11 @@ pub(crate) use holders::{Holding, settle};
 pub(crate) use sighted::Watching;
 
 use crate::{
-    logs::{claude::Store, found::{Agent, Stores}},
     lock,
+    logs::{
+        claude::Store,
+        found::{Agent, Stores},
+    },
 };
 use anyhow::{Result, bail};
 use beep_proto::{
@@ -100,13 +103,20 @@ impl Occupancy {
     }
 
     /// The hook events from now on.
-    pub(crate) fn hook_events(&self) -> tokio::sync::broadcast::Receiver<beep_proto::node::agent::Activity> {
+    pub(crate) fn hook_events(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<beep_proto::node::agent::Activity> {
         self.0.hooks.hub.subscribe()
     }
 
     /// Takes hook events on the socket in `dir` until the node stops.
     pub async fn listen_hooks(&self, dir: &Path) -> Result<()> {
-        claude::listen(&claude::hooks::socket_path(dir), &self.0.hooks.hub, &self.0.hooks.live).await
+        claude::listen(
+            &claude::hooks::socket_path(dir),
+            &self.0.hooks.hub,
+            &self.0.hooks.live,
+        )
+        .await
     }
 
     /// Takes native session presence for the user, for a node embedded in

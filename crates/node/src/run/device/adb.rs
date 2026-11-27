@@ -67,7 +67,14 @@ pub(super) async fn launch(id: &DeviceId, target: &str) -> Result<()> {
 /// Stops package `app` and clears its data.
 pub(super) async fn reset(id: &DeviceId, app: &str) -> Result<()> {
     let package = package(app)?;
-    let printed = run(id, &["shell", &format!("am force-stop {package} && pm clear {package}")]).await?;
+    let printed = run(
+        id,
+        &[
+            "shell",
+            &format!("am force-stop {package} && pm clear {package}"),
+        ],
+    )
+    .await?;
     let said = String::from_utf8_lossy(&printed);
 
     if !said.contains("Success") {
@@ -114,7 +121,9 @@ pub(super) async fn call(
 fn package(name: &str) -> Result<&str> {
     let valid = !name.is_empty()
         && name.contains('.')
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_');
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_');
 
     if !valid {
         bail!("{name:?} is no Android package name, such as com.example.app.");

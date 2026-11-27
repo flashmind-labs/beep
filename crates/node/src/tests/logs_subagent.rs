@@ -54,8 +54,8 @@ fn spawn_calls_preserve_the_requested_model() {
 #[test]
 fn flsh_agent_events_use_the_existing_card_without_claiming_other_tools() {
     let input = json!({"flshAgent": true, "name": "worker", "model": "provider:model"});
-    let sub = Subagent::of_call(Some("flsh_agent"), "Check files", Some(&input))
-        .expect("a flsh agent");
+    let sub =
+        Subagent::of_call(Some("flsh_agent"), "Check files", Some(&input)).expect("a flsh agent");
     assert_eq!(sub.name.as_deref(), Some("worker"));
     assert_eq!(sub.model.as_deref(), Some("provider:model"));
     assert!(!sub.codex);

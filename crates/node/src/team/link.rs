@@ -11,11 +11,11 @@ pub(crate) mod home_io;
 pub(crate) use super::served::Served;
 
 use super::{
-    served::ServedBoards,
     asks::{Answer, Asks, not_served},
     home::{Home, Invites, TeamForge},
     proof::{PROOF_CONTEXTS, ProofError},
     roster::{Refusal, Rosters},
+    served::ServedBoards,
 };
 use beep_mesh::TeamTicket;
 use beep_proto::node::events::{TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC, Topic};
@@ -194,14 +194,18 @@ impl TeamLink {
     /// `repo`, taken before they lock the rosters: whether this device
     /// serves its board, which mesh the teammates' card `teammate` is on,
     /// and whether the card `on_board` is on the board.
-    pub(super) fn seen(&self, repo: &TeamRepo, teammate: Option<&str>, on_board: Option<&str>) -> Seen {
+    pub(super) fn seen(
+        &self,
+        repo: &TeamRepo,
+        teammate: Option<&str>,
+        on_board: Option<&str>,
+    ) -> Seen {
         let own = self.home(|home| home.mesh);
 
         self.served(|served| Seen {
             own,
             serves: served.boards.serves(repo),
-            teammate_mesh: teammate
-                .and_then(|card| served.teammates.get(repo)?.mesh_of(card)),
+            teammate_mesh: teammate.and_then(|card| served.teammates.get(repo)?.mesh_of(card)),
             on_board: on_board.is_some_and(|card| {
                 let cards = served.boards.cards(repo).unwrap_or_default();
                 cards.iter().any(|on| on.id == card)
@@ -388,7 +392,9 @@ impl TeamLink {
 
                 sleep(RESEND).await;
                 unreached = link.with(|teams| {
-                    let owed = missed.into_iter().filter(|member| owes(teams, member, &msg));
+                    let owed = missed
+                        .into_iter()
+                        .filter(|member| owes(teams, member, &msg));
                     owed.collect()
                 });
             }
@@ -498,7 +504,12 @@ impl TeamLink {
 
     /// Keeps a contact's invite for a desktop to show; refuses anyone else's,
     /// and invites that do not read or are for another repository.
-    pub(crate) fn invited(&self, peer: EndpointId, repo: TeamRepo, ticket: String) -> Option<TeamMsg> {
+    pub(crate) fn invited(
+        &self,
+        peer: EndpointId,
+        repo: TeamRepo,
+        ticket: String,
+    ) -> Option<TeamMsg> {
         let from = self.home(|home| home.contacts.get(&peer).copied());
         let kept = from
             .ok_or_else(|| Refusal::Stranger.to_string())
@@ -534,7 +545,10 @@ fn owes(teams: &Teams, member: &Member, msg: &TeamMsg) -> bool {
     teams.rosters.get(repo).is_some_and(|record| {
         let removed = |gone: &Removed| gone.login == *login;
         let on = record.members.iter().any(|on| on.mesh == member.mesh);
-        let them = record.removed.iter().any(|gone| removed(gone) && gone.mesh == member.mesh);
+        let them = record
+            .removed
+            .iter()
+            .any(|gone| removed(gone) && gone.mesh == member.mesh);
         let back = record.members.iter().any(|on| on.login == *login);
 
         (on || them) && record.removed.iter().any(removed) && !back

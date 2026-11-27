@@ -9,12 +9,15 @@ use super::{
     mcp_launch::Launch,
     models::{self, ModelCache},
 };
+use crate::process::{
+    self,
+    spawn_env::{self, Scope},
+};
 use anyhow::Result;
-use crate::process::{self, spawn_env::{self, Scope}};
 use beep_proto::node::agent::{self, ModelList, SESSIONS_PROTOCOL};
 use beep_proto::node::harness::{AgentSettings, HarnessReport};
-use beep_proto::{AccountName, AgentHost};
 use beep_proto::watched;
+use beep_proto::{AccountName, AgentHost};
 use std::{
     env,
     path::PathBuf,

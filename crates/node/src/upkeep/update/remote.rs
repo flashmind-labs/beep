@@ -9,8 +9,8 @@ use super::{
 use crate::{
     agents::Reopen,
     lock,
-    protocol::{Protocol, Session},
     machine::service::{self, Restart},
+    protocol::{Protocol, Session},
 };
 use beep_proto::node::{
     LinkRx, LinkTx,

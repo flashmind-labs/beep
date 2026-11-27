@@ -16,7 +16,10 @@ pub(super) async fn call(node: &Node, request: &Request) -> Reply {
     }
 
     let Some(mesh) = node.mesh.get() else {
-        return fail(format!("{} It is not in a mesh.", elsewhere("this machine")));
+        return fail(format!(
+            "{} It is not in a mesh.",
+            elsewhere("this machine")
+        ));
     };
 
     forward(&mesh, request).await

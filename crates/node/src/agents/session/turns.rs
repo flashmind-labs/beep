@@ -5,7 +5,13 @@ use super::{
     tokens::turn_tokens,
     types::MAX_RUNNING_TOOLS,
 };
-use crate::agents::{acp::{self, Prompt}, compaction::{COMPACT_PROMPT, COMPACTED_ENTRY, TurnEnd, summary_note}, image_files, live::{TurnFiles, TurnMade, TurnWorktrees}, made_files, worktrees};
+use crate::agents::{
+    acp::{self, Prompt},
+    compaction::{COMPACT_PROMPT, COMPACTED_ENTRY, TurnEnd, summary_note},
+    image_files,
+    live::{TurnFiles, TurnMade, TurnWorktrees},
+    made_files, worktrees,
+};
 use agent_client_protocol::{
     Agent, ConnectionTo,
     v1::schema::{CancelNotification, PromptResponse, SessionId, SessionUpdate, ToolCallStatus},
@@ -203,11 +209,14 @@ impl Actor {
         if self.turn.is_none() {
             if self.waiting() == 0 {
                 let ended = watched::read_sent(&self.live, |live| {
-                    live.info.state.last_stop.map(|stop_reason| AlertKind::TurnEnded {
-                        stop_reason,
-                        last_message: live.info.last_message.clone(),
-                        error: live.info.state.error.clone(),
-                    })
+                    live.info
+                        .state
+                        .last_stop
+                        .map(|stop_reason| AlertKind::TurnEnded {
+                            stop_reason,
+                            last_message: live.info.last_message.clone(),
+                            error: live.info.state.error.clone(),
+                        })
                 });
 
                 if let Some(ended) = ended {
@@ -584,7 +593,8 @@ impl Actor {
             return;
         }
         // A steer goes ahead of the prompts queued for after the turn.
-        let Some(mut prompt) = take_steers(&mut self.steers).or_else(|| self.queued.pop_front()) else {
+        let Some(mut prompt) = take_steers(&mut self.steers).or_else(|| self.queued.pop_front())
+        else {
             return;
         };
 
@@ -662,4 +672,3 @@ pub(super) fn take_steers(steers: &mut VecDeque<Prompt>) -> Option<Prompt> {
 
     Some(merged)
 }
-

@@ -37,19 +37,34 @@ fn calls_read_into_typed_actions_and_name_what_is_missing() {
             y: 400.5
         })
     );
-    assert_eq!(Action::try_from(json!({ "action": "list" })), Ok(Action::List {}));
+    assert_eq!(
+        Action::try_from(json!({ "action": "list" })),
+        Ok(Action::List {})
+    );
 
     let press = Action::try_from(json!({
         "action": "press", "machine": "m", "device": "d", "key": "app_switch"
     }));
-    assert!(matches!(press, Ok(Action::Press { key: Press::AppSwitch, .. })));
+    assert!(matches!(
+        press,
+        Ok(Action::Press {
+            key: Press::AppSwitch,
+            ..
+        })
+    ));
 
     for (args, missing) in [
-        (json!({ "action": "tap", "machine": "m", "device": "d", "x": 1 }), "`y`"),
+        (
+            json!({ "action": "tap", "machine": "m", "device": "d", "x": 1 }),
+            "`y`",
+        ),
         (json!({ "action": "boot", "machine": "m" }), "`device`"),
         (json!({ "machine": "m", "device": "d" }), "`action`"),
         (json!({ "action": "fly", "machine": "m" }), "`fly`"),
-        (json!({ "action": "press", "machine": "m", "device": "d", "key": "f5" }), "`f5`"),
+        (
+            json!({ "action": "press", "machine": "m", "device": "d", "key": "f5" }),
+            "`f5`",
+        ),
     ] {
         let Err(e) = Action::try_from(args.clone()) else {
             panic!("{args} read");
@@ -75,11 +90,11 @@ fn a_swipe_goes_down_moves_evenly_and_comes_up_at_its_end() {
     let inputs = swipe((0.5, 0.8), (0.5, 0.2), Duration::from_millis(450));
     let len = usize::try_from(SWIPE_MOVES).unwrap() + 2;
     assert_eq!(inputs.len(), len);
+    assert_eq!(inputs[0].0, touch(TouchPhase::Down, 0.5, 0.8));
     assert_eq!(
-        inputs[0].0,
-        touch(TouchPhase::Down, 0.5, 0.8)
+        inputs[len - 1],
+        (touch(TouchPhase::Up, 0.5, 0.2), Duration::ZERO)
     );
-    assert_eq!(inputs[len - 1], (touch(TouchPhase::Up, 0.5, 0.2), Duration::ZERO));
 
     let total: Duration = inputs.iter().map(|(_, pause)| *pause).sum();
     assert_eq!(total, Duration::from_millis(450));
@@ -108,16 +123,16 @@ fn a_device_is_found_by_id_or_name_and_a_shared_name_needs_the_id() {
     let e = pick(&devices, "iPad Air").unwrap_err();
     assert!(e.contains("B2, C3"), "{e}");
     let e = pick(&devices, "Pixel 9").unwrap_err();
-    assert!(e.contains("No device Pixel 9") && e.contains("iPhone 17 (A1)"), "{e}");
+    assert!(
+        e.contains("No device Pixel 9") && e.contains("iPhone 17 (A1)"),
+        "{e}"
+    );
     assert!(pick(&[], "Pixel 9").is_err());
 }
 
 #[test]
 fn keys_and_buttons_become_device_input() {
-    assert_eq!(
-        Input::from(Press::Return),
-        Input::Key { key: Key::Return }
-    );
+    assert_eq!(Input::from(Press::Return), Input::Key { key: Key::Return });
     assert_eq!(
         Input::from(Press::VolumeDown),
         Input::Button {
@@ -131,7 +146,15 @@ async fn an_attached_device_answers_input_and_closes_once_idle() {
     let local = beep_proto::node::local_link();
     let (mut node_tx, mut node_rx) = local.node;
     let (tx, rx) = local.caller;
-    let viewer = Viewer::start(Link { tx, rx, _here: None }, Duration::from_secs(30), true);
+    let viewer = Viewer::start(
+        Link {
+            tx,
+            rx,
+            _here: None,
+        },
+        Duration::from_secs(30),
+        true,
+    );
 
     node_tx.send(&Reply::Frame(frame(100, 200))).await.unwrap();
     assert_eq!(viewer.shot().await.unwrap().height, 200);
@@ -178,7 +201,10 @@ async fn a_call_names_the_machines_it_could_not_find() {
     )
     .await;
     assert!(called.failed);
-    assert_eq!(called.text, "No machine called nowhere. Machines: build-box.");
+    assert_eq!(
+        called.text,
+        "No machine called nowhere. Machines: build-box."
+    );
 }
 
 fn attached(machine: EndpointId, id: &str, called: &str) -> (Attached, mpsc::Receiver<Ask>) {

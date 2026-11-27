@@ -29,7 +29,10 @@ fn answers_join_picks_as_claude_code_does_and_keep_notes() {
 
     assert_eq!(decision["behavior"], "allow");
     let updated = &decision["updatedInput"];
-    assert_eq!(updated["answers"]["Which drinks?"], r#"Tea, "Oolong, cold""#);
+    assert_eq!(
+        updated["answers"]["Which drinks?"],
+        r#"Tea, "Oolong, cold""#
+    );
     assert_eq!(updated["answers"]["Which cup?"], "Mug");
     assert_eq!(updated["annotations"]["Which cup?"]["notes"], "a big one");
     assert_eq!(updated["questions"], input["questions"]);
@@ -52,23 +55,41 @@ fn a_declined_form_answers_nothing_and_a_cancelled_one_refuses() {
 fn results_end_prompts_as_claude_codes_adapter_ends_them() {
     let result = |fields: Value| {
         let mut result = json!({"type": "result", "subtype": "success", "is_error": false});
-        result.as_object_mut().unwrap().extend(fields.as_object().unwrap().clone());
+        result
+            .as_object_mut()
+            .unwrap()
+            .extend(fields.as_object().unwrap().clone());
         result
     };
 
-    assert_eq!(updates::stop(&result(json!({})), false), Ok(StopReason::EndTurn));
-    assert_eq!(updates::stop(&result(json!({})), true), Ok(StopReason::Cancelled));
+    assert_eq!(
+        updates::stop(&result(json!({})), false),
+        Ok(StopReason::EndTurn)
+    );
+    assert_eq!(
+        updates::stop(&result(json!({})), true),
+        Ok(StopReason::Cancelled)
+    );
     let interrupted = json!({"subtype": "error_during_execution", "is_error": true, "terminal_reason": "aborted_streaming"});
-    assert_eq!(updates::stop(&result(interrupted), false), Ok(StopReason::Cancelled));
+    assert_eq!(
+        updates::stop(&result(interrupted), false),
+        Ok(StopReason::Cancelled)
+    );
     let long = json!({"stop_reason": "max_tokens"});
-    assert_eq!(updates::stop(&result(long), false), Ok(StopReason::MaxTokens));
+    assert_eq!(
+        updates::stop(&result(long), false),
+        Ok(StopReason::MaxTokens)
+    );
     let login = json!({"is_error": true, "result": "Not logged in · Please run /login"});
     assert_eq!(
         updates::stop(&result(login), false),
         Err("Not logged in · Please run /login".to_owned())
     );
     let turns = json!({"subtype": "error_max_turns"});
-    assert_eq!(updates::stop(&result(turns), false), Ok(StopReason::MaxTurnRequests));
+    assert_eq!(
+        updates::stop(&result(turns), false),
+        Ok(StopReason::MaxTurnRequests)
+    );
 
     let woke = result(json!({"origin": {"kind": "task-notification"}}));
     assert!(!updates::ends_prompt(&woke));
@@ -114,7 +135,6 @@ fn a_transcript_replays_what_was_said_and_done() {
     assert_eq!(call.content.len(), 1, "the edit carries its diff");
 }
 
-
 #[test]
 fn replay_marks_a_compaction_summary_from_its_record() {
     let record = json!({"type": "user", "isCompactSummary": true, "isMeta": true,
@@ -135,9 +155,20 @@ fn a_session_meta_switches_off_tools_in_one_flag() {
     let disallowed = cli::disallowed_tools(meta.as_object());
 
     assert_eq!(disallowed, ["Agent", "Task"]);
-    assert_eq!(cli::off_tools(false, &disallowed).as_deref(), Some("Agent,Task,AskUserQuestion"));
-    assert_eq!(cli::off_tools(true, &disallowed).as_deref(), Some("Agent,Task"));
+    assert_eq!(
+        cli::off_tools(false, &disallowed).as_deref(),
+        Some("Agent,Task,AskUserQuestion")
+    );
+    assert_eq!(
+        cli::off_tools(true, &disallowed).as_deref(),
+        Some("Agent,Task")
+    );
     assert_eq!(cli::off_tools(true, &[]), None);
-    assert!(cli::disallowed_tools(json!({"claudeCode": {"options": {"disallowedTools": "Agent"}}}).as_object()).is_empty());
+    assert!(
+        cli::disallowed_tools(
+            json!({"claudeCode": {"options": {"disallowedTools": "Agent"}}}).as_object()
+        )
+        .is_empty()
+    );
     assert!(cli::disallowed_tools(None).is_empty());
 }

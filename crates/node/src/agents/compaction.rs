@@ -9,6 +9,7 @@
 //! Antigravity takes a percent or a token count in one variable. Agents that
 //! compact on their own with no setting (flsh) are left to it.
 
+pub(super) use crate::known::Route;
 use beep_proto::{
     AgentContext, ModelId,
     node::{
@@ -16,7 +17,6 @@ use beep_proto::{
         harness::{AutoCompact, ModelCompact},
     },
 };
-pub(super) use crate::known::Route;
 use std::collections::BTreeMap;
 
 pub(super) use crate::logs::window::{COMPACTED_ENTRY, MAX_SUMMARY, summary_note};
@@ -113,7 +113,11 @@ impl Policy {
     /// The variable that would turn the agent's own trigger off, to drop
     /// from what the node inherited when this policy wants it on and the
     /// user has not set it.
-    pub(super) fn cleared(self, route: Route, user: &BTreeMap<String, String>) -> Option<&'static str> {
+    pub(super) fn cleared(
+        self,
+        route: Route,
+        user: &BTreeMap<String, String>,
+    ) -> Option<&'static str> {
         let name = match (route, self) {
             (Route::Percent { off_var, .. } | Route::Toggle { off_var }, Self::At(_)) => off_var,
             _ => return None,
@@ -134,8 +138,6 @@ pub(super) struct EnvVar {
     pub(super) name: &'static str,
     pub(super) value: String,
 }
-
-
 
 impl Route {
     /// Whether the node sends `/compact` under `policy`, given the commands

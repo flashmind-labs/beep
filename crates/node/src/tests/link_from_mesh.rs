@@ -1,8 +1,8 @@
 use super::*;
-use beep_proto::node::mesh_state::Credential;
-use beep_mesh::transport_config;
-use iroh::{Endpoint, SecretKey, endpoint::presets};
 use crate::link::peers::Peers;
+use beep_mesh::transport_config;
+use beep_proto::node::mesh_state::Credential;
+use iroh::{Endpoint, SecretKey, endpoint::presets};
 use tempfile::TempDir;
 
 #[tokio::test]

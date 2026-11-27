@@ -1,6 +1,11 @@
 use super::*;
 use crate::agents::Parts;
-use crate::agents::{Agents, adapters::installs::Installs, harnesses::{Latest, Settings}, models::ModelCache};
+use crate::agents::{
+    Agents,
+    adapters::installs::Installs,
+    harnesses::{Latest, Settings},
+    models::ModelCache,
+};
 use beep_proto::node::agent;
 use std::{collections::BTreeMap, time::Duration};
 
@@ -48,19 +53,31 @@ fn a_catalog_is_built_from_values() {
 
 #[test]
 fn the_agents_a_catalog_holds_are_found_by_name_and_protocol() {
-    let agents = Agents::new(Parts { kinds: vec![kind("claude"), kind("codex")], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![kind("claude"), kind("codex")],
+        ..Parts::default()
+    });
 
-    assert_eq!(agents.catalog.named("codex").map(|kind| kind.name), Some("codex".to_owned()));
+    assert_eq!(
+        agents.catalog.named("codex").map(|kind| kind.name),
+        Some("codex".to_owned())
+    );
     assert!(agents.catalog.named("pi").is_none());
     assert_eq!(
-        agents.catalog.kind(&agent::protocol("claude")).map(|kind| kind.name),
+        agents
+            .catalog
+            .kind(&agent::protocol("claude"))
+            .map(|kind| kind.name),
         Some("claude".to_owned())
     );
 }
 
 #[test]
 fn a_new_detection_wakes_the_followers_once_and_only_when_it_differs() {
-    let agents = Agents::new(Parts { kinds: vec![kind("claude")], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![kind("claude")],
+        ..Parts::default()
+    });
     let mut changed = agents.catalog.kinds_changed();
     watched::read_and_update(&mut changed, |_| ());
 
@@ -96,8 +113,17 @@ async fn mcp_servers_told(launch: Option<Arc<Launch>>) -> serde_json::Value {
     let log = dir.path().join("new.json");
     let mut kind = kind("claude");
     kind.program = "sh".into();
-    kind.args = vec!["-c".into(), RECORDING_ADAPTER.into(), "adapter".into(), log.display().to_string()];
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], launch, ..Parts::default() });
+    kind.args = vec![
+        "-c".into(),
+        RECORDING_ADAPTER.into(),
+        "adapter".into(),
+        log.display().to_string(),
+    ];
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        launch,
+        ..Parts::default()
+    });
     let session = agents
         .start(&kind, dir.path().to_str(), crate::agents::Begin::default())
         .await
@@ -111,7 +137,8 @@ async fn mcp_servers_told(launch: Option<Arc<Launch>>) -> serde_json::Value {
     .expect("the session left starting")
     .expect("the session lives");
     let told: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&log).expect("the adapter was asked")).expect("json");
+        serde_json::from_str(&std::fs::read_to_string(&log).expect("the adapter was asked"))
+            .expect("json");
 
     told["params"]["mcpServers"].clone()
 }
@@ -123,7 +150,10 @@ async fn a_session_gets_the_mcp_server_only_when_the_catalog_holds_its_launch() 
     assert_eq!(none, serde_json::json!([]));
 
     let dir = tempfile::tempdir().expect("a temp folder");
-    let launch = Arc::new(Launch::new(PathBuf::from("beep-node"), dir.path().to_owned()));
+    let launch = Arc::new(Launch::new(
+        PathBuf::from("beep-node"),
+        dir.path().to_owned(),
+    ));
     let some = mcp_servers_told(Some(launch)).await;
     assert_eq!(some.as_array().map(Vec::len), Some(1));
     assert_eq!(some[0]["name"], crate::agents::calls::SERVER_NAME);

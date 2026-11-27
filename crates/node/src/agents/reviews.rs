@@ -4,13 +4,18 @@
 //! never outlives the node, and goes once it submitted, failed or was
 //! stopped; the review stays here for the caller and the desktops.
 
-use beep_proto::SessionId;
-use super::{Agents, Begin, Session, sessions::find_session, family::{ChildStart, Review, Who}, live::Live, session::Command, unix_now};
+use super::{
+    Agents, Begin, Session,
+    family::{ChildStart, Review, Who},
+    live::Live,
+    session::Command,
+    sessions::find_session,
+    unix_now,
+};
 use crate::known::known;
 use beep_proto::ModelId;
-use beep_proto::node::agent::{
-    ReviewOrder, ReviewRun, Status, StopReason, SubmittedReview,
-};
+use beep_proto::SessionId;
+use beep_proto::node::agent::{ReviewOrder, ReviewRun, Status, StopReason, SubmittedReview};
 use beep_proto::watched;
 use house::HouseRules;
 use kept::{Kept, Reviews};
@@ -67,7 +72,8 @@ impl Agents {
             }
             None => {
                 let kind = self
-                    .catalog.named(&order.agent)
+                    .catalog
+                    .named(&order.agent)
                     .ok_or_else(|| format!("This machine has no {} agent.", order.agent))?;
                 let begin = Begin {
                     prompt: Some(prompt),
@@ -123,11 +129,10 @@ impl Reviews {
 
     /// The review `id`, when `who` asked for it.
     pub(crate) fn review_for(&self, who: &Who, id: &SessionId) -> Option<ReviewRun> {
-        self
-            .with(id, |kept| {
-                (kept.parent.as_ref() == Some(who)).then(|| kept.run.clone())
-            })
-            .flatten()
+        self.with(id, |kept| {
+            (kept.parent.as_ref() == Some(who)).then(|| kept.run.clone())
+        })
+        .flatten()
     }
 
     /// The review `id` of `who` once it is no longer running, or as it was
@@ -185,20 +190,18 @@ impl Reviews {
             .filter(|session| session.reviewer)
             .map(|session| session.id.clone())
             .ok_or_else(|| "This session is no reviewer.".to_owned())?;
-        self
-            .with(&id, |kept| match &kept.run.error {
-                Some(why) => Err(format!("The review is over: {why}")),
-                None => {
-                    kept.run.review = Some(review);
-                    Ok(())
-                }
-            })
-            .unwrap_or_else(|| Err("This session is no reviewer.".to_owned()))
+        self.with(&id, |kept| match &kept.run.error {
+            Some(why) => Err(format!("The review is over: {why}")),
+            None => {
+                kept.run.review = Some(review);
+                Ok(())
+            }
+        })
+        .unwrap_or_else(|| Err("This session is no reviewer.".to_owned()))
     }
 
     pub(super) fn submitted(&self, id: &SessionId) -> bool {
-        self
-            .with(id, |kept| kept.run.review.is_some())
+        self.with(id, |kept| kept.run.review.is_some())
             .unwrap_or(false)
     }
 
@@ -274,7 +277,9 @@ async fn follow(agents: Arc<Agents>, session: Arc<Session>) {
         match next {
             Step::Wait => {
                 if live.changed().await.is_err() {
-                    agents.reviews.fail_review(&id, "The reviewer is gone.".to_owned());
+                    agents
+                        .reviews
+                        .fail_review(&id, "The reviewer is gone.".to_owned());
                     break;
                 }
             }
@@ -285,7 +290,9 @@ async fn follow(agents: Arc<Agents>, session: Arc<Session>) {
                     .order(Command::Prompt(NUDGE.to_owned().into()))
                     .await
                 {
-                    agents.reviews.fail_review(&id, format!("The reviewer could not be nudged: {e}"));
+                    agents
+                        .reviews
+                        .fail_review(&id, format!("The reviewer could not be nudged: {e}"));
                     break;
                 }
             }

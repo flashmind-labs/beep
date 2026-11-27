@@ -1,10 +1,10 @@
-use super::*;
 use super::super::{pty::pty_size, screen::Screen};
+use super::*;
+use beep_proto::node::process::TaskState;
+use beep_proto::watched;
 use portable_pty::ChildKiller;
 use std::sync::Mutex;
 use tokio::{sync::mpsc, time::timeout};
-use beep_proto::node::process::TaskState;
-use beep_proto::watched;
 
 #[cfg(unix)]
 fn started(reply: Reply) -> TaskId {
@@ -191,7 +191,11 @@ async fn an_ended_terminal_leaves_the_list_after_the_keep_time() {
     assert_eq!(terminals.list().len(), 1);
 
     tokio::time::advance(KEEP_ENDED - Duration::from_millis(1)).await;
-    assert_eq!(terminals.list().len(), 1, "listed just before the time is up");
+    assert_eq!(
+        terminals.list().len(),
+        1,
+        "listed just before the time is up"
+    );
 
     tokio::time::advance(Duration::from_millis(2)).await;
     tokio::task::yield_now().await;

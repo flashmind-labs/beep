@@ -1,11 +1,11 @@
 //! Read-only transcript access for repair agents over the mesh.
 
-use beep_proto::SessionId;
-use crate::agents::machine_list;
-use crate::agents::reply;
 use super::Node;
 use crate::agents::TRANSCRIPT_PROTOCOL;
+use crate::agents::machine_list;
+use crate::agents::reply;
 use anyhow::{Context, Result, bail};
+use beep_proto::SessionId;
 use beep_proto::node::{
     agent::{EntryKind, SessionsReply, SessionsRequest},
     tools::Reply,

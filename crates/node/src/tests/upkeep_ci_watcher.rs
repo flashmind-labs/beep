@@ -42,7 +42,10 @@ impl World for Nobody {
         BTreeSet::new()
     }
 
-    #[allow(clippy::manual_async_fn, reason = "the future must not borrow the world")]
+    #[allow(
+        clippy::manual_async_fn,
+        reason = "the future must not borrow the world"
+    )]
     fn ask(&self, _: EndpointId) -> impl Future<Output = Result<ForgeReach>> + Send + 'static {
         async { bail!("nobody") }
     }
@@ -198,14 +201,21 @@ async fn a_slow_host_holds_only_its_own_project() {
 
     let done = watcher.calls.join_next_with_id().await.expect("a call");
     watcher.applied(done).await;
-    assert!(watcher.next.contains_key("fast"), "the fast list was applied");
+    assert!(
+        watcher.next.contains_key("fast"),
+        "the fast list was applied"
+    );
     assert!(!watcher.next.contains_key("slow"));
 
     forge.permits.add_permits(10);
     let done = watcher.calls.join_next_with_id().await.expect("a call");
     watcher.applied(done).await;
     assert!(watcher.next.contains_key("slow"));
-    let done = watcher.calls.join_next_with_id().await.expect("the kept list");
+    let done = watcher
+        .calls
+        .join_next_with_id()
+        .await
+        .expect("the kept list");
     watcher.applied(done).await;
 
     assert!(watcher.calls.is_empty());
@@ -236,7 +246,10 @@ async fn the_books_are_saved_while_another_projects_call_is_in_flight() {
     let done = watcher.calls.join_next_with_id().await.expect("a call");
     watcher.applied(done).await;
 
-    assert!(!watcher.calls.is_empty(), "the slow list is still in flight");
+    assert!(
+        !watcher.calls.is_empty(),
+        "the slow list is still in flight"
+    );
     assert!(file.exists(), "the file holds the running run");
 }
 
@@ -258,7 +271,10 @@ impl World for Silent {
         [self.0].into()
     }
 
-    #[allow(clippy::manual_async_fn, reason = "the future must not borrow the world")]
+    #[allow(
+        clippy::manual_async_fn,
+        reason = "the future must not borrow the world"
+    )]
     fn ask(&self, _: EndpointId) -> impl Future<Output = Result<ForgeReach>> + Send + 'static {
         pending()
     }
@@ -288,12 +304,18 @@ async fn a_silent_machine_does_not_hold_up_a_poll() {
     .await;
 
     watcher.poll().await;
-    assert!(watcher.held.is_empty(), "the first election waits for the answers");
+    assert!(
+        watcher.held.is_empty(),
+        "the first election waits for the answers"
+    );
     assert_eq!(watcher.asking.len(), 1);
 
     watcher.answered = true;
     watcher.poll().await;
-    assert!(watcher.held.contains("quiet"), "later polls go on with what is known");
+    assert!(
+        watcher.held.contains("quiet"),
+        "later polls go on with what is known"
+    );
     assert!(!watcher.calls.is_empty(), "and list the held project");
     assert_eq!(watcher.asking.len(), 1, "one gather at a time");
 }
@@ -348,7 +370,13 @@ async fn asks_while_parked(pushes: bool) -> usize {
         pushes,
         asks: asks.clone(),
     };
-    let watcher = Watcher::start(Idle, world, Arc::new(Ci::default()), dir.path().join("runs.json")).await;
+    let watcher = Watcher::start(
+        Idle,
+        world,
+        Arc::new(Ci::default()),
+        dir.path().join("runs.json"),
+    )
+    .await;
     let task = tokio::spawn(watcher.run());
 
     tokio::time::sleep(QUIET * 3 + Duration::from_secs(1)).await;
@@ -361,6 +389,13 @@ async fn asks_while_parked(pushes: bool) -> usize {
 // one from before 0.8.28 is, every `QUIET`.
 #[tokio::test(start_paused = true)]
 async fn a_machine_that_pushes_its_reach_is_not_asked_again() {
-    assert_eq!(asks_while_parked(true).await, 1, "asked once, then followed");
-    assert!(asks_while_parked(false).await >= 3, "an old machine is asked every QUIET");
+    assert_eq!(
+        asks_while_parked(true).await,
+        1,
+        "asked once, then followed"
+    );
+    assert!(
+        asks_while_parked(false).await >= 3,
+        "an old machine is asked every QUIET"
+    );
 }

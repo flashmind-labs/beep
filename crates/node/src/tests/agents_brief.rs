@@ -27,7 +27,9 @@ fn environment_includes_machine_project_and_gates_multi_machine_and_native_build
         },
         "linux",
     );
-    assert!(full.contains("on `build-box` (linux) in project `beep` as part of a multi-machine mesh"));
+    assert!(
+        full.contains("on `build-box` (linux) in project `beep` as part of a multi-machine mesh")
+    );
     assert!(full.contains("`remote_run` (never on `build-box`)"));
     assert!(full.contains("sccache"));
 }

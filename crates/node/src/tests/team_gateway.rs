@@ -1,12 +1,12 @@
 use super::*;
 use crate::membership::team_repo_of;
 use crate::{
-    upkeep::ci::projects::pinned,
     team::{
         board::tests::{URL, member, repo},
         home::{Home, Project, picks_up, read},
         link::Teams,
     },
+    upkeep::ci::projects::pinned,
 };
 use beep_mesh::Key;
 use beep_proto::node::{
@@ -82,7 +82,10 @@ async fn gateway_and_ci_watcher_elect_the_same_machine() {
     // checkout moved before its new machine was announced, one with it still
     // acts for the team, so that it announces itself.
     let elsewhere = member("alice", SecretKey::generate().public());
-    assert_eq!(elected(project, &elsewhere, &repo(), me, &ci, &peers), Some(me));
+    assert_eq!(
+        elected(project, &elsewhere, &repo(), me, &ci, &peers),
+        Some(me)
+    );
 }
 
 #[test]
@@ -371,7 +374,10 @@ async fn gh_runs_as_the_account_for_the_repositorys_owner() {
         let repo: RepoName = repo.parse().unwrap();
         let command = forge_command(&user_call(&IssueHost::Github), &repo);
         let envs: Vec<_> = command.as_std().get_envs().collect();
-        let gh = envs.iter().rev().find(|(name, _)| *name == OsStr::new(GITHUB_ENV_VAR));
+        let gh = envs
+            .iter()
+            .rev()
+            .find(|(name, _)| *name == OsStr::new(GITHUB_ENV_VAR));
         gh.and_then(|(_, value)| value.map(|value| value.to_string_lossy().into_owned()))
     };
 
@@ -445,7 +451,9 @@ async fn teammates_are_heard_while_the_machines_are_asked() {
     );
     let bob = member("bob", SecretKey::generate().public());
     let follow = AbortOnDropHandle::new(tokio::spawn(std::future::pending()));
-    gateway.follows.insert((repo(), bob.mesh), (bob.clone(), follow));
+    gateway
+        .follows
+        .insert((repo(), bob.mesh), (bob.clone(), follow));
     // The machines were just asked and one does not answer.
     gateway.asked = Some((Instant::now(), BTreeSet::new()));
     gateway.asking.spawn(std::future::pending());
@@ -518,7 +526,10 @@ async fn the_gateway_elects_when_the_home_changes() {
     });
     assert!(futures::poll!(&mut running).is_pending());
 
-    assert_eq!(link.served(|served| served.gateways.get(&repo()).copied()), Some(me));
+    assert_eq!(
+        link.served(|served| served.gateways.get(&repo()).copied()),
+        Some(me)
+    );
 }
 
 /// A roster edit elects at once, and a machine that acts for no team keeps
@@ -556,7 +567,10 @@ async fn the_gateway_elects_when_a_roster_is_edited() {
     tokio::time::pause();
     let mut running = Box::pin(gateway.drive(hearing));
     assert!(futures::poll!(&mut running).is_pending());
-    assert!(link.served(|served| served.gateways.is_empty()), "no team yet");
+    assert!(
+        link.served(|served| served.gateways.is_empty()),
+        "no team yet"
+    );
 
     // No timer runs for a machine that holds no team: time passing elects nothing.
     tokio::time::advance(Duration::from_secs(600)).await;
@@ -568,7 +582,10 @@ async fn the_gateway_elects_when_a_roster_is_edited() {
     link.roster_edited();
     assert!(futures::poll!(&mut running).is_pending());
 
-    assert_eq!(link.served(|served| served.gateways.get(&repo()).copied()), Some(me));
+    assert_eq!(
+        link.served(|served| served.gateways.get(&repo()).copied()),
+        Some(me)
+    );
 }
 
 #[tokio::test]
@@ -620,7 +637,10 @@ async fn a_busy_desktop_write_does_not_hold_up_the_home() {
     .await;
     drop(writing);
 
-    assert!(seen.is_ok(), "the project reached the home while a write was held");
+    assert!(
+        seen.is_ok(),
+        "the project reached the home while a write was held"
+    );
 }
 
 fn in_team(mesh: &Mesh, folder: &std::path::Path) -> bool {
@@ -651,9 +671,10 @@ async fn a_pushed_session_change_makes_the_cards_again_without_a_round() {
     );
     let peer = SecretKey::generate().public();
     gateway.held.insert(repo());
-    gateway
-        .sightings
-        .insert(peer, AbortOnDropHandle::new(tokio::spawn(std::future::pending())));
+    gateway.sightings.insert(
+        peer,
+        AbortOnDropHandle::new(tokio::spawn(std::future::pending())),
+    );
     // The last round ended long ago and the next is due in a minute.
     gateway.round_due = Some(Instant::now() + BUSY);
 

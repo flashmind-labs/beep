@@ -1,5 +1,5 @@
-use beep_proto::SessionId;
 use super::*;
+use beep_proto::SessionId;
 use beep_proto::node::agent::AlertKind;
 use iroh::SecretKey;
 use std::time::Duration;

@@ -8,12 +8,12 @@
 //! the device list applies what differs from what was applied before.
 
 use crate::{
-    membership::{credentials, read},
     files::{sync::Syncs, syncthing::Syncthing},
-    watchdog::{self, Step},
     link::{Offers, peers::Inner},
+    membership::{credentials, read},
     status::Own,
     team::link::TeamLink,
+    watchdog::{self, Step},
 };
 use beep_mesh::{Key, Mesh};
 use beep_proto::watched;
@@ -23,8 +23,7 @@ use beep_proto::{
         MachineCredentials,
         harness::{AgentSettings, HarnessConfig},
         mesh_state::{
-            Place, ProjectRecord, ProjectSyncSettings, SavedVersion, StateValue,
-            SyncSpec,
+            Place, ProjectRecord, ProjectSyncSettings, SavedVersion, StateValue, SyncSpec,
         },
         sync::{Project, ignored_project},
     },
@@ -117,14 +116,12 @@ async fn set(own: Own, link: TeamLink, active: Mesh, offers: Offers) {
         reaches,
     );
     let search = crate::agents::follow_search(active.clone(), offers.agents.clone());
-    let moves = crate::agents::follow_moves(
-        active,
-        own.endpoint.clone(),
-        dir,
-        offers.agents.clone(),
-    );
+    let moves =
+        crate::agents::follow_moves(active, own.endpoint.clone(), dir, offers.agents.clone());
 
-    tokio::join!(follow, moves, runs, skills, libraries, search, team, gateway);
+    tokio::join!(
+        follow, moves, runs, skills, libraries, search, team, gateway
+    );
 }
 
 /// Applies the mesh's state to the node now and on every change, until the
@@ -142,7 +139,8 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
         let mut transfers = preferences_offers.transfers.subscribe();
         // Syncthing's own event stream says when it is back, or changed a folder.
         let syncthing_moved = Arc::new(tokio::sync::Notify::new());
-        let _events = AbortOnDropHandle::new(tokio::spawn(syncthing_events(syncthing_moved.clone())));
+        let _events =
+            AbortOnDropHandle::new(tokio::spawn(syncthing_events(syncthing_moved.clone())));
 
         loop {
             super::project_remotes::apply(placed_projects(&preferences_mesh, me)).await;
@@ -385,9 +383,6 @@ async fn apply_sync_sets(syncs: Syncs, mut sets: watch::Receiver<Option<Vec<Proj
         );
     }
 }
-
-
-
 
 fn settings(mesh: &Mesh) -> AgentSettings {
     let flsh = mesh

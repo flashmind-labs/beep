@@ -29,11 +29,22 @@ fn a_script_runs_in_the_distributions_login_shell_at_home() {
 fn the_probe_looks_for_every_harness() {
     let script = probe_script();
     for harness in HARNESSES {
-        assert!(script.contains(&format!(" {} ", harness.agent)) || script.contains(&format!(" {};", harness.agent)));
+        assert!(
+            script.contains(&format!(" {} ", harness.agent))
+                || script.contains(&format!(" {};", harness.agent))
+        );
     }
     // The folders the node itself looks in.
-    assert!(HOME_BINS.iter().all(|dir| script.contains(&format!("$HOME/{dir}"))));
-    assert!(NODE_VERSIONS.iter().all(|(versions, _)| script.contains(versions)));
+    assert!(
+        HOME_BINS
+            .iter()
+            .all(|dir| script.contains(&format!("$HOME/{dir}")))
+    );
+    assert!(
+        NODE_VERSIONS
+            .iter()
+            .all(|(versions, _)| script.contains(versions))
+    );
 }
 
 #[test]
@@ -74,14 +85,21 @@ fn the_probe_script_runs_in_sh() {
         .expect("sh runs");
     assert!(out.status.success());
     let found = distro::found(&String::from_utf8_lossy(&out.stdout));
-    let names: Vec<&str> = found.agents.iter().map(|agent| agent.name.as_str()).collect();
+    let names: Vec<&str> = found
+        .agents
+        .iter()
+        .map(|agent| agent.name.as_str())
+        .collect();
     assert_eq!(names, ["claude", "codex"]);
 }
 
 #[test]
 fn wslenv_adds_each_name_once() {
     assert_eq!(
-        joined_wslenv(Some("USERPROFILE/p:GH_TOKEN"), ["GH_TOKEN", "BEEP_MCP_TOKEN"].into_iter()),
+        joined_wslenv(
+            Some("USERPROFILE/p:GH_TOKEN"),
+            ["GH_TOKEN", "BEEP_MCP_TOKEN"].into_iter()
+        ),
         "USERPROFILE/p:GH_TOKEN:BEEP_MCP_TOKEN"
     );
     assert_eq!(joined_wslenv(None, ["A"].into_iter()), "A");
@@ -99,7 +117,10 @@ fn an_agent_runs_on_the_path_the_probe_found_it_on() {
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
 
-    assert_eq!(args[..7], ["-d", "Ubuntu", "--cd", "/mnt/c/code", "--exec", "sh", "-lc"]);
+    assert_eq!(
+        args[..7],
+        ["-d", "Ubuntu", "--cd", "/mnt/c/code", "--exec", "sh", "-lc"]
+    );
     assert!(args[7].starts_with(&path_prelude()) && args[7].ends_with("exec \"$0\" \"$@\"\n"));
     assert_eq!(args[8..], ["/home/sam/.local/bin/claude", "--print"]);
 }

@@ -2,12 +2,15 @@
 //! field (`find`, `ModelCache`). flsh lists them with `flsh models`; the
 //! others are read from a `session/new` made only to ask.
 
-use super::{AgentKind, acp::{self, MAX_MODELS, Offered}, launch::{AgentIn, AgentOut, Started}};
+use super::{
+    AgentKind,
+    acp::{self, MAX_MODELS, Offered},
+    launch::{AgentIn, AgentOut, Started},
+};
 use crate::known::known;
 use crate::{
-    AsyncMutex,
+    AsyncMutex, lock,
     logs::found::Agent,
-    lock,
     process::spawn_env::{self, Scope},
     process::{STOP_GRACE, command},
 };
@@ -173,7 +176,12 @@ async fn probe(kind: &AgentKind, cwd: &Path) -> Result<Offered> {
 
 /// Asks the agent on `stdin` and `stdout` for a session in `cwd` and reads
 /// the models its answer offers.
-async fn ask(stdin: AgentIn, stdout: AgentOut, cwd: &Path, protocol: acp::Protocol) -> Result<Offered> {
+async fn ask(
+    stdin: AgentIn,
+    stdout: AgentOut,
+    cwd: &Path,
+    protocol: acp::Protocol,
+) -> Result<Offered> {
     // An oversized answer is dropped, and the request then fails.
     let (oversized, _reports) = mpsc::channel(1);
     let (protocol, answer) = Builder::new(Client)

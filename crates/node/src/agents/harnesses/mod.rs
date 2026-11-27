@@ -11,7 +11,9 @@ use super::{
     unix_now,
 };
 use crate::{
-    AsyncMutex, known::{Adapter, KNOWN}, lock,
+    AsyncMutex,
+    known::{Adapter, KNOWN},
+    lock,
     machine::env::{claude_logged_in, opencode_logged_in, output},
     process::spawn_env::{self, Scope},
 };

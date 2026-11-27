@@ -3,8 +3,8 @@
 //! before the agent starts.
 
 use super::worktrees;
-use crate::machine::env::locate::folder;
 use crate::logs::found;
+use crate::machine::env::locate::folder;
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::agent::{
     CheckoutPlan, prompt_branch, valid_branch, valid_ref, worktree_path,
@@ -342,7 +342,11 @@ fn branch_worktree(at: &Checkout, branch: &str) -> Result<Made> {
     }
 
     exclude_worktrees(&at.root)?;
-    Ok(made(at.inside(tree.clone()), Start::AddedWorktree, Some(tree)))
+    Ok(made(
+        at.inside(tree.clone()),
+        Start::AddedWorktree,
+        Some(tree),
+    ))
 }
 
 /// The folder of the worktree of the checkout at `top` that has `branch`
@@ -567,7 +571,11 @@ pub(crate) mod tests {
         assert_eq!(made.start, Start::NewWorktree);
         assert_eq!(current(&tree), "beep/add-dark-mode");
         assert_eq!(current(&work), "main", "the checkout keeps its branch");
-        assert_eq!(project_of(&made.folder), Some(work.clone()), "runs in the project");
+        assert_eq!(
+            project_of(&made.folder),
+            Some(work.clone()),
+            "runs in the project"
+        );
         assert!(made.brief().contains(&tree.display().to_string()));
         assert_eq!(
             run(&tree, &["rev-parse", "HEAD"]),
@@ -586,7 +594,15 @@ pub(crate) mod tests {
         make(&work, &plan, "Add dark mode").expect("a second worktree");
         let again = fs::read_to_string(work.join(".git/info/exclude")).expect("the exclude");
         assert_eq!(again, exclude);
-        run(&work, &["worktree", "remove", "--force", tree.to_str().expect("UTF-8")]);
+        run(
+            &work,
+            &[
+                "worktree",
+                "remove",
+                "--force",
+                tree.to_str().expect("UTF-8"),
+            ],
+        );
         assert_eq!(
             project_of(&made.folder),
             Some(work.clone()),

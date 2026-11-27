@@ -1,6 +1,9 @@
 //! What streams ask of a session, and the limits on how it takes them.
 
-use crate::agents::{acp::Prompt, live::{Live, Mark, Sent}};
+use crate::agents::{
+    acp::Prompt,
+    live::{Live, Mark, Sent},
+};
 use beep_proto::node::agent::{AnswerOption, Effort, SessionDevice};
 use beep_proto::{ModelId, SessionId};
 use std::sync::{Arc, Mutex};
@@ -15,7 +18,8 @@ pub(super) const STDERR_LINES: usize = 5;
 /// Updates and questions from the agent waiting for the session's task.
 pub(super) const EVENTS: usize = 64;
 /// Why a session ended with the node.
-pub(in crate::agents) const NODE_STOPPED: &str = "beep-node restarted; send a message to resume the session";
+pub(in crate::agents) const NODE_STOPPED: &str =
+    "beep-node restarted; send a message to resume the session";
 /// What a resumed session is told when the node restarted while it worked.
 pub(in crate::agents) const CONTINUE: &str = "The node restarted while you were working. Continue the interrupted task, checking what already completed before repeating any actions. If you were waiting for an answer, ask again.";
 /// The most tool calls followed at once, to know when none runs.

@@ -4,7 +4,11 @@
 //! started: the shell's commands, an agent's tools.
 
 use spawn_env::Scope;
-use std::{ffi::OsStr, process::{Output, Stdio}, time::Duration};
+use std::{
+    ffi::OsStr,
+    process::{Output, Stdio},
+    time::Duration,
+};
 use tokio::{
     process::{Child, Command},
     time::timeout,
@@ -37,11 +41,7 @@ pub(crate) const STOP_GRACE: Duration = Duration::from_secs(2);
 pub(crate) fn command(program: impl AsRef<OsStr>) -> Command {
     let program = program.as_ref();
     #[cfg(windows)]
-    if let Ok(found) = which::which_in(
-        program,
-        crate::process::spawn_env::search_path(),
-        "/",
-    ) {
+    if let Ok(found) = which::which_in(program, crate::process::spawn_env::search_path(), "/") {
         return Command::from(background_command(found));
     }
 
@@ -86,8 +86,22 @@ pub(crate) fn background_command(program: impl AsRef<OsStr>) -> std::process::Co
 /// Programs the node starts often enough to watch. Anything else counts as
 /// `other`, so a configured agent path cannot grow the metric's labels.
 const COUNTED: [&str; 16] = [
-    "git", "sh", "bash", "zsh", "pwsh", "powershell", "cmd", "ps", "lsof", "node", "npm",
-    "npx", "claude", "codex", "systemctl", "launchctl",
+    "git",
+    "sh",
+    "bash",
+    "zsh",
+    "pwsh",
+    "powershell",
+    "cmd",
+    "ps",
+    "lsof",
+    "node",
+    "npm",
+    "npx",
+    "claude",
+    "codex",
+    "systemctl",
+    "launchctl",
 ];
 
 /// Counts a program the node is about to start, by its bare name. This

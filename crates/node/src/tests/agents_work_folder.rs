@@ -50,7 +50,10 @@ fn leaves_out_what_git_ignores_unless_asked() {
         .collect();
     assert_eq!(ignored, ["target", "build.log"]);
     // The root's `.gitignore` counts in a folder under it too.
-    assert_eq!(names_of(&list(&root, "src", false, None).unwrap()), ["main.rs"]);
+    assert_eq!(
+        names_of(&list(&root, "src", false, None).unwrap()),
+        ["main.rs"]
+    );
 }
 
 #[test]
@@ -394,8 +397,16 @@ fn repo_with_changes(dir: &TempDir) {
     fs::create_dir_all(at.join("old")).unwrap();
     fs::write(at.join("src/deep/lib.rs"), "one").unwrap();
     fs::write(at.join("src/keep.rs"), "one").unwrap();
-    fs::write(at.join("old/moved.txt"), "line one\nline two\nline three\nline four\n").unwrap();
-    fs::write(at.join("old/inner.txt"), "line one\nline two\nline three\nline four\n").unwrap();
+    fs::write(
+        at.join("old/moved.txt"),
+        "line one\nline two\nline three\nline four\n",
+    )
+    .unwrap();
+    fs::write(
+        at.join("old/inner.txt"),
+        "line one\nline two\nline three\nline four\n",
+    )
+    .unwrap();
     fs::write(at.join("old/staying.txt"), "x").unwrap();
     run_git(at, &["add", "."]);
     run_git(at, &["commit", "-qm", "first"]);
@@ -527,6 +538,10 @@ fn a_tree_reads_a_tracked_folder_the_watch_skips_in_itself() {
     let kept = git_status(&root.root).unwrap();
     let got = tree(&root, "", true, 3, Some(&kept)).unwrap();
     assert_eq!(got, tree(&root, "", true, 3, None).unwrap());
-    let debug = got.folders.iter().find(|f| f.path == "target/debug").unwrap();
+    let debug = got
+        .folders
+        .iter()
+        .find(|f| f.path == "target/debug")
+        .unwrap();
     assert_eq!(debug.entries[0].change, Some(GitChange::Modified {}));
 }

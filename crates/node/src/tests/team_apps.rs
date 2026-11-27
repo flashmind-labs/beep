@@ -171,7 +171,10 @@ async fn a_forwarded_call_is_refused_off_the_gateway() {
 async fn pickup_is_taken_only_from_the_gateway() {
     let link = link().await;
     let dir = tempfile::tempdir().expect("a folder");
-    let offers = crate::link::Offers::local(Parts::default(), crate::machine::provision::Provision::new(dir.path()));
+    let offers = crate::link::Offers::local(
+        Parts::default(),
+        crate::machine::provision::Provision::new(dir.path()),
+    );
     let gateway = SecretKey::generate().public();
     link.publish(|served| {
         served.gateways.insert(repo(), gateway);
@@ -191,7 +194,10 @@ async fn pickup_is_taken_only_from_the_gateway() {
     };
 
     let (text, failed) = done(pickup(Table::Peer(SecretKey::generate().public())).await);
-    assert!(failed && text.contains("does not act for the team"), "{text}");
+    assert!(
+        failed && text.contains("does not act for the team"),
+        "{text}"
+    );
 
     // Past the gate: this test machine is in no mesh.
     for table in [Table::Peer(gateway), Table::Shared] {

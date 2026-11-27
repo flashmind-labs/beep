@@ -23,11 +23,11 @@ mod windows;
 #[cfg(windows)]
 use windows as imp;
 
-pub(crate) use types::{FileId, Space};
 pub(crate) use imp::{
-    Dir, ctime_ns, id_of_file, id_of_metadata, id_of_path, is_executable, mtime_ns, open_no_follow, open_read,
-    private, rename, rename_new, set_mode, volume,
+    Dir, ctime_ns, id_of_file, id_of_metadata, id_of_path, is_executable, mtime_ns, open_no_follow,
+    open_read, private, rename, rename_new, set_mode, volume,
 };
+pub(crate) use types::{FileId, Space};
 
 /// Whether `error`, from opening a folder, means the path is a file or a
 /// link rather than a folder.

@@ -1,6 +1,6 @@
 use super::*;
-use crate::fs::paths;
 use crate::files::syncthing::Syncthing;
+use crate::fs::paths;
 use beep_mesh::transport_config;
 use beep_proto::node::sync::Project;
 use iroh::{SecretKey, endpoint::presets};
@@ -98,7 +98,7 @@ async fn a_shared_file_is_fetched_by_the_device_that_asked_and_no_other() {
         true,
     )
     .await
-        .expect("the transfers start");
+    .expect("the transfers start");
 
     let shared = transfers
         .share(&path, asking.id())
@@ -121,7 +121,10 @@ async fn a_shared_file_is_fetched_by_the_device_that_asked_and_no_other() {
     assert_eq!(fetched.as_ref(), data.as_slice());
 
     // Sharing again renews the lease and gives the same blob.
-    let again = transfers.share(&path, asking.id()).await.expect("shared again");
+    let again = transfers
+        .share(&path, asking.id())
+        .await
+        .expect("shared again");
     assert_eq!(again, shared);
 
     let refused = iroh_blobs::store::mem::MemStore::new();

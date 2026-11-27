@@ -181,13 +181,22 @@ pub(super) fn list(folder: &Path, home: Option<&Path>) -> Result<Vec<CustomAgent
 /// `harness` first. One without instructions or that could not be read is
 /// none. Otherwise why not, naming the ones there are. Blocks on the file
 /// system.
-pub(crate) fn persona(folder: &Path, home: Option<&Path>, name: &str, harness: &str) -> Result<CustomAgent, String> {
+pub(crate) fn persona(
+    folder: &Path,
+    home: Option<&Path>,
+    name: &str,
+    harness: &str,
+) -> Result<CustomAgent, String> {
     let mut usable = list(folder, home).map_err(|e| format!("{e:#}"))?;
     usable.retain(|agent| agent.error.is_none() && !agent.prompt.trim().is_empty());
     let named = |agent: &&CustomAgent| agent.name.eq_ignore_ascii_case(name.trim());
 
     // The first of the best: the project's come ahead of the user's.
-    if let Some(found) = usable.iter().filter(named).min_by_key(|agent| agent.harness.as_ref() != harness) {
+    if let Some(found) = usable
+        .iter()
+        .filter(named)
+        .min_by_key(|agent| agent.harness.as_ref() != harness)
+    {
         return Ok(found.clone());
     }
 
@@ -196,8 +205,13 @@ pub(crate) fn persona(folder: &Path, home: Option<&Path>, name: &str, harness: &
     names.retain(|name| seen.insert(*name));
 
     Err(match names.is_empty() {
-        true => format!("There is no custom agent called {name}: this folder and the user define none."),
-        false => format!("There is no custom agent called {name}. There are: {}.", names.join(", ")),
+        true => {
+            format!("There is no custom agent called {name}: this folder and the user define none.")
+        }
+        false => format!(
+            "There is no custom agent called {name}. There are: {}.",
+            names.join(", ")
+        ),
     })
 }
 

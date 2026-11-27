@@ -2,9 +2,12 @@
 //! problem report, its log for a period, status, version and OS.
 
 use crate::{
-    status::{LocalStatus, render},
+    machine::{
+        env::{locate, os_version},
+        service::logs::Logs,
+    },
     process::spawn_env,
-    machine::{env::{locate, os_version}, service::logs::Logs},
+    status::{LocalStatus, render},
 };
 use anyhow::Result;
 use beep_proto::node::{

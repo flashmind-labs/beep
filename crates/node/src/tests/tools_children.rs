@@ -1,14 +1,12 @@
 use super::*;
 use crate::agents::Parts;
+use crate::agents::{AgentKind, Begin};
 use crate::agents::{child_reach::show_children, family::peer};
-use serde_json::json;
-use crate::{
-    agents::{AgentKind, Begin},
-};
 use beep_proto::AgentSlug;
 use beep_proto::node::agent::{Entry, EntryKind, Question, SessionInfo, State, Status, WorkPlace};
-use serde_json::Value;
 use beep_proto::watched;
+use serde_json::Value;
+use serde_json::json;
 use std::{collections::BTreeMap, time::Duration};
 
 fn endpoint() -> EndpointId {
@@ -201,7 +199,11 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
     .await
     .unwrap();
     let mut node = Node::test(dir.path()).await;
-    node.agents = Arc::new(Agents::new(Parts { kinds: vec![kind("top"), kind("kid")], mesh: node.mesh.clone(), ..Parts::default() }));
+    node.agents = Arc::new(Agents::new(Parts {
+        kinds: vec![kind("top"), kind("kid")],
+        mesh: node.mesh.clone(),
+        ..Parts::default()
+    }));
     node.mesh.set(mesh);
     let parent = node
         .agents
@@ -213,7 +215,8 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
                 ..Begin::default()
             },
         )
-        .await.unwrap();
+        .await
+        .unwrap();
     let mut live = parent.live.clone();
     tokio::time::timeout(
         Duration::from_secs(20),
@@ -298,13 +301,7 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
     .await
     .unwrap()
     .unwrap();
-    let (failed, text) = tool(
-        &node,
-        &parent_id,
-        Tool::AgentStatus,
-        json!({"id":done.id}),
-    )
-    .await;
+    let (failed, text) = tool(&node, &parent_id, Tool::AgentStatus, json!({"id":done.id})).await;
     assert!(!failed, "{text}");
     assert_eq!(view(&text).turns, 2);
     node.agents.shutdown().await;
@@ -316,7 +313,11 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
 async fn a_thread_runs_on_its_chats_harness_unless_it_names_one() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let mut node = Node::test(dir.path()).await;
-    node.agents = Arc::new(Agents::new(Parts { kinds: vec![kind("top"), kind("kid")], mesh: node.mesh.clone(), ..Parts::default() }));
+    node.agents = Arc::new(Agents::new(Parts {
+        kinds: vec![kind("top"), kind("kid")],
+        mesh: node.mesh.clone(),
+        ..Parts::default()
+    }));
     let cwd = dir.path().to_string_lossy().into_owned();
     let chat = node
         .agents
@@ -328,7 +329,8 @@ async fn a_thread_runs_on_its_chats_harness_unless_it_names_one() {
                 ..Begin::default()
             },
         )
-        .await.expect("the chat starts");
+        .await
+        .expect("the chat starts");
     let mut live = chat.live.clone();
     tokio::time::timeout(
         Duration::from_secs(20),
@@ -380,9 +382,16 @@ async fn a_thread_runs_as_a_persona_on_its_harness_when_this_machine_has_it() {
         ".codex/agents/researcher.toml",
         "name = \"researcher\"\ndeveloper_instructions = \"Cite sources.\"",
     );
-    write(".claude/agents/writer.md", "---\nname: writer\n---\nWrite plainly.");
+    write(
+        ".claude/agents/writer.md",
+        "---\nname: writer\n---\nWrite plainly.",
+    );
     let mut node = Node::test(dir.path()).await;
-    node.agents = Arc::new(Agents::new(Parts { kinds: vec![kind("top"), kind("codex")], mesh: node.mesh.clone(), ..Parts::default() }));
+    node.agents = Arc::new(Agents::new(Parts {
+        kinds: vec![kind("top"), kind("codex")],
+        mesh: node.mesh.clone(),
+        ..Parts::default()
+    }));
     let cwd = dir.path().to_string_lossy().into_owned();
     let chat = node
         .agents
@@ -394,7 +403,8 @@ async fn a_thread_runs_as_a_persona_on_its_harness_when_this_machine_has_it() {
                 ..Begin::default()
             },
         )
-        .await.expect("the chat starts");
+        .await
+        .expect("the chat starts");
     let mut live = chat.live.clone();
     tokio::time::timeout(
         Duration::from_secs(20),
@@ -419,8 +429,19 @@ async fn a_thread_runs_as_a_persona_on_its_harness_when_this_machine_has_it() {
     assert!(!failed, "{text}");
     let researcher = view(&text);
     assert_eq!(researcher.harness, "codex");
-    let session = node.agents.sessions.get(&researcher.key).expect("the thread runs here");
-    assert_eq!(session.info().persona.map(|persona| persona.name).as_deref(), Some("researcher"));
+    let session = node
+        .agents
+        .sessions
+        .get(&researcher.key)
+        .expect("the thread runs here");
+    assert_eq!(
+        session
+            .info()
+            .persona
+            .map(|persona| persona.name)
+            .as_deref(),
+        Some("researcher")
+    );
     // Claude's, which it has not: the chat's.
     let (failed, text) = start("writer", None).await;
     assert!(!failed, "{text}");
@@ -432,7 +453,10 @@ async fn a_thread_runs_as_a_persona_on_its_harness_when_this_machine_has_it() {
 
     let (failed, text) = start("nobody", None).await;
     assert!(failed);
-    assert!(text.starts_with("There is no custom agent called nobody. There are: writer, researcher"), "{text}");
+    assert!(
+        text.starts_with("There is no custom agent called nobody. There are: writer, researcher"),
+        "{text}"
+    );
     node.agents.shutdown().await;
 }
 
@@ -441,11 +465,14 @@ async fn a_thread_runs_as_a_persona_on_its_harness_when_this_machine_has_it() {
 async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let mut node = Node::test(dir.path()).await;
-    node.agents = Arc::new(Agents::new(Parts { kinds: vec![kind("top"), kind("kid")], mesh: node.mesh.clone(), ..Parts::default() }));
+    node.agents = Arc::new(Agents::new(Parts {
+        kinds: vec![kind("top"), kind("kid")],
+        mesh: node.mesh.clone(),
+        ..Parts::default()
+    }));
     let cwd = dir.path().to_string_lossy().into_owned();
     let start = async |name: &str| {
-        node
-            .agents
+        node.agents
             .start(
                 &node.agents.catalog.kinds()[0],
                 Some(&cwd),
@@ -454,7 +481,8 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
                     ..Begin::default()
                 },
             )
-            .await.expect("a session starts")
+            .await
+            .expect("a session starts")
     };
     let (mine, theirs) = (start("mine").await, start("theirs").await);
 
@@ -488,7 +516,11 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
         ("idle", "kid")
     );
     assert_eq!(done.turns, 1);
-    assert!(done.note.as_deref().is_some_and(|note| note.contains("stop_agent")));
+    assert!(
+        done.note
+            .as_deref()
+            .is_some_and(|note| note.contains("stop_agent"))
+    );
 
     // A child that is still working returns at once without `wait`.
     let (failed, text) = tool(
@@ -516,7 +548,8 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
                 ..Begin::default()
             },
         )
-        .await.unwrap();
+        .await
+        .unwrap();
     assert_eq!(node.agents.sessions.children_of(&who).len(), 3);
     let (_, text) = tool(&node, &mine, Tool::ListAgents, json!({})).await;
     let listed: Vec<ChildView> = serde_json::from_str(&text).expect("a list");
@@ -578,7 +611,9 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
     let mut entries = [Entry::new(EntryKind::Tool, call)];
     show_children(&node.agents, &parent, &mut entries);
     assert!(
-        entries[0].text.contains(&format!("[child] {} ended", gone.id)),
+        entries[0]
+            .text
+            .contains(&format!("[child] {} ended", gone.id)),
         "{}",
         entries[0].text
     );
@@ -591,7 +626,11 @@ async fn an_agent_in_a_restricted_mode_starts_no_child_of_another_harness() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let mut node = Node::test(dir.path()).await;
     // The harness named `claude` has a full access mode of its own.
-    node.agents = Arc::new(Agents::new(Parts { kinds: vec![kind("claude"), kind("kid")], mesh: node.mesh.clone(), ..Parts::default() }));
+    node.agents = Arc::new(Agents::new(Parts {
+        kinds: vec![kind("claude"), kind("kid")],
+        mesh: node.mesh.clone(),
+        ..Parts::default()
+    }));
     let cwd = dir.path().to_string_lossy().into_owned();
     let parent = node
         .agents
@@ -604,7 +643,8 @@ async fn an_agent_in_a_restricted_mode_starts_no_child_of_another_harness() {
                 ..Begin::default()
             },
         )
-        .await.expect("a session starts");
+        .await
+        .expect("a session starts");
     let mut live = parent.live.clone();
     tokio::time::timeout(
         Duration::from_secs(20),
@@ -639,14 +679,20 @@ async fn an_agent_in_a_restricted_mode_starts_no_child_of_another_harness() {
 #[tokio::test]
 async fn another_machine_lists_the_sessions_ended_since_only_when_asked() {
     let dir = tempfile::tempdir().expect("a temporary folder");
-    let agents = Agents::new(Parts { kinds: vec![kind("top")], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![kind("top")],
+        ..Parts::default()
+    });
     let cwd = dir.path().to_string_lossy().into_owned();
     let start = async || {
         let begin = Begin {
             prompt: Some("hello".to_owned()),
             ..Begin::default()
         };
-        agents.start(&agents.catalog.kinds()[0], Some(&cwd), begin).await.expect("a session starts")
+        agents
+            .start(&agents.catalog.kinds()[0], Some(&cwd), begin)
+            .await
+            .expect("a session starts")
     };
     let (ended, running) = (start().await, start().await);
 
@@ -674,8 +720,14 @@ async fn another_machine_lists_the_sessions_ended_since_only_when_asked() {
     };
 
     assert_eq!(names("{}"), ["idle"]);
-    assert_eq!(names(&format!(r#"{{"ended_since":{ended_at}}}"#)), ["ended", "idle"]);
-    assert_eq!(names(&format!(r#"{{"ended_since":{}}}"#, ended_at + 1)), ["idle"]);
+    assert_eq!(
+        names(&format!(r#"{{"ended_since":{ended_at}}}"#)),
+        ["ended", "idle"]
+    );
+    assert_eq!(
+        names(&format!(r#"{{"ended_since":{}}}"#, ended_at + 1)),
+        ["idle"]
+    );
     agents.shutdown().await;
 }
 
@@ -689,7 +741,8 @@ fn state(state: &str) -> ChildView {
 
 #[tokio::test(start_paused = true)]
 async fn a_wait_on_a_remote_child_of_an_older_node_still_ends_early() {
-    let waiting = crate::agents::family::links::Waits::default().hold(&SessionId::from("p0"), "k0@box");
+    let waiting =
+        crate::agents::family::links::Waits::default().hold(&SessionId::from("p0"), "k0@box");
     let reads = std::cell::Cell::new(0);
     let started = tokio::time::Instant::now();
     // The first read is the wait's own; the child finished after it, and no
@@ -708,8 +761,10 @@ async fn a_wait_on_a_remote_child_of_an_older_node_still_ends_early() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_wait_on_a_remote_child_that_notes_every_settle_waits_for_its_wake_and_gives_up_at_the_cap() {
-    let waiting = crate::agents::family::links::Waits::default().hold(&SessionId::from("p0"), "k0@box");
+async fn a_wait_on_a_remote_child_that_notes_every_settle_waits_for_its_wake_and_gives_up_at_the_cap()
+ {
+    let waiting =
+        crate::agents::family::links::Waits::default().hold(&SessionId::from("p0"), "k0@box");
     let read = |_: String| {
         std::future::ready(Ok(ChildView {
             notes_settles: true,
@@ -718,5 +773,8 @@ async fn a_wait_on_a_remote_child_that_notes_every_settle_waits_for_its_wake_and
     };
     let done = wait_for_settled(&waiting, None, true, state("working"), read).await;
 
-    assert!(done.note.is_some_and(|note| note.starts_with("Still working")));
+    assert!(
+        done.note
+            .is_some_and(|note| note.starts_with("Still working"))
+    );
 }

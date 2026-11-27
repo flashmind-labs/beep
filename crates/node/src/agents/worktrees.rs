@@ -3,9 +3,9 @@
 //! session's repository lists (`listed_in`), which opens it to reads like a
 //! session's own folder. Read-only: nothing here changes a checkout.
 
-use crate::logs::found::{Memo, common_dir, git_dir};
 use super::work_diff::git;
 use crate::fs::paths;
+use crate::logs::found::{Memo, common_dir, git_dir};
 use anyhow::Result;
 use beep_proto::{SessionId, node::agent::Worktree};
 use std::{
@@ -134,15 +134,17 @@ pub(super) fn list(
         .map(|path| paths::canonicalize(path).unwrap_or_else(|_| path.into()))
         .collect();
 
-    for tree in trees.iter_mut().filter(|tree| Some(&tree.path) != main.as_ref()) {
+    for tree in trees
+        .iter_mut()
+        .filter(|tree| Some(&tree.path) != main.as_ref())
+    {
         let path = paths::canonicalize(&tree.path).unwrap_or_else(|_| tree.path.clone().into());
         tree.created = created.contains(&path);
         tree.created_by = makers
             .iter()
             .filter(|(_, made)| {
-                made.iter().any(|made| {
-                    paths::canonicalize(made).unwrap_or_else(|_| made.into()) == path
-                })
+                made.iter()
+                    .any(|made| paths::canonicalize(made).unwrap_or_else(|_| made.into()) == path)
             })
             .map(|(session, _)| session.clone())
             .collect();
@@ -177,7 +179,6 @@ pub(super) fn made_since(folder: &Path, since: SystemTime, commands: &[String]) 
         })
         .collect()
 }
-
 
 /// Whether `real`, already resolved, lies in a worktree that git lists for
 /// the repository of one of `folders`. Every path check outside the
@@ -361,8 +362,16 @@ pub(in crate::agents) mod tests {
         let trees = list(&main, &[], &makers).unwrap();
         let made = trees.iter().find(|tree| tree.path == other).unwrap();
 
-        assert_eq!(made.created_by, [SessionId::from("a"), SessionId::from("b")]);
-        assert!(trees.iter().filter(|tree| tree.path != other).all(|tree| tree.created_by.is_empty()));
+        assert_eq!(
+            made.created_by,
+            [SessionId::from("a"), SessionId::from("b")]
+        );
+        assert!(
+            trees
+                .iter()
+                .filter(|tree| tree.path != other)
+                .all(|tree| tree.created_by.is_empty())
+        );
     }
 
     #[test]

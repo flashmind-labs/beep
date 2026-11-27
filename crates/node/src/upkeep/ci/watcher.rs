@@ -25,11 +25,9 @@ use anyhow::{Result, bail};
 use beep_mesh::Mesh;
 use beep_proto::{
     RunState, WorkflowRun,
-    node::{
-        agent::RunNews,
-        tools::ForgeReach,
-    },
+    node::{agent::RunNews, tools::ForgeReach},
 };
+use futures::future::join_all;
 use iroh::EndpointId;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
@@ -39,7 +37,6 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
-use futures::future::join_all;
 use tokio::{
     select,
     sync::watch,
@@ -90,13 +87,7 @@ pub(super) trait World: Send + Sync + 'static {
 }
 
 /// Watches while the node is in `mesh`, keeping its file in `dir`.
-pub(crate) async fn watch(
-    mesh: Mesh,
-    me: EndpointId,
-    dir: PathBuf,
-    ci: Arc<Ci>,
-    reaches: Reaches,
-) {
+pub(crate) async fn watch(mesh: Mesh, me: EndpointId, dir: PathBuf, ci: Arc<Ci>, reaches: Reaches) {
     let world = MeshWorld {
         updates: mesh.updates(),
         reaches,
@@ -324,7 +315,9 @@ impl<F: Forge, W: World> Watcher<F, W> {
             .projects()
             .iter()
             .flat_map(|project| project.machines.iter().copied())
-            .any(|machine| machine != me && online.contains(&machine) && !self.world.pushes(machine))
+            .any(|machine| {
+                machine != me && online.contains(&machine) && !self.world.pushes(machine)
+            })
     }
 
     /// Starts asking every online machine with a checkout of a pinned project
@@ -796,7 +789,10 @@ impl World for MeshWorld {
         online(&self.mesh)
     }
 
-    #[allow(clippy::manual_async_fn, reason = "the future must not borrow the world")]
+    #[allow(
+        clippy::manual_async_fn,
+        reason = "the future must not borrow the world"
+    )]
     fn ask(&self, peer: EndpointId) -> impl Future<Output = Result<ForgeReach>> + Send + 'static {
         self.reaches.ask(peer)
     }

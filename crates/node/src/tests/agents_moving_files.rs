@@ -21,8 +21,14 @@ fn a_folder_arrives_without_what_other_sessions_bring_and_without_links() {
     fs::write(there.join("notes.md"), "older").unwrap();
     unpack(bytes.as_slice(), &there).expect("it unpacks");
 
-    assert_eq!(fs::read_to_string(there.join("notes.md")).unwrap(), "open: pricing");
-    assert_eq!(fs::read_to_string(there.join("ended/found.md")).unwrap(), "kept");
+    assert_eq!(
+        fs::read_to_string(there.join("notes.md")).unwrap(),
+        "open: pricing"
+    );
+    assert_eq!(
+        fs::read_to_string(there.join("ended/found.md")).unwrap(),
+        "kept"
+    );
     assert!(!there.join("research").exists());
     assert!(fs::symlink_metadata(there.join("link")).is_err());
 }
@@ -68,5 +74,8 @@ fn the_size_said_up_front_is_what_the_archive_takes() {
     let mut bytes = Vec::new();
     pack(&chat, &apart, &mut bytes).expect("it packs");
 
-    assert_eq!(packed_size(&chat, &apart).expect("it measures"), bytes.len() as u64);
+    assert_eq!(
+        packed_size(&chat, &apart).expect("it measures"),
+        bytes.len() as u64
+    );
 }

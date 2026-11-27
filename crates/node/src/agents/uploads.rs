@@ -1,11 +1,14 @@
 //! Temporary attachments on this host, outside project checkouts.
 
-use beep_proto::SessionId;
-use super::{live::Live, work_folder::{self, UNUSED, WorkRoot, idle}};
+use super::{
+    live::Live,
+    work_folder::{self, UNUSED, WorkRoot, idle},
+};
 use crate::{fs::paths, lock};
 use anyhow::{Context, Result, bail};
-use beep_proto::watched;
 use beep_proto::AGENT_FILE_CHUNK;
+use beep_proto::SessionId;
+use beep_proto::watched;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
@@ -103,7 +106,10 @@ fn discard_in(cache: &Path, owner: &str, path: &str) -> Result<()> {
     }
 
     WorkRoot::at(&bucket)?;
-    anyhow::ensure!(name.to_str() == Some(&record(&bucket)?.name), "the attachment name changed");
+    anyhow::ensure!(
+        name.to_str() == Some(&record(&bucket)?.name),
+        "the attachment name changed"
+    );
     fs::remove_dir_all(bucket).context("removing the draft attachment")
 }
 
@@ -194,14 +200,22 @@ fn write_in(
         .map_err(|_| anyhow::anyhow!("the attachment path is not UTF-8"))
 }
 
-fn upload_path<'a>(cache: &Path, owner: &str, path: &'a str) -> Result<(PathBuf, &'a std::ffi::OsStr)> {
+fn upload_path<'a>(
+    cache: &Path,
+    owner: &str,
+    path: &'a str,
+) -> Result<(PathBuf, &'a std::ffi::OsStr)> {
     let group = cache.join(owner);
     let relative = Path::new(path)
         .strip_prefix(&group)
         .context("the attachment is outside this session's cache")?;
     let mut parts = relative.components();
-    let (Some(Component::Normal(id)), Some(Component::Normal(files)), Some(Component::Normal(name)), None) =
-        (parts.next(), parts.next(), parts.next(), parts.next())
+    let (
+        Some(Component::Normal(id)),
+        Some(Component::Normal(files)),
+        Some(Component::Normal(name)),
+        None,
+    ) = (parts.next(), parts.next(), parts.next(), parts.next())
     else {
         bail!("the attachment path is invalid");
     };
@@ -296,7 +310,10 @@ fn sweep(cache: &Path, now: SystemTime, running: &HashSet<String>) -> Result<()>
 
 /// How long since anything in an upload's folder was last read or written.
 fn last_used(bucket: &Path, now: SystemTime) -> Result<Duration> {
-    let mut least = idle(now, &fs::metadata(bucket.join("upload.json")).or_else(|_| bucket.metadata())?);
+    let mut least = idle(
+        now,
+        &fs::metadata(bucket.join("upload.json")).or_else(|_| bucket.metadata())?,
+    );
 
     if let Ok(files) = fs::read_dir(bucket.join("files")) {
         for file in files {

@@ -16,11 +16,11 @@ use super::{
 use crate::agents::{Agents, SavedSession};
 use crate::logs::found::Agent;
 use anyhow::{Context, Result, bail};
-use beep_proto::{SessionId, watched};
 use beep_proto::{
     AgentSlug,
     node::{LinkRx, LinkTx},
 };
+use beep_proto::{SessionId, watched};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::{
@@ -377,7 +377,8 @@ pub(super) async fn serve(
             // ended. A session that may still be coming back from a
             // restart, or that the source is still finishing with, counts
             // as running.
-            let mut live = !agents.reopen.reopened() || agents.sessions.runs(&id) || agents.moves.holds(&id);
+            let mut live =
+                !agents.reopen.reopened() || agents.sessions.runs(&id) || agents.moves.holds(&id);
             // Whether the source says when it is done: not for a move still
             // settling from an earlier one, which the target asks again.
             let mut settling = false;
@@ -596,7 +597,9 @@ async fn until_done(agents: &Agents, id: &SessionId) {
     loop {
         agents.reopen.until_reopened().await;
 
-        if !(agents.sessions.runs(id) || agents.moves.holds(id)) || released.changed().await.is_err() {
+        if !(agents.sessions.runs(id) || agents.moves.holds(id))
+            || released.changed().await.is_err()
+        {
             return;
         }
     }

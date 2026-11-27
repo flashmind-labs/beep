@@ -2,9 +2,12 @@
 //! names the session; each assistant `message` carries `usage` (`cost.total`
 //! in US dollars when the provider priced it), `model` and `timestamp`.
 
-use beep_proto::SessionId;
-use super::{Line, Request, ledger::{Bucket, UNKNOWN_MODEL}};
+use super::{
+    Line, Request,
+    ledger::{Bucket, UNKNOWN_MODEL},
+};
 use crate::{logs::found::unix_seconds, logs::prices::Tokens};
+use beep_proto::SessionId;
 use serde::Deserialize;
 use std::{fs, path::Path};
 

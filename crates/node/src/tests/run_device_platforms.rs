@@ -82,7 +82,11 @@ fn a_plain_rust_repository_is_no_mobile_app() {
 
 #[test]
 fn an_ignored_android_folder_does_not_count() {
-    let dir = project(&["Cargo.toml", "android/build.gradle", "android/app/src/main/AndroidManifest.xml"]);
+    let dir = project(&[
+        "Cargo.toml",
+        "android/build.gradle",
+        "android/app/src/main/AndroidManifest.xml",
+    ]);
     fs::write(dir.path().join(".gitignore"), "android/\n").expect("a .gitignore");
     assert!(platforms(dir.path()).is_empty());
 }

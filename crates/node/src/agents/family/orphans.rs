@@ -5,12 +5,12 @@
 //! 0.8.28 does not serve its list to a node: it is asked every
 //! `ORPHAN_CHECK` instead.
 
-use crate::agents::sessions;
 use super::links::Parent;
-use crate::agents::{Agents, Session, live::Live};
 use crate::agents::session::{NODE_STOPPED, ended_for_good};
-use crate::membership::Membership;
+use crate::agents::sessions;
+use crate::agents::{Agents, Session, live::Live};
 use crate::machine::elect::online;
+use crate::membership::Membership;
 use crate::peer_stream::{PeerWatch, Refused};
 use anyhow::Result;
 use beep_mesh::Mesh;
@@ -65,7 +65,11 @@ pub(super) enum Word {
 }
 
 /// What a pushed list says of the parent, given the row `last` seen.
-pub(super) fn word(sessions: &[SessionInfo], last: &mut Option<SessionInfo>, link: &ParentLink) -> Word {
+pub(super) fn word(
+    sessions: &[SessionInfo],
+    last: &mut Option<SessionInfo>,
+    link: &ParentLink,
+) -> Word {
     let Some(row) = parent_row(sessions, link) else {
         *last = None;
         return Word::Gone;
@@ -210,7 +214,13 @@ async fn check_parent(
 ) {
     let (tx, heard) = mpsc::channel(8);
     let parent = link.session.clone();
-    let _feed = AbortOnDropHandle::new(tokio::spawn(feed(membership, session.clone(), peer, link, tx)));
+    let _feed = AbortOnDropHandle::new(tokio::spawn(feed(
+        membership,
+        session.clone(),
+        peer,
+        link,
+        tx,
+    )));
 
     select! {
         orphan = orphaned(heard) => {
@@ -242,7 +252,12 @@ pub(super) async fn feed(
     // Asks for as long as the child is followed, so the pacing of its asks
     // holds over redials.
     let asker = {
-        let (moved, there, tx, session) = (moved.clone(), there.subscribe(), tx.clone(), session.clone());
+        let (moved, there, tx, session) = (
+            moved.clone(),
+            there.subscribe(),
+            tx.clone(),
+            session.clone(),
+        );
         let (meshes, link) = (meshes.clone(), link.clone());
 
         AbortOnDropHandle::new(tokio::spawn(async move {
@@ -293,7 +308,19 @@ pub(super) async fn feed(
             continue;
         }
 
-        match follow(&mesh, peer, &link, &tx, Rings { moved: &moved, there: &there, asker: &asker }).await {
+        match follow(
+            &mesh,
+            peer,
+            &link,
+            &tx,
+            Rings {
+                moved: &moved,
+                there: &there,
+                asker: &asker,
+            },
+        )
+        .await
+        {
             Err(e) if e.downcast_ref::<Refused>().is_some() => {
                 // Compat, until nodes before 0.8.28 are gone: it does not
                 // serve its list to a node, so it is asked.
@@ -390,9 +417,14 @@ async fn ask_every(
         let Some(session) = session.upgrade() else {
             return;
         };
-        let answer =
-            super::peer::ask_parent(mesh, peer, &link.session, &sessions::name_of(&session), &session.id)
-                .await;
+        let answer = super::peer::ask_parent(
+            mesh,
+            peer,
+            &link.session,
+            &sessions::name_of(&session),
+            &session.id,
+        )
+        .await;
 
         if tx.send(answer).await.is_err() {
             return;

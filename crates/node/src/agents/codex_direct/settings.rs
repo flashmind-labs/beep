@@ -28,13 +28,20 @@ pub(super) enum Mode {
     FullAccess,
 }
 
-const MODES: [Mode; 4] = [Mode::ReadOnly, Mode::WorkspaceWrite, Mode::Agent, Mode::FullAccess];
+const MODES: [Mode; 4] = [
+    Mode::ReadOnly,
+    Mode::WorkspaceWrite,
+    Mode::Agent,
+    Mode::FullAccess,
+];
 
 impl Mode {
     /// The mode `asked` names, as the node sets `INITIAL_MODE`, else
     /// Codex's adapter's default.
     pub(super) fn initial(asked: Option<&str>) -> Self {
-        asked.and_then(|mode| mode.parse().ok()).unwrap_or(Self::Agent)
+        asked
+            .and_then(|mode| mode.parse().ok())
+            .unwrap_or(Self::Agent)
     }
 
     fn name(self) -> &'static str {
@@ -83,7 +90,10 @@ impl Mode {
     pub(super) fn thread(self) -> Map<String, Value> {
         let mut fields = Map::new();
         fields.insert("approvalPolicy".to_owned(), json!(self.approval_policy()));
-        fields.insert("approvalsReviewer".to_owned(), json!(self.approvals_reviewer()));
+        fields.insert(
+            "approvalsReviewer".to_owned(),
+            json!(self.approvals_reviewer()),
+        );
         fields.insert("sandbox".to_owned(), json!(self.sandbox()));
         fields
     }
@@ -145,7 +155,9 @@ impl Model {
     }
 
     fn fast(&self) -> bool {
-        self.additional_speed_tiers.iter().any(|tier| tier == "fast")
+        self.additional_speed_tiers
+            .iter()
+            .any(|tier| tier == "fast")
     }
 }
 
@@ -175,7 +187,12 @@ impl Settings {
     pub(super) fn new(mode: Mode, models: Vec<Model>, started: Started) -> Self {
         let model = Some(started.model)
             .filter(|model| !model.is_empty())
-            .or_else(|| models.iter().find(|model| model.is_default).map(|model| model.id.clone()))
+            .or_else(|| {
+                models
+                    .iter()
+                    .find(|model| model.is_default)
+                    .map(|model| model.id.clone())
+            })
             .or_else(|| models.first().map(|model| model.id.clone()))
             .unwrap_or_default();
         let mut settings = Self {
@@ -273,7 +290,14 @@ impl Settings {
             .map(|mode| json!({"value": mode.as_ref(), "name": mode.name(), "description": mode.description()}))
             .collect();
         let mut options = vec![
-            select(MODE, "Mode", "Approval and sandboxing preset for the session", "mode", self.mode.as_ref(), modes),
+            select(
+                MODE,
+                "Mode",
+                "Approval and sandboxing preset for the session",
+                "mode",
+                self.mode.as_ref(),
+                modes,
+            ),
             select(
                 COLLABORATION,
                 "Collaboration mode",
@@ -296,7 +320,14 @@ impl Settings {
             .iter()
             .map(|model| json!({"value": model.id, "name": display_name(&model.display_name), "description": model.description}))
             .collect();
-        options.push(select(MODEL, "Model", "Model Codex uses for the session", "model", &self.model, models));
+        options.push(select(
+            MODEL,
+            "Model",
+            "Model Codex uses for the session",
+            "model",
+            &self.model,
+            models,
+        ));
 
         if let (Some(model), Some(effort)) = (self.current(), &self.effort) {
             let efforts = model
@@ -341,8 +372,14 @@ impl Settings {
     /// The settings fields of `turn/start`, which hold for later turns too.
     pub(super) fn turn(&self) -> Map<String, Value> {
         let mut fields = Map::new();
-        fields.insert("approvalPolicy".to_owned(), json!(self.mode.approval_policy()));
-        fields.insert("approvalsReviewer".to_owned(), json!(self.mode.approvals_reviewer()));
+        fields.insert(
+            "approvalPolicy".to_owned(),
+            json!(self.mode.approval_policy()),
+        );
+        fields.insert(
+            "approvalsReviewer".to_owned(),
+            json!(self.mode.approvals_reviewer()),
+        );
         fields.insert("sandboxPolicy".to_owned(), self.mode.sandbox_policy());
         let fast = self.fast && self.current().is_some_and(Model::fast);
         fields.insert("serviceTier".to_owned(), json!(fast.then_some("fast")));
@@ -367,7 +404,14 @@ impl Settings {
     }
 }
 
-fn select(id: &str, name: &str, description: &str, category: &str, current: &str, options: Vec<Value>) -> Value {
+fn select(
+    id: &str,
+    name: &str,
+    description: &str,
+    category: &str,
+    current: &str,
+    options: Vec<Value>,
+) -> Value {
     json!({
         "id": id,
         "name": name,
@@ -381,7 +425,11 @@ fn select(id: &str, name: &str, description: &str, category: &str, current: &str
 
 /// A model's name as Codex's adapter shows it: `gpt-6.2-sol` as `6.2 Sol`.
 fn display_name(name: &str) -> String {
-    let Some(rest) = name.get(..4).filter(|gpt| gpt.eq_ignore_ascii_case("gpt-")).map(|_| &name[4..]) else {
+    let Some(rest) = name
+        .get(..4)
+        .filter(|gpt| gpt.eq_ignore_ascii_case("gpt-"))
+        .map(|_| &name[4..])
+    else {
         return name.to_owned();
     };
     rest.split(['-', '/'])

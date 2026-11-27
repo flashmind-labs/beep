@@ -60,11 +60,7 @@ fn record_paths_ignores_logs_shm_and_empty_wal() {
     assert!(pending.agents.is_empty());
 
     std::fs::write(&empty_wal, "wal-frames").unwrap();
-    assert!(pending.record_paths(
-        &roots,
-        std::slice::from_ref(&agy),
-        Some(&[empty_wal]),
-    ));
+    assert!(pending.record_paths(&roots, std::slice::from_ref(&agy), Some(&[empty_wal]),));
     assert_eq!(pending.agents, BTreeSet::from([Agent::Agy]));
 
     pending.agents.clear();
@@ -90,11 +86,16 @@ fn bridge_over(root: &std::path::Path) -> Arc<EventBridge> {
         Arc::default(),
         events.clone(),
         Arc::new(Reviews::new(events.clone(), sessions.clone())),
-        Arc::new(Reopen::new(sessions.clone(), Arc::new(Links::new(Default::default())))),
+        Arc::new(Reopen::new(
+            sessions.clone(),
+            Arc::new(Links::new(Default::default())),
+        )),
     ));
     let reach = Arc::new(Reach::new(Vec::new(), sessions.clone(), occupancy.clone()));
 
-    Arc::new(EventBridge::new(events, occupancy, listings, reach, sessions))
+    Arc::new(EventBridge::new(
+        events, occupancy, listings, reach, sessions,
+    ))
 }
 
 #[cfg(unix)]

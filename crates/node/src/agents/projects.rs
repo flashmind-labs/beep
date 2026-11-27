@@ -1,8 +1,8 @@
 //! Project discovery and checkout selection from replicated mesh records.
 
 use crate::agents::machine_list::{find, machines};
-use crate::agents::reply::{fail, json_of, parse};
 use crate::agents::moving::project_folder;
+use crate::agents::reply::{fail, json_of, parse};
 use beep_mesh::{Key, Mesh};
 use beep_proto::node::{
     mesh_state::{Place, ProjectRecord, StateValue, SyncSpec},

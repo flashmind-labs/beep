@@ -3,7 +3,10 @@ use super::*;
 #[test]
 fn a_childs_id_names_its_machine() {
     let id = ChildId::from(" a3f9c1@build-box ");
-    assert_eq!((id.session, id.machine), (SessionId::from("a3f9c1"), Some("build-box")));
+    assert_eq!(
+        (id.session, id.machine),
+        (SessionId::from("a3f9c1"), Some("build-box"))
+    );
     let id = ChildId::from("a3f9c1");
     assert_eq!((id.session, id.machine), (SessionId::from("a3f9c1"), None));
 }

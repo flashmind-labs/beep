@@ -142,7 +142,10 @@ fn a_new_stream_hears_every_session_and_takes_none_from_an_older_one() {
     let reports = spend.pass(NOW, &mut old);
     assert!(!reports.is_empty());
 
-    assert!(spend.pass(NOW, &mut old).is_empty(), "an older stream heard them all");
+    assert!(
+        spend.pass(NOW, &mut old).is_empty(),
+        "an older stream heard them all"
+    );
     assert_eq!(spend.pass(NOW, &mut Heard::default()).len(), reports.len());
 
     append(
@@ -204,7 +207,10 @@ fn a_line_still_being_written_waits() {
     let line = claude_line("s1", "m5", "2026-11-03T08:50:00.000Z", 1_000_000);
     let (head, tail) = line.split_at(40);
     append(&fixture.claude_main, head);
-    assert!(spend.pass(NOW, &mut heard).is_empty(), "half a line counts nothing");
+    assert!(
+        spend.pass(NOW, &mut heard).is_empty(),
+        "half a line counts nothing"
+    );
     append(&fixture.claude_main, tail);
     let reports = spend.pass(NOW, &mut heard);
     assert!((cost(&reports[0]) - 11.0).abs() < 1e-9);
@@ -396,7 +402,10 @@ fn imported_openrouter_hours_replace_estimates_after_the_session_was_scanned() {
     assert_eq!(cost(chat), 3.25);
     assert_eq!(chat.hours.iter().map(|h| h.tokens()).sum::<u64>(), 39);
     assert!(spend.pass(NOW, &mut heard).is_empty());
-    assert_eq!(cost(by_session(&spend.pass(NOW, &mut Heard::default()))["chat"]), 3.25);
+    assert_eq!(
+        cost(by_session(&spend.pass(NOW, &mut Heard::default()))["chat"]),
+        3.25
+    );
 
     let mut empty = header;
     empty["metadata"]["total_usage"] = serde_json::Value::Null;

@@ -84,10 +84,7 @@ impl EventBridge {
         .await
         .context("finding notification roots stopped")?
     }
-    pub(in crate::agents) fn observe_external(
-        &self,
-        sessions: &[ExternalSession],
-    ) {
+    pub(in crate::agents) fn observe_external(&self, sessions: &[ExternalSession]) {
         let Some(source) = crate::lock(&self.sources).upgrade() else {
             return;
         };
@@ -359,7 +356,11 @@ pub(super) struct SummaryCache {
 impl SummaryCache {
     /// The summary of every session, after the occupancy read the stores
     /// again for the agents in `changed`.
-    pub(super) async fn read(&mut self, bridge: &EventBridge, changed: &BTreeSet<Agent>) -> Result<Vec<Summary>> {
+    pub(super) async fn read(
+        &mut self,
+        bridge: &EventBridge,
+        changed: &BTreeSet<Agent>,
+    ) -> Result<Vec<Summary>> {
         let sighted = bridge.occupancy.refresh(changed).await?;
         let stores = bridge.listings.stores().clone();
         let refresh_claude = self.claude.is_none() || changed.contains(&Agent::Claude);

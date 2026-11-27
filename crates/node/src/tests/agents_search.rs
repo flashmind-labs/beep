@@ -1,7 +1,7 @@
-use super::*;
-use crate::agents::Parts;
 use super::follow::{conversations, index_new, reads_stores};
+use super::*;
 use crate::agents::Agents;
+use crate::agents::Parts;
 
 #[tokio::test]
 async fn an_archived_conversation_outside_projects_is_indexed_and_can_be_read() -> anyhow::Result<()>
@@ -22,7 +22,10 @@ async fn an_archived_conversation_outside_projects_is_indexed_and_can_be_read() 
         format!("{header}\n{message}\n"),
     )?;
     let agents = Agents::new(Parts {
-        occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::at(root.path()), crate::logs::found::Stores::at(Some(root.path()), None, None)),
+        occupancy: crate::occupancy::Occupancy::over(
+            crate::logs::claude::Store::at(root.path()),
+            crate::logs::found::Stores::at(Some(root.path()), None, None),
+        ),
         ..Parts::default()
     });
     let sessions = conversations(&agents).await;
@@ -170,5 +173,8 @@ async fn an_index_that_would_not_open_opens_when_the_next_mesh_joins() {
     std::fs::create_dir(&folder).unwrap();
     let index = opener.open().await.expect("the next join opens it");
     assert!(Arc::ptr_eq(&index, &opener.get().unwrap()));
-    assert!(Arc::ptr_eq(&index, &opener.open().await.unwrap()), "once open it stays");
+    assert!(
+        Arc::ptr_eq(&index, &opener.open().await.unwrap()),
+        "once open it stays"
+    );
 }

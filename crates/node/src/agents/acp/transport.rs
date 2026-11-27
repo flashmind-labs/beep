@@ -9,7 +9,6 @@ use tokio::{
     sync::mpsc,
 };
 
-
 /// The transport over an adapter's stdio, or the node's own when it is the
 /// agent. The crate writes from its own actor, apart from reading, so a full
 /// stdin never stops stdout from being read. Each oversized message dropped

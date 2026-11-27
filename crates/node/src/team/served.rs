@@ -42,7 +42,11 @@ impl ServedBoards {
 
     /// Changes what is served and returns the teams `me` acted for before or
     /// after `f`, whose cards changed.
-    pub(super) fn publish(&self, me: EndpointId, f: impl FnOnce(&mut Served)) -> BTreeSet<TeamRepo> {
+    pub(super) fn publish(
+        &self,
+        me: EndpointId,
+        f: impl FnOnce(&mut Served),
+    ) -> BTreeSet<TeamRepo> {
         let acting_in = |served: &Served| -> BTreeSet<TeamRepo> {
             served
                 .gateways

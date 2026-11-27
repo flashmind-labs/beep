@@ -2,8 +2,8 @@
 
 use super::ProjectTools;
 use crate::{
-    agents::Agents, files::transfer::Sharing, machine::service::logs::Logs,
-    membership::Membership, status::Own, team::link::TeamLink,
+    agents::Agents, files::transfer::Sharing, machine::service::logs::Logs, membership::Membership,
+    status::Own, team::link::TeamLink,
 };
 use std::sync::Arc;
 

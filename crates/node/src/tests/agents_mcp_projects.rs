@@ -91,7 +91,10 @@ async fn projects_include_single_machine_imports_and_synced_folders() {
 
     // An agent's folder, a worktree included, names its project.
     let project = |cwd: &str| of_folder(&mesh, cwd, me);
-    assert_eq!(project("/srv/app/.worktrees/fix").as_deref(), Some("example/app"));
+    assert_eq!(
+        project("/srv/app/.worktrees/fix").as_deref(),
+        Some("example/app")
+    );
     assert_eq!(project("/srv/notes").as_deref(), Some("notes"));
     assert_eq!(project("/srv/apple"), None);
 

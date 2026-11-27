@@ -271,7 +271,10 @@ fn a_models_own_quantizations_are_written_and_cleared() {
         BTreeMap::from([
             ("vendor/any".to_owned(), Vec::new()),
             ("vendor/mine".to_owned(), vec![Quantization::Int8]),
-            ("vendor/small".to_owned(), vec![Quantization::Other("fp4".to_owned())]),
+            (
+                "vendor/small".to_owned(),
+                vec![Quantization::Other("fp4".to_owned())]
+            ),
         ])
     );
     // A model that compacts as all models do has no rule of its own.
@@ -284,7 +287,11 @@ fn a_models_own_quantizations_are_written_and_cleared() {
     apply(dir.path(), Some(&settings)).unwrap();
     let config = as_flsh(dir.path());
     assert_eq!(
-        config.openrouter.model_quantizations.keys().collect::<Vec<_>>(),
+        config
+            .openrouter
+            .model_quantizations
+            .keys()
+            .collect::<Vec<_>>(),
         ["vendor/mine"]
     );
     assert!(config.auto_compact_models.is_empty());
@@ -294,7 +301,11 @@ fn a_models_own_quantizations_are_written_and_cleared() {
 fn a_local_timeout_stays_until_the_user_selects_one_in_beep() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path();
-    fs::write(path.join(CONFIG), "[openrouter]\nstream_idle_timeout_secs = 90\n").unwrap();
+    fs::write(
+        path.join(CONFIG),
+        "[openrouter]\nstream_idle_timeout_secs = 90\n",
+    )
+    .unwrap();
     for settings in [None, Some(&FlshSettings::default())] {
         apply(path, settings).unwrap();
         assert_eq!(as_flsh(path).openrouter.stream_idle_timeout_secs.get(), 90);

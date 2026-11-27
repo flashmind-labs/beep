@@ -15,9 +15,19 @@ fn a_chat_gets_its_skills_in_its_folder_and_its_threads() {
     for folder in [&nested, &made, &other] {
         fs::create_dir_all(folder).unwrap();
     }
-    let folders: BTreeSet<PathBuf> = [chat.clone(), thread.clone(), nested.clone(), other, home.path().to_owned()].into();
+    let folders: BTreeSet<PathBuf> = [
+        chat.clone(),
+        thread.clone(),
+        nested.clone(),
+        other,
+        home.path().to_owned(),
+    ]
+    .into();
 
-    assert_eq!(chat_folders(home.path(), "chat-one", &folders), [chat, thread, nested]);
+    assert_eq!(
+        chat_folders(home.path(), "chat-one", &folders),
+        [chat, thread, nested]
+    );
     assert!(chat_folders(home.path(), "chat-three", &folders).is_empty());
     assert!(chat_folders(home.path(), "..", &folders).is_empty());
     assert!(chat_folders(home.path(), "chat-one/pricing", &folders).is_empty());
@@ -33,7 +43,11 @@ fn a_peer_fetches_skills_picked_only_for_a_chat() {
         skills: Vec::new(),
         global: Pick::None,
         projects: Default::default(),
-        chats: [("chat".into(), Pick::Only(["bundle".into(), "notes".into()].into()))].into(),
+        chats: [(
+            "chat".into(),
+            Pick::Only(["bundle".into(), "notes".into()].into()),
+        )]
+        .into(),
     };
 
     assert!(picked(&library, "bundle"));

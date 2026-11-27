@@ -2,7 +2,10 @@
 //! (a removed device is out, a peer of a synced project may fetch its files)
 //! and then of the grants of the open offers, and the rest is refused.
 
-use crate::files::{grants::{Answer, Grants}, sync::Syncs};
+use crate::files::{
+    grants::{Answer, Grants},
+    sync::Syncs,
+};
 use iroh::EndpointId;
 use iroh_blobs::{
     protocol::GetRequest,

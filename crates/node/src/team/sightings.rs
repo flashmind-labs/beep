@@ -42,7 +42,10 @@ pub(super) async fn follow(mesh: Mesh, peer: EndpointId, sighted: mpsc::Sender<S
 
         // A machine whose stream dropped keeps its last rows until the next list.
         if refused {
-            let refused = Sighted { peer, sight: Sight::Refused };
+            let refused = Sighted {
+                peer,
+                sight: Sight::Refused,
+            };
 
             sighted.send(refused).await.ok();
 

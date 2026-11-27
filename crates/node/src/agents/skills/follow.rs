@@ -6,7 +6,10 @@ use super::{
     compare::{Holder, Outcome, Take, compare},
     enabled,
 };
-use crate::agents::{skill_disk::{self, Base, Hashes, Scan, Seen}, skill_library::online};
+use crate::agents::{
+    skill_disk::{self, Base, Hashes, Scan, Seen},
+    skill_library::online,
+};
 use crate::events::paths::Paths;
 use anyhow::{Context, Result, bail};
 use beep_mesh::{Key, Mesh, MeshError, PeerClient};
@@ -430,7 +433,8 @@ impl Passes {
         let scanned = spawn_blocking(move || {
             let mut scan = skill_disk::scan(&home, &mut hashes);
             let installed = libraries.global_names(&dir);
-            scan.listed.retain(|listed| !installed.contains(&listed.name));
+            scan.listed
+                .retain(|listed| !installed.contains(&listed.name));
             (scan, hashes)
         })
         .await;
@@ -654,7 +658,9 @@ impl Passes {
             .map(|&peer| {
                 let client = PeerClient::over(self.mesh.clone(), peer);
                 async move {
-                    let told = client.call::<_, Reply>(PROTOCOL, &Request::Changed {}).await;
+                    let told = client
+                        .call::<_, Reply>(PROTOCOL, &Request::Changed {})
+                        .await;
                     (peer, told)
                 }
             })

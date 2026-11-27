@@ -65,8 +65,7 @@ impl RepositoryHolds {
     pub(crate) async fn hold(&self, folder: &Path) -> Result<RepositoryHold> {
         let folder = folder.to_owned();
         let folder =
-            tokio::task::spawn_blocking(move || crate::fs::paths::canonicalize(&folder))
-                .await??;
+            tokio::task::spawn_blocking(move || crate::fs::paths::canonicalize(&folder)).await??;
         let mut held = crate::lock(&self.0.held);
         ensure!(
             !held.contains(&folder),

@@ -154,7 +154,11 @@ fn edit(doc: &mut DocumentMut, settings: &FlshSettings, before: &Owned) -> Resul
         None => {}
     }
 
-    for rule in settings.models.iter().filter(|rule| !rule.inherits_compaction) {
+    for rule in settings
+        .models
+        .iter()
+        .filter(|rule| !rule.inherits_compaction)
+    {
         let key = rule.model.to_string();
         let models = table(root, "auto_compact_models")?;
         // The same model spelled another way would be a second rule for it.
@@ -171,7 +175,12 @@ fn edit(doc: &mut DocumentMut, settings: &FlshSettings, before: &Owned) -> Resul
         owned.models.insert(key);
     }
 
-    drop_unset(root, &["auto_compact_models"], &before.models, &owned.models);
+    drop_unset(
+        root,
+        &["auto_compact_models"],
+        &before.models,
+        &owned.models,
+    );
 
     // flsh looks a model up by its OpenRouter name, without the provider.
     for rule in &settings.models {

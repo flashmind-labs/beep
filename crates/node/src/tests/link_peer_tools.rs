@@ -1,7 +1,7 @@
-use beep_proto::SessionId;
 use super::*;
-use crate::tools::ProjectTools;
 use crate::tools::Node;
+use crate::tools::ProjectTools;
+use beep_proto::SessionId;
 use std::sync::Arc;
 
 fn caller(table: Table) -> Caller {
@@ -60,7 +60,10 @@ async fn a_nodes_file_and_sync_requests_reach_the_transfer_handlers() {
     let Reply::Done { text, failed } = answer(send, receiving.clone()).await else {
         panic!("not done");
     };
-    assert!(failed && text.contains("file transfers did not start"), "{text}");
+    assert!(
+        failed && text.contains("file transfers did not start"),
+        "{text}"
+    );
     let sync = Request {
         session: SessionId::from("a3f9c1").to_owned(),
         tool: Tool::SyncProject,
@@ -312,7 +315,9 @@ fn note() -> Request {
 
 #[tokio::test]
 async fn a_desktops_agent_call_is_answered_not_refused() {
-    let agents = Some(Arc::new(crate::agents::Agents::new(crate::agents::Parts::default())));
+    let agents = Some(Arc::new(crate::agents::Agents::new(
+        crate::agents::Parts::default(),
+    )));
     let from_desktop = Caller {
         from: Some(iroh::SecretKey::generate().public()),
         agents: agents.clone(),
@@ -337,7 +342,9 @@ async fn a_desktops_agent_call_is_answered_not_refused() {
 
 #[tokio::test]
 async fn a_desktops_start_agent_is_refused_while_commands_are_off() {
-    let agents = Some(Arc::new(crate::agents::Agents::new(crate::agents::Parts::default())));
+    let agents = Some(Arc::new(crate::agents::Agents::new(
+        crate::agents::Parts::default(),
+    )));
     let start = Request {
         tool: Tool::StartAgent,
         args: r#"{"harness":"codex","prompt":"hi"}"#.to_owned(),
@@ -352,5 +359,8 @@ async fn a_desktops_start_agent_is_refused_while_commands_are_off() {
     let Reply::Done { text, failed } = answer(start, off).await else {
         panic!("not a done reply");
     };
-    assert!(failed && text.contains("Let Beep use this computer is off"), "{text}");
+    assert!(
+        failed && text.contains("Let Beep use this computer is off"),
+        "{text}"
+    );
 }

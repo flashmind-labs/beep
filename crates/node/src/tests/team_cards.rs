@@ -48,7 +48,9 @@ fn card_skips_other_projects() {
 
 #[test]
 fn card_takes_the_issue_its_prompt_named_when_its_branch_names_none() {
-    let linked: IssueTitles = [(234, "Trading interface".to_owned())].into_iter().collect();
+    let linked: IssueTitles = [(234, "Trading interface".to_owned())]
+        .into_iter()
+        .collect();
     let mut session = view("working", PROJECT);
     session.issue = Some(234);
 

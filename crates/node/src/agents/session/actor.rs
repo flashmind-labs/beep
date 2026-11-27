@@ -4,25 +4,34 @@ use super::{
     tokens::turn_tokens,
     types::{Answered, Command, EVENTS, NODE_STOPPED, Order, STDERR_LINES},
 };
-use crate::agents::{acp::{self, AsyncTask, ModelSwitch, Offered, Prompt}, alerts::AlertHub, checkouts::Checkouts, compaction::{Compactor, TurnEnd}, launch::{AgentIn, AgentOut, Running, Started}, live::{Live, TurnTokens}, made_files};
+use crate::agents::{
+    acp::{self, AsyncTask, ModelSwitch, Offered, Prompt},
+    alerts::AlertHub,
+    checkouts::Checkouts,
+    compaction::{Compactor, TurnEnd},
+    launch::{AgentIn, AgentOut, Running, Started},
+    live::{Live, TurnTokens},
+    made_files,
+};
 use crate::known::known;
-use crate::logs::picture::Picture;
-use crate::text::cut;
 use crate::logs::found::folder_place::of_folder;
+use crate::logs::picture::Picture;
 use crate::process::STOP_GRACE;
+use crate::text::cut;
 use agent_client_protocol::{
     Agent, Builder, Client, ConnectionTo, Dispatch, Handled, JsonRpcMessage, JsonRpcRequest,
     JsonRpcResponse, Responder, UntypedMessage, on_receive_dispatch,
     v1::schema::{
-        CLIENT_METHOD_NAMES, ContentBlock, CreateElicitationRequest, CreateElicitationResponse, McpServer,
-        PromptResponse, RequestPermissionRequest, RequestPermissionResponse, SessionConfigId,
-        SessionId, SessionNotification, SessionUpdate, ToolCallId,
+        CLIENT_METHOD_NAMES, ContentBlock, CreateElicitationRequest, CreateElicitationResponse,
+        McpServer, PromptResponse, RequestPermissionRequest, RequestPermissionResponse,
+        SessionConfigId, SessionId, SessionNotification, SessionUpdate, ToolCallId,
     },
 };
 use anyhow::{Context, Result};
 use beep_proto::ModelId;
 use beep_proto::node::agent::{
-    AlertKind, Effort, Entry, EntryKind, LineChanges, ModeOption, Question, Status, StopReason, WorkPlace,
+    AlertKind, Effort, Entry, EntryKind, LineChanges, ModeOption, Question, Status, StopReason,
+    WorkPlace,
 };
 use beep_proto::watched;
 use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
@@ -497,22 +506,15 @@ impl Actor {
                     watched::read_sent(&self.live, Live::status),
                     Status::Working | Status::Asking
                 );
-                let continuation = interrupted.then(|| {
-                    Prompt::from(crate::tags::context(
-                        super::types::CONTINUE,
-                    ))
-                });
+                let continuation =
+                    interrupted.then(|| Prompt::from(crate::tags::context(super::types::CONTINUE)));
                 continuation
                     .into_iter()
                     .chain(self.steers.drain(..))
                     .chain(self.queued.drain(..))
                     .collect()
             }
-            Ok(End::Unstoppable(_)) => self
-                .steers
-                .drain(..)
-                .chain(self.queued.drain(..))
-                .collect(),
+            Ok(End::Unstoppable(_)) => self.steers.drain(..).chain(self.queued.drain(..)).collect(),
             _ => Vec::new(),
         };
         let reason = match end {
@@ -632,11 +634,14 @@ impl Actor {
             .on_receive_dispatch(
                 async move |dispatch: Dispatch, _cx| {
                     let event = match dispatch {
-                        Dispatch::Notification(message) if message.method() == CLIENT_METHOD_NAMES.session_update => {
+                        Dispatch::Notification(message)
+                            if message.method() == CLIENT_METHOD_NAMES.session_update =>
+                        {
                             Event::Notification(message)
                         }
                         Dispatch::Request(message, responder)
-                            if message.method() == CLIENT_METHOD_NAMES.session_request_permission =>
+                            if message.method()
+                                == CLIENT_METHOD_NAMES.session_request_permission =>
                         {
                             Event::PermissionRequest(message, Box::new(responder.cast()))
                         }
@@ -659,7 +664,9 @@ impl Actor {
             )
             .connect_with(
                 acp::transport(stdin, stdout, oversized_tx),
-                async |cx: ConnectionTo<Agent>| Ok(self.drive(&cx, &mut inputs, orders, opening).await),
+                async |cx: ConnectionTo<Agent>| {
+                    Ok(self.drive(&cx, &mut inputs, orders, opening).await)
+                },
             )
             .await;
         ended.context("the ACP connection failed")?
@@ -676,7 +683,10 @@ impl Actor {
         let protocol = self.offers.protocol;
         let request = acp::initialize(async_tasks).to_untyped_message()?;
         self.send(cx, request, move |result| {
-            Reply::Initialized(result.and_then(|answer| protocol.initialized(answer)), opening)
+            Reply::Initialized(
+                result.and_then(|answer| protocol.initialized(answer)),
+                opening,
+            )
         });
         let mut stderr_open = true;
         self.look_for_place();
@@ -1163,8 +1173,13 @@ impl Actor {
             Reply::Steered(result) => self.steered(cx, result)?,
             Reply::Compacted(result) => self.compacted(cx, result),
             Reply::StopDue { turn } => {
-                if self.stopping().is_some_and(|stopping| stopping == Stopping::User)
-                    && self.turn.as_ref().is_some_and(|running| running.number == turn)
+                if self
+                    .stopping()
+                    .is_some_and(|stopping| stopping == Stopping::User)
+                    && self
+                        .turn
+                        .as_ref()
+                        .is_some_and(|running| running.number == turn)
                 {
                     log::warn!("the agent ignored session/cancel; stopping it");
                     return Ok(Some(End::Unstoppable(self.stop_within)));

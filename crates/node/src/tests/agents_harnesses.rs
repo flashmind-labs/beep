@@ -60,7 +60,10 @@ async fn flsh_settings_go_to_the_config_its_home_names() {
     let flsh = settings.configured(&kind("flsh")).unwrap();
     settings.prepare(&flsh).await.unwrap();
     let written = std::fs::read_to_string(fresh_home.path().join("config.toml")).unwrap();
-    assert!(written.contains("stream_idle_timeout_secs = 300"), "{written}");
+    assert!(
+        written.contains("stream_idle_timeout_secs = 300"),
+        "{written}"
+    );
 }
 
 #[test]
@@ -109,14 +112,26 @@ fn the_direct_driver_runs_claude_code_and_codex_on_the_nodes_own_bridges() {
     settings.set(AgentSettings {
         harnesses: vec![
             config.clone(),
-            HarnessConfig { agent: "codex".into(), ..config.clone() },
-            HarnessConfig { agent: "agy".into(), ..config },
+            HarnessConfig {
+                agent: "codex".into(),
+                ..config.clone()
+            },
+            HarnessConfig {
+                agent: "agy".into(),
+                ..config
+            },
         ],
         ..AgentSettings::default()
     });
 
     let started = settings.configured(&kind("claude")).unwrap();
-    assert_eq!(started.bridge, Some(Bridge::Claude { wsl: None, home: None }));
+    assert_eq!(
+        started.bridge,
+        Some(Bridge::Claude {
+            wsl: None,
+            home: None
+        })
+    );
     // The program and arguments set for the adapter do not apply: the
     // bridge starts the CLI found here.
     assert_ne!(started.program, "/opt/claude/bin/claude");
@@ -129,7 +144,10 @@ fn the_direct_driver_runs_claude_code_and_codex_on_the_nodes_own_bridges() {
     assert_eq!(codex.env["INITIAL_AGENT_MODE"], "agent-full-access");
     // Only Claude Code and Codex have a direct driver.
     let agy = settings.configured(&kind("agy")).unwrap();
-    assert_eq!((agy.program.as_str(), agy.bridge), ("/opt/claude/bin/claude", None));
+    assert_eq!(
+        (agy.program.as_str(), agy.bridge),
+        ("/opt/claude/bin/claude", None)
+    );
 }
 
 #[test]
@@ -145,15 +163,27 @@ fn an_agent_found_without_its_adapter_stays_on_the_bridge_until_an_adapter_is_se
         ..HarnessConfig::new("codex")
     };
     let settings = Settings::default();
-    settings.set(AgentSettings { harnesses: vec![config.clone()], ..AgentSettings::default() });
+    settings.set(AgentSettings {
+        harnesses: vec![config.clone()],
+        ..AgentSettings::default()
+    });
 
     // The adapter's arguments do not go to the CLI.
     assert_eq!(settings.configured(&bridged).unwrap(), bridged);
 
-    let adapter = HarnessConfig { program: Some("/opt/codex-acp".into()), ..config };
-    settings.set(AgentSettings { harnesses: vec![adapter], ..AgentSettings::default() });
+    let adapter = HarnessConfig {
+        program: Some("/opt/codex-acp".into()),
+        ..config
+    };
+    settings.set(AgentSettings {
+        harnesses: vec![adapter],
+        ..AgentSettings::default()
+    });
     let started = settings.configured(&bridged).unwrap();
-    assert_eq!((started.program.as_str(), started.bridge), ("/opt/codex-acp", None));
+    assert_eq!(
+        (started.program.as_str(), started.bridge),
+        ("/opt/codex-acp", None)
+    );
     assert_eq!(started.args.last().map(String::as_str), Some("--flag"));
 }
 

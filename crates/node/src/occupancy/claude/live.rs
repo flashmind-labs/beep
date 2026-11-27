@@ -2,9 +2,9 @@
 //! it, and what Beep queued for it (`Live`). The next hook to fire delivers a
 //! queued message.
 
-use beep_proto::SessionId;
 use super::hooks::{HookEvent, HookMessage, WAITING};
 use crate::lock;
+use beep_proto::SessionId;
 use beep_proto::node::agent::{ExternalSession, LiveState, LiveStatus, LiveTool, PlanEntry, Steer};
 use serde_json::{Value, json};
 use std::{collections::HashMap, sync::Mutex, time::Instant};

@@ -2,7 +2,10 @@
 
 use crate::calls::Tool as BeepTool;
 use crate::logs::subagent::Subagent;
-use agent_client_protocol::{v1::schema::{ToolCallId, ToolCallStatus, ToolKind}, v2::schema as v2};
+use agent_client_protocol::{
+    v1::schema::{ToolCallId, ToolCallStatus, ToolKind},
+    v2::schema as v2,
+};
 use beep_proto::AgentToolCall;
 use serde_json::Value;
 use std::collections::HashMap;

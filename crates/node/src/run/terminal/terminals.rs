@@ -6,14 +6,14 @@ use super::{
     screen::Phase,
 };
 use crate::lock;
-use serde::{Deserialize, Serialize};
 use crate::{actor, process::STOP_GRACE, run::tasks::first_id};
 use anyhow::Result;
-use beep_proto::watched;
 use beep_proto::node::{
     process::{Task, TaskId},
     terminal::{MAX_TERMINALS, Reply, Request, Size},
 };
+use beep_proto::watched;
+use serde::{Deserialize, Serialize};
 use std::{
     future,
     path::PathBuf,

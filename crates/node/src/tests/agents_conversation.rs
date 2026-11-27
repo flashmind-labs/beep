@@ -56,15 +56,25 @@ fn a_new_conversation_that_asks_for_no_folder_gets_its_own() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let home = dir.path();
 
-    for (asked, id) in [(None, "ab12c0"), (Some(""), "ab12c1"), (Some(" ~ "), "ab12c2")] {
+    for (asked, id) in [
+        (None, "ab12c0"),
+        (Some(""), "ab12c1"),
+        (Some(" ~ "), "ab12c2"),
+    ] {
         let made = own(home, asked, ids(&[id])).expect("the folder is made");
         assert_eq!(made, Some(folder(home, id)), "{asked:?}");
         assert!(folder(home, id).is_dir());
     }
 
     // One that names a folder runs there.
-    assert_eq!(own(home, Some("/srv/project"), ids(&["ef34ab"])).expect("no folder to make"), None);
-    assert_eq!(own(home, Some("~/notes"), ids(&["ef34ab"])).expect("no folder to make"), None);
+    assert_eq!(
+        own(home, Some("/srv/project"), ids(&["ef34ab"])).expect("no folder to make"),
+        None
+    );
+    assert_eq!(
+        own(home, Some("~/notes"), ids(&["ef34ab"])).expect("no folder to make"),
+        None
+    );
     assert!(!folder(home, "ef34ab").exists());
 }
 
@@ -72,14 +82,19 @@ fn a_new_conversation_that_asks_for_no_folder_gets_its_own() {
 fn a_new_conversation_never_takes_a_folder_that_is_there() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let home = dir.path();
-    let first = own(home, None, ids(&["ab12cd"])).expect("the folder is made").expect("its own");
+    let first = own(home, None, ids(&["ab12cd"]))
+        .expect("the folder is made")
+        .expect("its own");
     fs::write(first.join("notes.md"), "found").expect("a note");
 
     let second = own(home, None, ids(&["ab12cd", "ab12cd", "ef34ab"]))
         .expect("the folder is made")
         .expect("its own");
     assert_eq!(second, folder(home, "ef34ab"));
-    assert_eq!(fs::read_to_string(first.join("notes.md")).expect("the note"), "found");
+    assert_eq!(
+        fs::read_to_string(first.join("notes.md")).expect("the note"),
+        "found"
+    );
 
     // Ids that are all taken make no conversation.
     let taken = ["ab12cd"; 16];
@@ -104,12 +119,26 @@ fn a_thread_of_a_conversation_gets_a_subfolder_named_after_it() {
     let twin = thread(&main, Some("Solid-state timelines"), "222222");
     assert_eq!(twin, Some(main.join("solid-state-timelines-222222")));
     assert_eq!(thread(&main, None, "333333"), Some(main.join("333333")));
-    assert_eq!(thread(&main, Some(" / "), "444444"), Some(main.join("444444")));
+    assert_eq!(
+        thread(&main, Some(" / "), "444444"),
+        Some(main.join("444444"))
+    );
     // A thread's own thread goes under it.
-    assert_eq!(thread(&first, Some("EU only"), "555555"), Some(first.join("eu-only")));
+    assert_eq!(
+        thread(&first, Some("EU only"), "555555"),
+        Some(first.join("eu-only"))
+    );
     // A suffix that is taken too is passed over.
-    let third = thread_folder(home, &main, Some("Solid-state timelines"), ids(&["222222", "777777"]));
-    assert_eq!(third.expect("the folder is made"), Some(main.join("solid-state-timelines-777777")));
+    let third = thread_folder(
+        home,
+        &main,
+        Some("Solid-state timelines"),
+        ids(&["222222", "777777"]),
+    );
+    assert_eq!(
+        third.expect("the folder is made"),
+        Some(main.join("solid-state-timelines-777777"))
+    );
 
     // A chat anywhere else keeps its children in its own folder.
     let project = home.join("projects").join("x");
@@ -122,7 +151,9 @@ fn a_thread_of_a_conversation_gets_a_subfolder_named_after_it() {
 fn threads_started_together_under_one_name_get_a_folder_each() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let home = dir.path();
-    let main = own(home, None, ids(&["ab12cd"])).expect("the folder is made").expect("its own");
+    let main = own(home, None, ids(&["ab12cd"]))
+        .expect("the folder is made")
+        .expect("its own");
     let gate = std::sync::Barrier::new(16);
 
     let made: std::collections::HashSet<PathBuf> = std::thread::scope(|scope| {
@@ -136,7 +167,10 @@ fn threads_started_together_under_one_name_get_a_folder_each() {
                 })
             })
             .collect();
-        starts.into_iter().filter_map(|start| start.join().expect("a start")).collect()
+        starts
+            .into_iter()
+            .filter_map(|start| start.join().expect("a start"))
+            .collect()
     });
 
     assert_eq!(made.len(), 16, "{made:?}");
@@ -146,7 +180,10 @@ fn threads_started_together_under_one_name_get_a_folder_each() {
 fn only_an_assistant_in_a_folder_of_its_own_is_told_to_keep_notes_there() {
     let home = Path::new("/home/user");
 
-    assert_eq!(brief(home, &folder(home, "ab12cd")), Some(crate::agents::brief::OWN_FOLDER));
+    assert_eq!(
+        brief(home, &folder(home, "ab12cd")),
+        Some(crate::agents::brief::OWN_FOLDER)
+    );
     // One from before these folders runs in the home folder, and one may
     // name any folder: neither is told the folder is its own.
     assert_eq!(brief(home, home), None);

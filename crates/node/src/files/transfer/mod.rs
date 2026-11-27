@@ -2,7 +2,6 @@
 //! to other nodes over iroh-blobs. `Transfers` owns the blob store and serves
 //! it only to the peers an open offer names.
 
-use crate::{lock, occupancy::Occupancy};
 use crate::{
     files::Folders,
     files::sync::{self, PeerHandler, Syncs},
@@ -10,6 +9,7 @@ use crate::{
     membership::Membership,
     protocol::{Protocol, Session},
 };
+use crate::{lock, occupancy::Occupancy};
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use beep_proto::node::{
     LinkRx, LinkTx,
@@ -442,8 +442,13 @@ impl Transfers {
     pub(crate) async fn share(&self, path: &Path, peer: EndpointId) -> Result<Shared> {
         let inner = &self.inner;
         let _permit = inner.permit()?;
-        let offered =
-            offer::offer(&inner.parts.store, path, inner.parts.endpoint.addr(), &mut Out::Silent).await?;
+        let offered = offer::offer(
+            &inner.parts.store,
+            path,
+            inner.parts.endpoint.addr(),
+            &mut Out::Silent,
+        )
+        .await?;
         let Reply::Offered { content, size, .. } = offered.reply else {
             bail!("{} could not be shared", path.display());
         };

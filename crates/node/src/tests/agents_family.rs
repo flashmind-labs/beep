@@ -1,10 +1,13 @@
 use super::*;
-use iroh::EndpointId;
 use crate::agents::Parts;
-use crate::agents::{AgentKind, OpenSession, SavedSession, family::links::{Links, Waits}};
+use crate::agents::{
+    AgentKind, OpenSession, SavedSession,
+    family::links::{Links, Waits},
+};
 use crate::team::{asks::Delivery, link::TeamLink};
 use beep_proto::node::agent::{Persona, Request};
 use beep_proto::watched;
+use iroh::EndpointId;
 use std::{collections::BTreeMap, path::Path};
 use tokio::time::timeout;
 
@@ -70,7 +73,8 @@ async fn root(agents: &Agents, harness: &AgentKind, dir: &Path) -> Arc<Session> 
                 ..Begin::default()
             },
         )
-        .await.expect("the session starts");
+        .await
+        .expect("the session starts");
     until(&session, |live| {
         live.agent_session.is_some() && live.info.turns == 1
     })
@@ -119,7 +123,10 @@ impl Rig {
         let dir = tempfile::tempdir().expect("a temporary folder");
         let top = kind("top", &dir.path().join("top.log"));
         let kid = kind("kid", &dir.path().join("kid.log"));
-        let agents = Agents::new(Parts { kinds: vec![top.clone(), kid.clone()], ..Parts::default() });
+        let agents = Agents::new(Parts {
+            kinds: vec![top.clone(), kid.clone()],
+            ..Parts::default()
+        });
         Self {
             dir,
             agents,
@@ -299,7 +306,10 @@ async fn a_session_may_not_have_more_than_eight_children() {
     let first = rig.agents.links.remote_kids(&who.session)[0].clone();
     rig.agents.links.end_remote(&first);
     assert!(rig.agents.link_for(&parent, &who).is_ok());
-    assert_eq!(rig.agents.links.remote_kids(&who.session).len(), MAX_CHILDREN);
+    assert_eq!(
+        rig.agents.links.remote_kids(&who.session).len(),
+        MAX_CHILDREN
+    );
     rig.agents.shutdown().await;
 }
 
@@ -313,7 +323,11 @@ async fn an_agent_reaches_only_its_own_children() {
     let me = rig.agents.who_of(&mine);
     let other = rig.agents.who_of(&theirs);
     assert!(rig.agents.sessions.child_of(&me, &id).is_ok());
-    let refused = rig.agents.sessions.child_of(&other, &id).expect_err("not theirs");
+    let refused = rig
+        .agents
+        .sessions
+        .child_of(&other, &id)
+        .expect_err("not theirs");
     // It says no more than for an agent that does not exist.
     let nothing = rig
         .agents
@@ -328,7 +342,12 @@ async fn an_agent_reaches_only_its_own_children() {
     };
     assert!(rig.agents.sessions.child_of(&abroad, &id).is_err());
     // A session reaches neither its parent nor itself.
-    assert!(rig.agents.sessions.child_of(&me, &sessions::name_of(&mine)).is_err());
+    assert!(
+        rig.agents
+            .sessions
+            .child_of(&me, &sessions::name_of(&mine))
+            .is_err()
+    );
     let child_who = Who {
         machine: None,
         session: id.clone(),
@@ -485,7 +504,10 @@ async fn a_users_message_to_a_thread_says_what_its_siblings_and_main_came_to() {
     let log = rig.read("kid.log");
     assert_eq!(log.matches(CHANGES).count(), 1, "{log}");
     assert!(log.contains("- parent session: It is done."), "{log}");
-    assert!(log.contains(&format!("{other}, idle: It is done.")), "{log}");
+    assert!(
+        log.contains(&format!("{other}, idle: It is done.")),
+        "{log}"
+    );
     assert!(!log.contains(&format!("{own}, idle")), "{log}");
     rig.agents.shutdown().await;
 }
@@ -687,7 +709,10 @@ async fn a_thread_keeps_the_name_its_parent_gave_when_its_agent_names_it() {
         .resume(&rig.kid, &given.id, Some("name it".into()), None)
         .await
         .expect("the thread resumes");
-    until(&again, |live| live.info.turns >= 1 && live.status() == Status::Idle).await;
+    until(&again, |live| {
+        live.info.turns >= 1 && live.status() == Status::Idle
+    })
+    .await;
     assert_eq!(again.info().title.as_deref(), Some("Solid-state timelines"));
     rig.agents.shutdown().await;
 }
@@ -743,10 +768,7 @@ async fn a_thread_takes_the_title_its_parent_gives() {
         .await
         .expect("the child starts");
     until(&child, |live| live.info.turns == 1).await;
-    assert_eq!(
-        child.info().title.as_deref(),
-        Some("Solid-state timelines")
-    );
+    assert_eq!(child.info().title.as_deref(), Some("Solid-state timelines"));
     rig.agents.shutdown().await;
 }
 
@@ -878,13 +900,19 @@ async fn the_link_survives_a_restart_and_the_family_still_stops_together() {
     rig.agents.shutdown().await;
 
     let noted: Vec<OpenSession> = serde_json::from_str(&noted).expect("the note reads");
-    let after = Agents::new(Parts { kinds: vec![rig.top.clone(), rig.kid.clone()], ..Parts::default() });
+    let after = Agents::new(Parts {
+        kinds: vec![rig.top.clone(), rig.kid.clone()],
+        ..Parts::default()
+    });
     after.catalog.settings_arrived();
     // The child is noted first on purpose: parents resume before children.
     let mut noted = noted;
     noted.sort_by_key(|open| std::cmp::Reverse(open.depth()));
     after.reopen(noted).await;
-    let resumed = after.sessions.get(&before.session).expect("the parent is back");
+    let resumed = after
+        .sessions
+        .get(&before.session)
+        .expect("the parent is back");
     let who = after.who_of(&resumed);
     let kids = after.sessions.children_of(&who);
     assert_eq!(kids.len(), 1);
@@ -943,10 +971,17 @@ async fn a_thread_started_as_a_persona_hears_its_instructions_and_keeps_its_name
     // Kept over a restart.
     let noted = serde_json::to_string(&rig.agents.reopen.open_sessions()).expect("the note writes");
     let saved = rig.agents.reopen.saved_sessions();
-    assert!(saved.iter().any(|kept| kept.info.persona.as_ref() == Some(&persona)));
+    assert!(
+        saved
+            .iter()
+            .any(|kept| kept.info.persona.as_ref() == Some(&persona))
+    );
     rig.agents.shutdown().await;
     let noted: Vec<OpenSession> = serde_json::from_str(&noted).expect("the note reads");
-    let after = Agents::new(Parts { kinds: vec![rig.top.clone(), rig.kid.clone()], ..Parts::default() });
+    let after = Agents::new(Parts {
+        kinds: vec![rig.top.clone(), rig.kid.clone()],
+        ..Parts::default()
+    });
     after.catalog.settings_arrived();
     after.reopen(noted).await;
     let id = sessions::name_of(&child);
@@ -1093,11 +1128,15 @@ async fn a_resumed_child_with_nothing_to_do_reads_idle() {
     let noted = rig.agents.reopen.open_sessions();
     rig.agents.shutdown().await;
 
-    let after = Agents::new(Parts { kinds: vec![rig.top.clone(), rig.kid.clone()], ..Parts::default() });
+    let after = Agents::new(Parts {
+        kinds: vec![rig.top.clone(), rig.kid.clone()],
+        ..Parts::default()
+    });
     after.catalog.settings_arrived();
     after.reopen(noted).await;
     let resumed = after
-        .sessions.get(&sessions::name_of(&child))
+        .sessions
+        .get(&sessions::name_of(&child))
         .expect("the child is back");
     until(&resumed, |live| live.status() == Status::Idle).await;
     // Its turn count started over, which no longer says it never ran.
@@ -1111,8 +1150,15 @@ async fn a_resumed_child_with_nothing_to_do_reads_idle() {
 async fn a_pushed_list_says_whether_the_parent_is_there_and_a_burst_of_changes_is_one_ask() {
     use links::Parent;
     use orphans::{ORPHAN_CHECK, Word, asks, word};
-    use std::sync::{Arc, atomic::{AtomicU32, Ordering::SeqCst}};
-    use tokio::{sync::{Notify, mpsc, watch}, task::yield_now, time::advance};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering::SeqCst},
+    };
+    use tokio::{
+        sync::{Notify, mpsc, watch},
+        task::yield_now,
+        time::advance,
+    };
 
     let link = ParentLink {
         machine: None,
@@ -1139,14 +1185,34 @@ async fn a_pushed_list_says_whether_the_parent_is_there_and_a_burst_of_changes_i
     let mut last = None;
 
     assert_eq!(word(&[], &mut last, &link), Word::Gone);
-    assert_eq!(word(&[row("other", Status::Idle, None, "")], &mut last, &link), Word::Gone);
-    assert_eq!(word(&[row("p1", Status::Idle, None, "")], &mut last, &link), Word::Moved);
-    assert_eq!(word(&[row("p1", Status::Idle, None, "")], &mut last, &link), Word::Same);
+    assert_eq!(
+        word(&[row("other", Status::Idle, None, "")], &mut last, &link),
+        Word::Gone
+    );
+    assert_eq!(
+        word(&[row("p1", Status::Idle, None, "")], &mut last, &link),
+        Word::Moved
+    );
+    assert_eq!(
+        word(&[row("p1", Status::Idle, None, "")], &mut last, &link),
+        Word::Same
+    );
     // By the id it was listed under when the child began, too.
-    assert_eq!(word(&[row("k1", Status::Idle, None, "")], &mut None, &link), Word::Moved);
+    assert_eq!(
+        word(&[row("k1", Status::Idle, None, "")], &mut None, &link),
+        Word::Moved
+    );
     // Ended for good is gone; an end with the node is not.
-    assert_eq!(word(&[row("p1", Status::Ended, None, "")], &mut last, &link), Word::Gone);
-    let stopped = row("p1", Status::Ended, Some(crate::agents::session::NODE_STOPPED), "");
+    assert_eq!(
+        word(&[row("p1", Status::Ended, None, "")], &mut last, &link),
+        Word::Gone
+    );
+    let stopped = row(
+        "p1",
+        Status::Ended,
+        Some(crate::agents::session::NODE_STOPPED),
+        "",
+    );
     assert_eq!(word(&[stopped], &mut last, &link), Word::Moved);
 
     // Activity-only changes of the row are one ask; the answer that the
@@ -1167,7 +1233,11 @@ async fn a_pushed_list_says_whether_the_parent_is_there_and_a_burst_of_changes_i
 
     for turn in 0..20 {
         let doing = format!("Edit file {turn}");
-        let changed = word(&[row("p1", Status::Working, None, &doing)], &mut last, &link);
+        let changed = word(
+            &[row("p1", Status::Working, None, &doing)],
+            &mut last,
+            &link,
+        );
         assert_eq!(changed, Word::Moved);
         moved.notify_one();
         yield_now().await;
@@ -1181,7 +1251,11 @@ async fn a_pushed_list_says_whether_the_parent_is_there_and_a_burst_of_changes_i
     assert_eq!(asked.load(SeqCst), 1);
     advance(ORPHAN_CHECK).await;
     yield_now().await;
-    assert_eq!(asked.load(SeqCst), 2, "the changes during the pause are asked once after it");
+    assert_eq!(
+        asked.load(SeqCst),
+        2,
+        "the changes during the pause are asked once after it"
+    );
     task.abort();
 }
 
@@ -1191,8 +1265,15 @@ async fn a_pushed_list_says_whether_the_parent_is_there_and_a_burst_of_changes_i
 async fn an_unanswered_ask_is_asked_again_until_it_is_answered() {
     use links::Parent;
     use orphans::{ORPHAN_CHECK, asks};
-    use std::sync::{Arc, Mutex, atomic::{AtomicU32, Ordering::SeqCst}};
-    use tokio::{sync::{Notify, mpsc, watch}, task::yield_now, time::advance};
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicU32, Ordering::SeqCst},
+    };
+    use tokio::{
+        sync::{Notify, mpsc, watch},
+        task::yield_now,
+        time::advance,
+    };
 
     let moved = Arc::new(Notify::new());
     let asked = Arc::new(AtomicU32::new(0));
@@ -1212,23 +1293,44 @@ async fn an_unanswered_ask_is_asked_again_until_it_is_answered() {
 
     moved.notify_one();
     yield_now().await;
-    assert_eq!(tokio::time::timeout(Duration::from_millis(1), heard.recv()).await.ok().flatten(), Some(Parent::Silent));
+    assert_eq!(
+        tokio::time::timeout(Duration::from_millis(1), heard.recv())
+            .await
+            .ok()
+            .flatten(),
+        Some(Parent::Silent)
+    );
     assert_eq!(asked.load(SeqCst), 1);
     // No push follows: the retry alone gets the answer.
     advance(Duration::from_secs(6)).await;
     yield_now().await;
-    assert_eq!(tokio::time::timeout(Duration::from_millis(1), heard.recv()).await.ok().flatten(), Some(Parent::Keeps));
+    assert_eq!(
+        tokio::time::timeout(Duration::from_millis(1), heard.recv())
+            .await
+            .ok()
+            .flatten(),
+        Some(Parent::Keeps)
+    );
     assert_eq!(asked.load(SeqCst), 2);
     advance(Duration::from_secs(30)).await;
     yield_now().await;
     assert_eq!(asked.load(SeqCst), 2, "an answered ask is not asked again");
 
     // Retries stop when the parent is gone.
-    answers.lock().unwrap().extend([Parent::Silent, Parent::Silent]);
+    answers
+        .lock()
+        .unwrap()
+        .extend([Parent::Silent, Parent::Silent]);
     advance(ORPHAN_CHECK).await;
     moved.notify_one();
     yield_now().await;
-    assert_eq!(tokio::time::timeout(Duration::from_millis(1), heard.recv()).await.ok().flatten(), Some(Parent::Silent));
+    assert_eq!(
+        tokio::time::timeout(Duration::from_millis(1), heard.recv())
+            .await
+            .ok()
+            .flatten(),
+        Some(Parent::Silent)
+    );
     there.send_replace(false);
     yield_now().await;
     let before = asked.load(SeqCst);
@@ -1243,12 +1345,22 @@ async fn an_unanswered_ask_is_asked_again_until_it_is_answered() {
 #[test]
 fn a_transient_error_on_a_stream_is_not_a_refusal() {
     use crate::peer_stream::{Refused, heard};
-    use beep_proto::node::{events::{HeldSessions, Topic}, subscriptions::Reply};
+    use beep_proto::node::{
+        events::{HeldSessions, Topic},
+        subscriptions::Reply,
+    };
 
     let mut held = HeldSessions::default();
     let errors = [
-        Reply::Error { id: 1, reason: "too many pending watches".into() },
-        Reply::SnapshotError { query: None, topic: Topic::new("agents"), reason: "failed to list".into() },
+        Reply::Error {
+            id: 1,
+            reason: "too many pending watches".into(),
+        },
+        Reply::SnapshotError {
+            query: None,
+            topic: Topic::new("agents"),
+            reason: "failed to list".into(),
+        },
     ];
 
     for reply in errors {
@@ -1267,8 +1379,15 @@ async fn a_redial_does_not_reset_the_pacing_of_the_asks() {
     use beep_proto::node::{agent::SessionsReply, events::Value};
     use links::Parent;
     use orphans::{ORPHAN_CHECK, Rings, asks, hear_list};
-    use std::sync::{Arc, atomic::{AtomicU32, Ordering::SeqCst}};
-    use tokio::{sync::{Notify, mpsc, watch}, task::yield_now, time::advance};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering::SeqCst},
+    };
+    use tokio::{
+        sync::{Notify, mpsc, watch},
+        task::yield_now,
+        time::advance,
+    };
     use tokio_util::task::AbortOnDropHandle;
 
     let link = ParentLink {
@@ -1284,9 +1403,14 @@ async fn a_redial_does_not_reset_the_pacing_of_the_asks() {
         background: false,
     };
     let list = || -> Value {
-        let parent = SessionInfo { id: "p1".into(), ..SessionInfo::default() };
+        let parent = SessionInfo {
+            id: "p1".into(),
+            ..SessionInfo::default()
+        };
 
-        Value::Sessions(Box::new(SessionsReply::Sessions { sessions: vec![parent] }))
+        Value::Sessions(Box::new(SessionsReply::Sessions {
+            sessions: vec![parent],
+        }))
     };
     let (moved, asked) = (Arc::new(Notify::new()), Arc::new(AtomicU32::new(0)));
     let (there, there_rx) = watch::channel(true);
@@ -1301,7 +1425,11 @@ async fn a_redial_does_not_reset_the_pacing_of_the_asks() {
             asks(&moved, there_rx, ask, &tx).await;
         }))
     };
-    let rings = Rings { moved: &moved, there: &there, asker: &asker };
+    let rings = Rings {
+        moved: &moved,
+        there: &there,
+        asker: &asker,
+    };
     // A dialed list starts with nothing seen: the parent's row shows as a change.
     let follow = async || {
         let mut last = None;
@@ -1347,7 +1475,13 @@ async fn the_orphan_check_reads_a_node_outside_any_mesh_as_a_silent_parent() {
     };
     let (tx, mut heard) = mpsc::channel(4);
     let peer = SecretKeyFor::id();
-    let task = tokio::spawn(orphans::feed(crate::membership::Membership::default(), Weak::new(), peer, link, tx));
+    let task = tokio::spawn(orphans::feed(
+        crate::membership::Membership::default(),
+        Weak::new(),
+        peer,
+        link,
+        tx,
+    ));
 
     assert_eq!(heard.recv().await, Some(links::Parent::Silent));
     task.abort();
@@ -1398,24 +1532,57 @@ async fn a_parents_node_says_which_remote_children_it_keeps() {
     let mut kid = RemoteKid::expected(&name, there, "box");
     kid.id = "k1".into();
     rig.agents.links.adopt_remote(&parent, kid.clone());
-    assert!(rig.agents.keeps_child(there, &name, &SessionId::from("k1"), &SessionId::default()));
+    assert!(
+        rig.agents
+            .keeps_child(there, &name, &SessionId::from("k1"), &SessionId::default())
+    );
     // By the id it started under, too.
-    assert!(rig.agents.keeps_child(there, &name, &SessionId::from("agent-id"), &SessionId::from("k1")));
+    assert!(rig.agents.keeps_child(
+        there,
+        &name,
+        &SessionId::from("agent-id"),
+        &SessionId::from("k1")
+    ));
     // Not another machine's, not another child.
-    assert!(!rig.agents.keeps_child(other, &name, &SessionId::from("k1"), &SessionId::default()));
-    assert!(!rig.agents.keeps_child(there, &name, &SessionId::from("k2"), &SessionId::default()));
-    assert!(!rig.agents.keeps_child(there, &SessionId::from("no-such-parent"), &SessionId::from("k1"), &SessionId::default()));
+    assert!(
+        !rig.agents
+            .keeps_child(other, &name, &SessionId::from("k1"), &SessionId::default())
+    );
+    assert!(
+        !rig.agents
+            .keeps_child(there, &name, &SessionId::from("k2"), &SessionId::default())
+    );
+    assert!(!rig.agents.keeps_child(
+        there,
+        &SessionId::from("no-such-parent"),
+        &SessionId::from("k1"),
+        &SessionId::default()
+    ));
     // One that ended is no longer kept.
     rig.agents.links.end_remote(&kid);
-    assert!(!rig.agents.keeps_child(there, &name, &SessionId::from("k1"), &SessionId::default()));
+    assert!(
+        !rig.agents
+            .keeps_child(there, &name, &SessionId::from("k1"), &SessionId::default())
+    );
     // A start that got no answer is kept for a while, whichever id the
     // machine gave it.
     rig.agents
-        .links.adopt_remote(&parent, RemoteKid::expected(&name, other, "far"));
-    assert!(rig.agents.keeps_child(other, &name, &SessionId::from("anything"), &SessionId::default()));
+        .links
+        .adopt_remote(&parent, RemoteKid::expected(&name, other, "far"));
+    assert!(rig.agents.keeps_child(
+        other,
+        &name,
+        &SessionId::from("anything"),
+        &SessionId::default()
+    ));
     // A parent that ended for good keeps nothing.
     parent.close().await;
-    assert!(!rig.agents.keeps_child(other, &name, &SessionId::from("anything"), &SessionId::default()));
+    assert!(!rig.agents.keeps_child(
+        other,
+        &name,
+        &SessionId::from("anything"),
+        &SessionId::default()
+    ));
     rig.agents.shutdown().await;
 }
 
@@ -1465,7 +1632,8 @@ async fn a_start_with_no_answer_holds_its_place_until_it_expires_and_a_refusal_f
 
     for _ in 0..MAX_CHILDREN {
         rig.agents
-            .links.adopt_remote(&parent, RemoteKid::expected(&name, there, "box"));
+            .links
+            .adopt_remote(&parent, RemoteKid::expected(&name, there, "box"));
     }
     // A retry cannot start a ninth behind the eight that may be running.
     let refused = rig.agents.link_for(&parent, &who).unwrap_err();
@@ -1474,19 +1642,20 @@ async fn a_start_with_no_answer_holds_its_place_until_it_expires_and_a_refusal_f
     rig.agents.links.forget_expected(&name, there);
     assert!(rig.agents.link_for(&parent, &who).is_ok());
     // One that answered takes the id it was given, once.
-    rig.agents.links.settle_remote(&name, there, &SessionId::from("k1"));
-    rig.agents.links.settle_remote(&name, there, &SessionId::from("k1"));
+    rig.agents
+        .links
+        .settle_remote(&name, there, &SessionId::from("k1"));
+    rig.agents
+        .links
+        .settle_remote(&name, there, &SessionId::from("k1"));
     let ids: Vec<SessionId> = rig
         .agents
-        .links.remote_kids(&name)
+        .links
+        .remote_kids(&name)
         .into_iter()
         .map(|kid| kid.id)
         .collect();
-    assert_eq!(
-        ids.iter().filter(|id| **id == "k1").count(),
-        1,
-        "{ids:?}"
-    );
+    assert_eq!(ids.iter().filter(|id| **id == "k1").count(), 1, "{ids:?}");
     // And the ones that never answered stop counting after a while.
     let mut old = RemoteKid::expected(&name, there, "box");
     old.since = 0;
@@ -1661,7 +1830,11 @@ async fn a_node_with_no_mesh_does_not_say_it_notes_every_settle() {
         },
     )
     .await;
-    let Reply::Done { text, failed: false } = reply else {
+    let Reply::Done {
+        text,
+        failed: false,
+    } = reply
+    else {
         panic!("the status is served: {reply:?}");
     };
     let view: crate::agents::child_view::ChildView =
@@ -1770,7 +1943,11 @@ async fn a_prompt_to_a_session_that_ended_resumes_it() {
         )
         .await
         .expect("the prompt resumes the session");
-    let resumed = rig.agents.sessions.get(&info.id).expect("the session runs again");
+    let resumed = rig
+        .agents
+        .sessions
+        .get(&info.id)
+        .expect("the session runs again");
     until(&resumed, |live| live.info.turns >= 1).await;
     assert!(rig.read("top.log").contains("carry on"));
 
@@ -1849,7 +2026,10 @@ async fn a_teammate_reaches_only_a_team_session_through_its_gateway() {
     let agents = &rig.agents;
 
     let (text, failed) = handed(&link, agents, gateway, &card, Delivery::Ask).await;
-    assert!(failed && text.contains("works on no team's project"), "{text}");
+    assert!(
+        failed && text.contains("works on no team's project"),
+        "{text}"
+    );
 
     let mut record = TeamRecord::new(repo(), Vec::new());
     record.asks = false;
@@ -1873,7 +2053,10 @@ async fn a_teammate_reaches_only_a_team_session_through_its_gateway() {
 
     let elsewhere = Some(iroh::SecretKey::generate().public());
     let (text, failed) = handed(&link, agents, elsewhere, &card, Delivery::Reply).await;
-    assert!(failed && text.contains("does not act for the team"), "{text}");
+    assert!(
+        failed && text.contains("does not act for the team"),
+        "{text}"
+    );
 
     let (text, failed) = handed(&link, agents, gateway, &card, Delivery::Ask).await;
     assert!(failed && text.contains("takes no messages"), "{text}");
@@ -1933,7 +2116,10 @@ async fn parallel_waits_on_one_child_wake_together_and_end_apart() {
     }
 
     drop(first);
-    assert!(waits.wake(&parent, "k0@build-box"), "the second still waits");
+    assert!(
+        waits.wake(&parent, "k0@build-box"),
+        "the second still waits"
+    );
     drop(second);
     assert!(!waits.wake(&parent, "k0@build-box"), "both ended");
 }
@@ -2018,9 +2204,24 @@ fn links_keep_the_remote_children_without_an_agents() {
 
     assert_eq!(links.kids_to_keep(&parent), [settled]);
     assert!(links.kids_to_keep(&SessionId::from("other")).is_empty());
-    assert!(links.keeps(&parent, machine, &SessionId::from("k0"), &SessionId::default()));
-    assert!(links.keeps(&parent, machine, &SessionId::from("x"), &SessionId::from("y")));
-    assert!(!links.keeps(&SessionId::from("other"), machine, &SessionId::from("k0"), &SessionId::default()));
+    assert!(links.keeps(
+        &parent,
+        machine,
+        &SessionId::from("k0"),
+        &SessionId::default()
+    ));
+    assert!(links.keeps(
+        &parent,
+        machine,
+        &SessionId::from("x"),
+        &SessionId::from("y")
+    ));
+    assert!(!links.keeps(
+        &SessionId::from("other"),
+        machine,
+        &SessionId::from("k0"),
+        &SessionId::default()
+    ));
 }
 
 // The links are made from the node's membership and answer without an

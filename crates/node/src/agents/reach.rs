@@ -3,18 +3,16 @@
 //! `..` resolved.
 
 use super::{limits::SIGHTING_WAIT, media_file::resolve, sessions::Sessions, worktrees};
-use crate::occupancy::Occupancy;
-use std::sync::Arc;
 use crate::fs::paths::{self, real};
-use crate::run::device::{self, Served};
-use beep_proto::node::{LinkRx, LinkTx};
 use crate::logs::claude_dir;
 use crate::logs::found::LogRoots;
+use crate::occupancy::Occupancy;
+use crate::run::device::{self, Served};
 use anyhow::{Context, Result};
+use beep_proto::node::{LinkRx, LinkTx};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
-use std::{
-    path::{Path, PathBuf},
-};
 use tokio::{task::spawn_blocking, time::timeout};
 
 /// How long git may take to list the worktrees of the sessions' repositories.
@@ -106,7 +104,11 @@ pub(crate) struct Reach {
 }
 
 impl Reach {
-    pub(crate) fn new(folders: Vec<PathBuf>, sessions: Arc<Sessions>, occupancy: Occupancy) -> Self {
+    pub(crate) fn new(
+        folders: Vec<PathBuf>,
+        sessions: Arc<Sessions>,
+        occupancy: Occupancy,
+    ) -> Self {
         Self {
             folders,
             sessions,
@@ -124,7 +126,8 @@ impl Reach {
 
     /// The folder of each session this node runs.
     fn session_cwds(&self) -> Vec<PathBuf> {
-        self.sessions.read()
+        self.sessions
+            .read()
             .values()
             .map(|session| PathBuf::from(session.info().cwd))
             .collect()

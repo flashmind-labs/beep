@@ -115,9 +115,14 @@ async fn exchange(fake: &Fake, messages: &[Value]) -> Vec<Value> {
 
     client_write.write_all(input.as_bytes()).await.unwrap();
     client_write.shutdown().await.unwrap();
-    serve(fake, &SessionId::from("a3f9c1"), BufReader::new(server_read), server_write)
-        .await
-        .unwrap();
+    serve(
+        fake,
+        &SessionId::from("a3f9c1"),
+        BufReader::new(server_read),
+        server_write,
+    )
+    .await
+    .unwrap();
     let mut out = Vec::new();
     let mut lines = BufReader::new(client_read).lines();
 
@@ -439,9 +444,27 @@ async fn without_keys_there_are_no_media_tools() {
 async fn grouped_and_internal_names_are_no_tools() {
     let fake = Fake::new("allow");
 
-    for name in ["machines", "agent", "device", "beep", "plugins", "job_status", "run_on", "machine_log"] {
-        let result = call(&fake, &SessionId::from("a3f9c1"), name, json!({ "action": "list" })).await;
-        assert!(result.failed && result.text == format!("There is no tool {name}."), "{result:?}");
+    for name in [
+        "machines",
+        "agent",
+        "device",
+        "beep",
+        "plugins",
+        "job_status",
+        "run_on",
+        "machine_log",
+    ] {
+        let result = call(
+            &fake,
+            &SessionId::from("a3f9c1"),
+            name,
+            json!({ "action": "list" }),
+        )
+        .await;
+        assert!(
+            result.failed && result.text == format!("There is no tool {name}."),
+            "{result:?}"
+        );
     }
 
     assert!(fake.calls.lock().unwrap().is_empty(), "nothing was sent");
@@ -467,7 +490,10 @@ async fn without_other_machines_run_and_files_are_left_out() {
         "sync_project",
         "send_files",
     ];
-    let expected: Vec<&str> = ALL.into_iter().filter(|name| !remote.contains(name)).collect();
+    let expected: Vec<&str> = ALL
+        .into_iter()
+        .filter(|name| !remote.contains(name))
+        .collect();
     assert_eq!(names, expected);
 }
 
@@ -518,7 +544,10 @@ async fn thread_tools_call_the_agent_tools_for_the_assistant_alone() {
         );
     }
 
-    assert!(other.calls.lock().unwrap().is_empty(), "nothing is forwarded");
+    assert!(
+        other.calls.lock().unwrap().is_empty(),
+        "nothing is forwarded"
+    );
     let assistant = Fake {
         assistant: true,
         ..Fake::new("allow")
@@ -589,16 +618,28 @@ async fn initialize_omits_instructions_without_media_tools() {
 async fn project_tools_are_refused_for_other_sessions_before_validation() {
     let fake = Fake::new("allow");
     // Invalid arguments too: the refusal comes before the schema is checked.
-    for args in [json!({ "name": "notes", "machines": ["build-box"] }), json!({ "unknown": 1 })] {
+    for args in [
+        json!({ "name": "notes", "machines": ["build-box"] }),
+        json!({ "unknown": 1 }),
+    ] {
         let result = call(&fake, &SessionId::from("a3f9c1"), "projects_create", args).await;
         assert!(
             result.failed && result.text == "There is no tool projects_create.",
             "{result:?}"
         );
     }
-    let result = call(&fake, &SessionId::from("a3f9c1"), "projects", json!({ "action": "hosts" })).await;
+    let result = call(
+        &fake,
+        &SessionId::from("a3f9c1"),
+        "projects",
+        json!({ "action": "hosts" }),
+    )
+    .await;
     assert!(result.failed, "{result:?}");
-    assert!(fake.calls.lock().unwrap().is_empty(), "nothing is forwarded");
+    assert!(
+        fake.calls.lock().unwrap().is_empty(),
+        "nothing is forwarded"
+    );
 }
 
 #[tokio::test]
@@ -608,8 +649,20 @@ async fn project_tools_reach_the_desktop_as_projects_with_their_action() {
         ..Fake::new("allow")
     };
     let args = json!({ "name": "notes", "machines": ["build-box"] });
-    call(&assistant, &SessionId::from("a3f9c1"), "projects_create", args).await;
-    let result = call(&assistant, &SessionId::from("a3f9c1"), "projects_hosts", json!({ "extra": 1 })).await;
+    call(
+        &assistant,
+        &SessionId::from("a3f9c1"),
+        "projects_create",
+        args,
+    )
+    .await;
+    let result = call(
+        &assistant,
+        &SessionId::from("a3f9c1"),
+        "projects_hosts",
+        json!({ "extra": 1 }),
+    )
+    .await;
     assert!(result.failed && result.text.contains("extra"), "{result:?}");
 
     let calls = assistant.calls.lock().unwrap();
@@ -629,7 +682,13 @@ async fn team_join_tool_validates_and_routes_for_any_session() {
 
     let missing = call(&fake, &session, "team_join", json!({})).await;
     assert!(missing.failed, "{missing:?}");
-    let extra = call(&fake, &session, "team_join", json!({ "ticket": "beepteam1abc", "extra": 1 })).await;
+    let extra = call(
+        &fake,
+        &session,
+        "team_join",
+        json!({ "ticket": "beepteam1abc", "extra": 1 }),
+    )
+    .await;
     assert!(extra.failed && extra.text.contains("extra"), "{extra:?}");
 
     let args = json!({ "ticket": "beepteam1abc", "machine": "build-box", "folder": "~/work" });
@@ -728,7 +787,11 @@ fn catalog_schemas_preserve_exact_serialized_json_for_every_mode() {
         let rendered = catalog::tools(reviewer, alone, assistant).to_string();
         let digest = hex::encode(Sha256::digest(rendered.as_bytes()));
         let expected = if preserved { ordered_sha } else { sorted_sha };
-        assert_eq!(rendered.len(), len, "mode ({reviewer}, {alone}, {assistant})");
+        assert_eq!(
+            rendered.len(),
+            len,
+            "mode ({reviewer}, {alone}, {assistant})"
+        );
         assert_eq!(digest, expected, "mode ({reviewer}, {alone}, {assistant})");
     }
 }
@@ -754,14 +817,21 @@ async fn a_meshy_key_offers_the_3d_tools_and_their_models() {
         &[
             request(1, "tools/list", json!({})),
             call(2, "list_models", json!({ "category": "3d" })),
-            call(3, "rig_3d", json!({ "glb": "hero.glb", "prompt": "a chair" })),
+            call(
+                3,
+                "rig_3d",
+                json!({ "glb": "hero.glb", "prompt": "a chair" }),
+            ),
         ],
     )
     .await;
     spawn_env::set_vars(Vec::new());
 
     let tools = out[0]["result"]["tools"].as_array().unwrap();
-    let names: Vec<&str> = tools.iter().map(|tool| tool["name"].as_str().unwrap()).collect();
+    let names: Vec<&str> = tools
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect();
     for name in ["generate_3d", "rig_3d", "list_models"] {
         assert!(names.contains(&name), "{name} missing from {names:?}");
     }
@@ -781,7 +851,10 @@ async fn every_tool_rejects_unknown_arguments() {
         ..Fake::new("allow")
     };
     // The assistant's list has the project tools, the other one has review.
-    let listed = [catalog::tools(false, false, true), catalog::tools(false, false, false)];
+    let listed = [
+        catalog::tools(false, false, true),
+        catalog::tools(false, false, false),
+    ];
 
     for tool in listed.iter().flat_map(|tools| tools.as_array().unwrap()) {
         let name = tool["name"].as_str().unwrap();
@@ -797,12 +870,24 @@ async fn every_tool_rejects_unknown_arguments() {
             };
         }
         let result = call(&fake, &SessionId::from("a3f9c1"), name, args).await;
-        assert!(result.failed && result.text.contains("unknown_argument"), "{name}: {result:?}");
+        assert!(
+            result.failed && result.text.contains("unknown_argument"),
+            "{name}: {result:?}"
+        );
     }
 
-    let result = call(&fake, &SessionId::from("a3f9c1"), "device_tap", json!({ "machine": "build-box", "device": "phone", "x": "1", "y": 2 })).await;
+    let result = call(
+        &fake,
+        &SessionId::from("a3f9c1"),
+        "device_tap",
+        json!({ "machine": "build-box", "device": "phone", "x": "1", "y": 2 }),
+    )
+    .await;
     assert!(result.failed && result.text.contains('x'), "{result:?}");
-    assert!(fake.calls.lock().unwrap().is_empty(), "invalid calls never reach a peer");
+    assert!(
+        fake.calls.lock().unwrap().is_empty(),
+        "invalid calls never reach a peer"
+    );
 }
 
 #[tokio::test]
@@ -816,7 +901,13 @@ async fn review_status_rejects_start_options() {
         assert!(result.failed && result.text.contains(field), "{result:?}");
     }
 
-    let result = call(&fake, &SessionId::from("a3f9c1"), "review", json!({"id": 7})).await;
+    let result = call(
+        &fake,
+        &SessionId::from("a3f9c1"),
+        "review",
+        json!({"id": 7}),
+    )
+    .await;
     assert!(result.failed && result.text.contains("id"));
     assert!(fake.calls.lock().unwrap().is_empty());
 }
@@ -866,7 +957,8 @@ async fn a_saved_key_tells_the_agent_its_tools_changed() {
     let (server_read, server_write) = tokio::io::split(server);
     let (client_read, mut client_write) = tokio::io::split(client);
     let mut lines = BufReader::new(client_read).lines();
-    let mut next = async || serde_json::from_str::<Value>(&lines.next_line().await.unwrap().unwrap()).unwrap();
+    let mut next =
+        async || serde_json::from_str::<Value>(&lines.next_line().await.unwrap().unwrap()).unwrap();
     let names = |answer: &Value| -> Vec<String> {
         answer["result"]["tools"]
             .as_array()
@@ -878,9 +970,14 @@ async fn a_saved_key_tells_the_agent_its_tools_changed() {
     let list = |id: i64| format!("{}\n", request(id, "tools/list", json!({})));
 
     let served = async {
-        serve(&fake, &SessionId::from("a3f9c1"), BufReader::new(server_read), server_write)
-            .await
-            .unwrap();
+        serve(
+            &fake,
+            &SessionId::from("a3f9c1"),
+            BufReader::new(server_read),
+            server_write,
+        )
+        .await
+        .unwrap();
     };
     let client = async {
         client_write.write_all(list(1).as_bytes()).await.unwrap();
@@ -895,7 +992,10 @@ async fn a_saved_key_tells_the_agent_its_tools_changed() {
 
         client_write.write_all(list(2).as_bytes()).await.unwrap();
         let after = next().await;
-        assert!(names(&after).contains(&"generate_image".to_owned()), "{after}");
+        assert!(
+            names(&after).contains(&"generate_image".to_owned()),
+            "{after}"
+        );
         client_write.shutdown().await.unwrap();
     };
     tokio::join!(served, client);
@@ -905,17 +1005,28 @@ async fn a_saved_key_tells_the_agent_its_tools_changed() {
 #[tokio::test]
 async fn only_sessions_in_a_team_project_get_the_team_tools() {
     let ask = || {
-        let args = json!({ "name": "team_ask", "arguments": { "to": "bob", "text": "Can I take #52?" } });
-        [request(1, "tools/list", json!({})), request(2, "tools/call", args)]
+        let args =
+            json!({ "name": "team_ask", "arguments": { "to": "bob", "text": "Can I take #52?" } });
+        [
+            request(1, "tools/list", json!({})),
+            request(2, "tools/call", args),
+        ]
     };
     let listed = |out: &[Value]| -> Vec<String> {
         let tools = out[0]["result"]["tools"].as_array().unwrap();
-        tools.iter().map(|tool| tool["name"].as_str().unwrap().to_owned()).collect()
+        tools
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap().to_owned())
+            .collect()
     };
 
     let alone = Fake::new("allow");
     let out = exchange(&alone, &ask()).await;
-    assert!(!listed(&out).iter().any(|name| TEAM.contains(&name.as_str())));
+    assert!(
+        !listed(&out)
+            .iter()
+            .any(|name| TEAM.contains(&name.as_str()))
+    );
     assert_eq!(out[1]["result"]["isError"], true);
     assert!(alone.calls.lock().unwrap().is_empty());
 

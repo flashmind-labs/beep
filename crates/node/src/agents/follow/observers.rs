@@ -1,8 +1,8 @@
 //! The watchers of the agents' stores and of the sessions started outside
 //! Beep: what `Agents` keeps while some client follows agent topics.
 
-use crate::occupancy::Watching;
 use crate::logs::found::Agent;
+use crate::occupancy::Watching;
 use beep_proto::SessionId;
 use std::{
     collections::BTreeSet,
@@ -13,7 +13,8 @@ use tokio::{sync::mpsc, time::Instant};
 
 pub(crate) struct Sources {
     pub(super) paths: crate::events::paths::Paths,
-    pub(super) processes: std::sync::Mutex<std::collections::HashMap<(String, SessionId), ProcessWatch>>,
+    pub(super) processes:
+        std::sync::Mutex<std::collections::HashMap<(String, SessionId), ProcessWatch>>,
     pub(super) pending: Arc<Mutex<Pending>>,
     pub(super) dirty: mpsc::Sender<()>,
     /// Tells the occupancy the stores are read as they change.
@@ -141,7 +142,9 @@ pub(super) fn active_roots(
 
 // Both log readers classify an unowned write as recent for three minutes.
 // Schedule that single state transition, rather than periodically rereading idle logs.
-pub(super) fn recent_deadline(session: &beep_proto::node::agent::ExternalSession) -> Option<Instant> {
+pub(super) fn recent_deadline(
+    session: &beep_proto::node::agent::ExternalSession,
+) -> Option<Instant> {
     if session.pid.is_some() || session.presence != beep_proto::node::agent::Presence::Recent {
         return None;
     }

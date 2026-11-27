@@ -5,7 +5,12 @@ use std::process::Command;
 pub(crate) fn run_git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
         .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
-        .args(["-c", "init.defaultBranch=main", "-c", "commit.gpgsign=false"])
+        .args([
+            "-c",
+            "init.defaultBranch=main",
+            "-c",
+            "commit.gpgsign=false",
+        ])
         .args(args)
         .current_dir(dir)
         .output()
@@ -131,12 +136,19 @@ fn a_node_without_the_clone_installs_from_a_copy_another_node_serves() {
     assert!(cloned(&reader, url));
     assert!(!cloned(&other, url));
     assert!(skill_at(&reader, url, "0000000", "pdf").unwrap().is_none());
-    assert!(skill_at(&reader, url, &revision, "../pdf").unwrap().is_none());
+    assert!(
+        skill_at(&reader, url, &revision, "../pdf")
+            .unwrap()
+            .is_none()
+    );
     assert!(skill_at(&other, url, &revision, "pdf").unwrap().is_none());
 
     let files = skill_at(&reader, url, &revision, "pdf").unwrap().unwrap();
     let root = ensure_git(&reader, url, &revision).unwrap();
-    assert_eq!(skill_disk::read(&root.join("skills/pdf")).unwrap().unwrap(), files);
+    assert_eq!(
+        skill_disk::read(&root.join("skills/pdf")).unwrap().unwrap(),
+        files
+    );
     let old = copy_root(&other, url, "abcdef0").unwrap();
     fs::create_dir_all(&old).unwrap();
     let root = copy_root(&other, url, &revision).unwrap();
@@ -144,7 +156,13 @@ fn a_node_without_the_clone_installs_from_a_copy_another_node_serves() {
     prune_copies(&other, url, &revision);
 
     assert!(!old.exists());
-    assert_eq!(skills_in(&root, url).into_keys().collect::<Vec<_>>(), ["pdf"]);
-    assert_eq!(skill_at(&other, url, &revision, "pdf").unwrap().unwrap(), files);
+    assert_eq!(
+        skills_in(&root, url).into_keys().collect::<Vec<_>>(),
+        ["pdf"]
+    );
+    assert_eq!(
+        skill_at(&other, url, &revision, "pdf").unwrap().unwrap(),
+        files
+    );
     assert!(copy_root(&other, url, "../x").is_err());
 }

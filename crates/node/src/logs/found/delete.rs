@@ -1,11 +1,11 @@
 //! Deleting the files of a session in an agent's store (`Stores::delete`),
 //! always checked to lie inside the store first.
 
-use beep_proto::SessionId;
-use super::{Stores};
-use super::common::{Agent};
+use super::Stores;
+use super::common::Agent;
 use crate::fs::paths;
 use anyhow::{Context, Result, bail, ensure};
+use beep_proto::SessionId;
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -32,7 +32,11 @@ impl Stores {
         };
         let root = if agent == Agent::Codex {
             let archive = root.join("archived_sessions");
-            if file.starts_with(&archive) { archive } else { root.join("sessions") }
+            if file.starts_with(&archive) {
+                archive
+            } else {
+                root.join("sessions")
+            }
         } else {
             root
         };

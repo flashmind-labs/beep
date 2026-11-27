@@ -1,7 +1,6 @@
 //! What a node serves (`Offers`), and who opened a session (`Who`).
 
 use crate::{
-    occupancy::Occupancy,
     agents::{Agents, Parts, TRANSCRIPT_PROTOCOL, skills::Skills},
     files::transfer::Sharing,
     link::{
@@ -10,6 +9,7 @@ use crate::{
     },
     machine::{provision::Provision, service::logs::Logs},
     membership::Membership,
+    occupancy::Occupancy,
     protocol::Protocol,
     run::{device, shell, tasks, terminal},
     status::Own,
@@ -65,7 +65,8 @@ impl Node {
             .bind()
             .await
             .expect("the endpoint binds");
-        let bound = Offers::local(Parts::default(), Provision::new(dir)).bound(&endpoint, dir, "build-box");
+        let bound =
+            Offers::local(Parts::default(), Provision::new(dir)).bound(&endpoint, dir, "build-box");
         Self::of(&bound)
     }
 }

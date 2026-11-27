@@ -2,7 +2,6 @@
 //! it through the official crate. The task owns the process; streams send
 //! it orders and follow its state through a watch channel.
 
-use crate::known::{CODEX_CONFIG, OPENCODE_PERMISSION, known, route};
 use super::{
     AgentKind,
     acp::Prompt,
@@ -15,18 +14,16 @@ use super::{
     unix_now,
     usage::UsageHub,
 };
+use crate::known::{CODEX_CONFIG, OPENCODE_PERMISSION, known, route};
 use crate::{
-    process::spawn_env::{self, Scope},
     process::command,
+    process::spawn_env::{self, Scope},
 };
 use agent_client_protocol::v1::schema::McpServer;
 use anyhow::Result;
 use beep_proto::AccountName;
 use beep_proto::SessionId;
-use beep_proto::node::agent::{
-    AgentCommand, EntryKind, SessionInfo,
-    Status,
-};
+use beep_proto::node::agent::{AgentCommand, EntryKind, SessionInfo, Status};
 use beep_proto::watched;
 use futures::stream::FuturesUnordered;
 use std::{
@@ -63,17 +60,16 @@ const ORDER_WAIT: Duration = Duration::from_secs(20);
 /// the agent itself. Agents answer `session/cancel` within a second or two;
 /// one that has not after this is not going to.
 const STOP_WITHIN: Duration = Duration::from_secs(10);
-pub(in crate::agents) use types::{CONTINUE, Command, NODE_STOPPED};
-pub(crate) use types::{Answered, Asking};
-use types::{Kept, Order};
 pub(crate) use begin::Begin;
 pub(in crate::agents) use begin::History;
+pub(crate) use types::{Answered, Asking};
+pub(in crate::agents) use types::{CONTINUE, Command, NODE_STOPPED};
+use types::{Kept, Order};
 
 /// Whether the parent ended for good: not just with the node, which
 /// resumes it, and its children, after the restart.
 pub(super) fn ended_for_good(live: &Live) -> bool {
-    live.status() == Status::Ended
-        && live.info.state.error.as_deref() != Some(NODE_STOPPED)
+    live.status() == Status::Ended && live.info.state.error.as_deref() != Some(NODE_STOPPED)
 }
 
 /// Waits until the parent session ends for good; false when it ends with
@@ -302,7 +298,9 @@ impl Session {
         // The credentials this agent may have, such as Claude Code's token.
         spawn_env::apply(&mut process, Scope::for_agent(&kind.name, account.as_ref()));
         let native_flsh = kind.name == "flsh"
-            && Path::new(&kind.program).file_stem().is_some_and(|stem| stem == "flsh")
+            && Path::new(&kind.program)
+                .file_stem()
+                .is_some_and(|stem| stem == "flsh")
             && kind.args.first().is_some_and(|arg| arg == "acp");
         if native_flsh {
             let mut system = actor::joined(instructions.take(), standing.take().as_deref());
@@ -313,7 +311,11 @@ impl Session {
             // flsh supports one --system at the root and another after acp.
             // Preserve an existing subcommand flag when adding ours.
             let flag = system.map(|text| format!("--system={text}"));
-            if kind.args.iter().any(|arg| arg == "--system" || arg.starts_with("--system=")) {
+            if kind
+                .args
+                .iter()
+                .any(|arg| arg == "--system" || arg.starts_with("--system="))
+            {
                 process.args(flag).args(&kind.args);
             } else {
                 process.args(&kind.args).args(flag);
@@ -325,10 +327,7 @@ impl Session {
         if !pi_acp {
             process.args(flag.as_deref());
         }
-        process
-            .envs(&kind.env)
-            .envs(agent_env)
-            .current_dir(cwd);
+        process.envs(&kind.env).envs(agent_env).current_dir(cwd);
         if let Some(name) = cleared {
             process.env_remove(name);
         }
@@ -346,7 +345,10 @@ impl Session {
             // The home assistant starts threads in place of Codex's own agents.
             if assistant {
                 config.insert("features.multi_agent".to_owned(), serde_json::json!(false));
-                config.insert("features.multi_agent_v2".to_owned(), serde_json::json!(false));
+                config.insert(
+                    "features.multi_agent_v2".to_owned(),
+                    serde_json::json!(false),
+                );
             }
 
             add_json_env(&mut process, CODEX_CONFIG, config)?;
@@ -681,7 +683,6 @@ async fn named_info(live: &mut watch::Receiver<Live>) -> Result<SessionInfo, Str
         }
     })
 }
-
 
 /// Adds `entries` to the JSON object in `process`'s variable `name`, or the
 /// one this node inherited, leaving the rest of it. Nothing to add changes

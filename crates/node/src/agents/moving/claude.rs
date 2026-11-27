@@ -1,13 +1,13 @@
 //! Claude Code: `<config>/projects/<folder slug>/<id>.jsonl`, the folder
 //! on every line as `cwd`.
 
-use beep_proto::SessionId;
 use super::{
     Stored,
     folder::Folders,
     json::{Step, replace, string_spans},
 };
 use crate::logs::claude_dir::slug;
+use beep_proto::SessionId;
 use std::path::PathBuf;
 
 pub(super) fn rewrite(transcript: &[u8], id: &SessionId, folders: &Folders) -> Stored {

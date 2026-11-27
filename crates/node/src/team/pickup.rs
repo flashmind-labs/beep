@@ -5,20 +5,31 @@
 //! without a pull request becomes a Needs you card for this mesh's apps.
 
 use super::{
-    asks::MAX_CARDS, cards::TITLE, home::{self, FORGE_LIMIT, Project}, link::TeamLink,
+    asks::MAX_CARDS,
+    cards::TITLE,
+    home::{self, FORGE_LIMIT, Project},
+    link::TeamLink,
     membership::Team,
 };
 use crate::{
-    agents::{Agents, start::issue_of_repo, child_view::{ChildView, full_id}, machine_list::{find, machine_name}},
+    agents::{
+        Agents,
+        child_view::{ChildView, full_id},
+        machine_list::{find, machine_name},
+        start::issue_of_repo,
+    },
     fs::note,
-    process::tool_command,
     peer_stream::{CallFailed, over_the_mesh},
+    process::tool_command,
 };
 use beep_mesh::Mesh;
 use beep_projects::commands::OpenIssue;
 use beep_proto::{
     SessionId,
-    node::{agent::CheckoutPlan, tools::{Approved, Reply, Request, TeamAppArgs, TeamAppCall, Tool}},
+    node::{
+        agent::CheckoutPlan,
+        tools::{Approved, Reply, Request, TeamAppArgs, TeamAppCall, Tool},
+    },
     team::{Card, Lane, TeamRepo},
 };
 use futures::future::join_all;
@@ -30,7 +41,6 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tokio::time::timeout;
-
 
 /// What starts the id of the Needs you card of an automatic session that
 /// ended without a pull request, and of a Queued card, before the issue.
@@ -145,9 +155,6 @@ pub(crate) fn issue_prompt(number: u64, title: &str, url: &str) -> String {
         "Work on issue #{number}: {title} ({url}). Read the issue and its comments first, then propose and implement a fix."
     )
 }
-
-
-
 
 /// Snapshots the issues `assigned` now, but those queued, as the backlog
 /// the first round pickup is on, then plans the round as `due` does with
@@ -342,7 +349,10 @@ impl Pickups {
 
             for (machine, sent) in to.iter().zip(join_all(sends).await) {
                 if !matches!(sent, Ok(Ok(Reply::Done { failed: false, .. }))) {
-                    log::info!("the pickup queue of {of} did not reach {}", machine.fmt_short());
+                    log::info!(
+                        "the pickup queue of {of} did not reach {}",
+                        machine.fmt_short()
+                    );
                 }
             }
         });

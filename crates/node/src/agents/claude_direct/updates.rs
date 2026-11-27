@@ -4,9 +4,9 @@
 //! replays its transcript through the same mapping.
 
 use agent_client_protocol::v1::schema::{
-    ContentBlock, ContentChunk, Cost, Diff, Meta, MessageId, SessionUpdate, StopReason, TextContent, ToolCall,
-    ToolCallContent, ToolCallId, ToolCallLocation, ToolCallStatus, ToolCallUpdate,
-    ToolCallUpdateFields, ToolKind, Usage, UsageUpdate,
+    ContentBlock, ContentChunk, Cost, Diff, MessageId, Meta, SessionUpdate, StopReason,
+    TextContent, ToolCall, ToolCallContent, ToolCallId, ToolCallLocation, ToolCallStatus,
+    ToolCallUpdate, ToolCallUpdateFields, ToolKind, Usage, UsageUpdate,
 };
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -47,8 +47,9 @@ pub(super) fn message(line: &Value, replay: bool) -> Vec<SessionUpdate> {
         Some("assistant") => blocks
             .iter()
             .filter_map(|block| match block["type"].as_str()? {
-                "text" if replay && main => text(block["text"].as_str()?)
-                    .map(|text| SessionUpdate::AgentMessageChunk(chunk(text).message_id(id.clone()))),
+                "text" if replay && main => text(block["text"].as_str()?).map(|text| {
+                    SessionUpdate::AgentMessageChunk(chunk(text).message_id(id.clone()))
+                }),
                 "thinking" if replay && main => text(block["thinking"].as_str()?)
                     .map(|text| SessionUpdate::AgentThoughtChunk(chunk(text))),
                 "tool_use" => Some(SessionUpdate::ToolCall(tool_call(
@@ -107,7 +108,11 @@ pub(super) fn replay(path: &Path, in_wsl: bool) -> std::io::Result<Vec<SessionUp
 /// Where Claude Code keeps the transcript of `session`, run in `cwd`.
 pub(super) fn transcript(cwd: &Path, session: &str) -> Option<PathBuf> {
     let folder = crate::logs::claude_dir::slug(cwd);
-    Some(crate::logs::claude_dir::projects_dir()?.join(folder).join(format!("{session}.jsonl")))
+    Some(
+        crate::logs::claude_dir::projects_dir()?
+            .join(folder)
+            .join(format!("{session}.jsonl")),
+    )
 }
 
 /// The tool call `id` to the tool `name` with `input`, run inside the
@@ -189,7 +194,9 @@ fn describe(name: &str, input: &Value) -> (String, ToolKind) {
         "EnterPlanMode" => (None, ToolKind::SwitchMode),
         "Skill" => (named("Load skill:", "skill"), ToolKind::Other),
         "AskUserQuestion" => (
-            input["questions"][0]["question"].as_str().map(str::to_owned),
+            input["questions"][0]["question"]
+                .as_str()
+                .map(str::to_owned),
             ToolKind::Other,
         ),
         _ => (None, ToolKind::Other),
@@ -247,7 +254,9 @@ pub(super) fn context(assistant: &Value) -> Option<u64> {
     tokens
         .iter()
         .map(|key| usage[*key].as_u64())
-        .try_fold(0u64, |sum, count| Some(sum.saturating_add(count.unwrap_or(0))))
+        .try_fold(0u64, |sum, count| {
+            Some(sum.saturating_add(count.unwrap_or(0)))
+        })
         .filter(|used| *used > 0)
 }
 

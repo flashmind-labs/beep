@@ -1,10 +1,10 @@
 //! What the node has read of the folders it lists sessions in.
 
 use super::{images::Images, reopen::Reopen, reviews::kept::Reviews, sessions::Sessions};
+use crate::AsyncMutex;
 use crate::events::Hub;
 use crate::logs::found;
 use crate::occupancy::Occupancy;
-use crate::AsyncMutex;
 use beep_proto::node::agent::SessionFolder;
 use std::{
     collections::HashMap,

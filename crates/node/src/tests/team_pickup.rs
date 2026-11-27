@@ -23,11 +23,31 @@ fn a_start_names_an_issue_of_its_own_repository() {
     let github: TeamRepo = "github.com/org/repo".parse().unwrap();
     let forgejo: TeamRepo = "ssh://git@git.example.com:2222/org/repo".parse().unwrap();
 
-    assert!(issue_of_repo(&github, 52, "https://github.com/Org/Repo/issues/52"));
-    assert!(issue_of_repo(&forgejo, 7, "https://git.example.com:3000/org/repo/issues/7"));
-    assert!(!issue_of_repo(&github, 52, "https://github.com/org/repo/issues/53"));
-    assert!(!issue_of_repo(&github, 52, "https://github.com/org/other/issues/52"));
-    assert!(!issue_of_repo(&github, 52, "https://evil.example/org/repo/issues/52"));
+    assert!(issue_of_repo(
+        &github,
+        52,
+        "https://github.com/Org/Repo/issues/52"
+    ));
+    assert!(issue_of_repo(
+        &forgejo,
+        7,
+        "https://git.example.com:3000/org/repo/issues/7"
+    ));
+    assert!(!issue_of_repo(
+        &github,
+        52,
+        "https://github.com/org/repo/issues/53"
+    ));
+    assert!(!issue_of_repo(
+        &github,
+        52,
+        "https://github.com/org/other/issues/52"
+    ));
+    assert!(!issue_of_repo(
+        &github,
+        52,
+        "https://evil.example/org/repo/issues/52"
+    ));
     assert!(!issue_of_repo(&github, 52, "github.com/org/repo/issues/52"));
 }
 
@@ -36,10 +56,19 @@ fn a_prompt_names_its_issue_by_url_or_words_but_not_by_number() {
     let repo: TeamRepo = "github.com/org/repo".parse().unwrap();
     let of = |prompt: &str| issue_of_prompt(&repo, prompt);
 
-    assert_eq!(of("Fix https://github.com/org/repo/issues/234 please"), Some(234));
-    assert_eq!(of("see (https://github.com/Org/Repo/issues/7#issuecomment-1)."), Some(7));
+    assert_eq!(
+        of("Fix https://github.com/org/repo/issues/234 please"),
+        Some(234)
+    );
+    assert_eq!(
+        of("see (https://github.com/Org/Repo/issues/7#issuecomment-1)."),
+        Some(7)
+    );
     assert_eq!(of("Work on Issue #52: fees"), Some(52));
-    assert_eq!(of("the url is https://github.com/org/other/issues/9, see issue #3"), Some(3));
+    assert_eq!(
+        of("the url is https://github.com/org/other/issues/9, see issue #3"),
+        Some(3)
+    );
     assert_eq!(of("https://github.com/org/other/issues/9"), None);
     assert_eq!(of("https://github.com/org/repo/pull/9"), None);
     assert_eq!(of("fix #234 and tissue #5"), None);
@@ -341,7 +370,10 @@ fn a_followed_session_is_found_by_the_id_its_card_has() {
     // the same.
     let mut done = cards[0].clone();
     done.lane = Lane::DoneToday {};
-    assert_eq!(off_the_board(&state, &[done]), [(8, full_id(acp, "laptop"))]);
+    assert_eq!(
+        off_the_board(&state, &[done]),
+        [(8, full_id(acp, "laptop"))]
+    );
 }
 
 #[test]

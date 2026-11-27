@@ -9,13 +9,16 @@ use super::{
     },
     state::ToolCall,
 };
-use crate::agents::{compaction::{CLAUDE_CONTINUATION, COMPACTED_ENTRY, MAX_SUMMARY, summary_note}, image_files};
+use crate::agents::{
+    compaction::{CLAUDE_CONTINUATION, COMPACTED_ENTRY, MAX_SUMMARY, summary_note},
+    image_files,
+};
 use crate::logs::picture::Picture;
 use agent_client_protocol::{
     schema::MaybeUndefined,
     v1::schema::{
-        AvailableCommandInput, CompactionStatus, CompactionUpdate, ContentBlock, MessageId, PlanEntryStatus,
-        SessionUpdate, ToolCallStatus, ToolKind,
+        AvailableCommandInput, CompactionStatus, CompactionUpdate, ContentBlock, MessageId,
+        PlanEntryStatus, SessionUpdate, ToolCallStatus, ToolKind,
     },
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -49,7 +52,9 @@ impl Live {
         }
         match update {
             SessionUpdate::AgentMessageChunk(chunk) => match &chunk.content {
-                ContentBlock::Text(text) => self.message_chunk(&text.text, chunk.message_id.as_ref()),
+                ContentBlock::Text(text) => {
+                    self.message_chunk(&text.text, chunk.message_id.as_ref())
+                }
                 ContentBlock::Image(image) => {
                     if let Some(picture) = image_picture(image) {
                         self.agent_image(picture);

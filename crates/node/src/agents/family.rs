@@ -8,11 +8,15 @@
 //! child, from the link the caller passes, so a chain across machines
 //! cannot get around them.
 
+use super::{
+    Agents, Begin, Session,
+    live::{Live, Mark},
+    session::Command,
+};
 use crate::agents::sessions;
-use beep_proto::SessionId;
-use super::{Agents, Begin, Session, live::{Live, Mark}, session::Command};
 use crate::known::known;
 use beep_proto::AgentAccount;
+use beep_proto::SessionId;
 use beep_proto::node::agent::{ParentLink, Persona, SessionInfo, Status};
 use beep_proto::watched;
 use std::{str::FromStr, sync::Arc, time::Duration};
@@ -21,14 +25,13 @@ use tokio::sync::watch;
 mod changes;
 pub(crate) mod links;
 pub(crate) mod notes;
-pub(crate) mod peer;
 mod orphans;
+pub(crate) mod peer;
 mod remote;
 
-
+pub(crate) use links::NO_AGENT;
 pub(crate) use links::{ChildNote, ChildStart, RemoteKid, Review, Waiting, Who};
 use links::{MAX_CHILDREN, MAX_DEPTH, Root};
-pub(crate) use links::NO_AGENT;
 
 /// How long the count of a root's agents on another machine may take.
 const COUNT_LIMIT: Duration = Duration::from_secs(3);
@@ -121,7 +124,8 @@ impl Agents {
     fn children_count(&self, who: &Who) -> usize {
         let local = self.sessions.local_children(who);
         let remote = self
-            .links.remote_kids(&who.session)
+            .links
+            .remote_kids(&who.session)
             .iter()
             .filter(|kid| kid.counts())
             .count();
@@ -130,9 +134,15 @@ impl Agents {
 
     /// Hands `text`, from the agent `from`, to the live session `id` here,
     /// which counts it against `PEER_MESSAGES`.
-    pub(crate) async fn message(&self, from: &SessionId, id: &SessionId, text: String) -> Result<(), String> {
+    pub(crate) async fn message(
+        &self,
+        from: &SessionId,
+        id: &SessionId,
+        text: String,
+    ) -> Result<(), String> {
         let session = self
-            .sessions.peers(None)
+            .sessions
+            .peers(None)
             .into_iter()
             .find(|session| session.id == *id || sessions::name_of(session) == *id)
             .filter(|session| sessions::name_of(session) != *from)
@@ -187,7 +197,10 @@ impl Agents {
                 .account
                 .filter(|_| AgentAccount::from_str(&kind.name).is_ok()),
             persona: start.persona.as_ref().map(Into::<Persona>::into),
-            instructions: start.persona.as_ref().map(crate::custom_agents::persona_brief),
+            instructions: start
+                .persona
+                .as_ref()
+                .map(crate::custom_agents::persona_brief),
             ..Begin::default()
         };
         let elsewhere = self.live_elsewhere(&root).await;

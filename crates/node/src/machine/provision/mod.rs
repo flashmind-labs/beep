@@ -13,12 +13,12 @@ pub(crate) use tools::{curl, listed_sha256, remove_dir, unpack, verify};
 
 use crate::{AsyncMutex, lock, process::spawn_env};
 use anyhow::{Context, Result};
+use beep_proto::node::events::Topic;
 use beep_proto::node::{
     ForgejoLogin, LinkRx, LinkTx, MachineCredentials,
     setup::{Need, Reply as SetupReply, Request as SetupRequest},
     tool_update::{Available, Check, Reply, Request, Tool},
 };
-use beep_proto::node::events::Topic;
 use beep_proto::watched;
 use std::{
     collections::HashMap,

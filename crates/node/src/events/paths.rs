@@ -127,7 +127,9 @@ impl Paths {
         reader: &'static str,
         changed: impl Fn(Vec<PathBuf>, bool) + Send + Sync + 'static,
     ) -> Result<Self> {
-        Self::with_paths(reader, move |roots, structural, _| changed(roots, structural))
+        Self::with_paths(reader, move |roots, structural, _| {
+            changed(roots, structural)
+        })
     }
 
     /// Like `with_structure`, and says which paths changed under the roots when it knows.
@@ -380,7 +382,9 @@ impl State {
                         crate::lock(&self.lost).extend(lost);
                         needs_refresh = true;
                     } else if event.paths.iter().any(|path| {
-                        roots.iter().any(|root| root == path || root.starts_with(path))
+                        roots
+                            .iter()
+                            .any(|root| root == path || root.starts_with(path))
                     }) {
                         // A previously missing root or its ancestor changed, so the
                         // watch anchor may graduate from its parent folder.

@@ -2,11 +2,11 @@
 //! keeps on this machine (`Stores`), for suggesting projects to import and
 //! listing an imported project's sessions.
 
-use folder_place::of_folder;
 use beep_proto::SessionId;
-use beep_proto::{
-    node::agent::{AgentSessions, ExternalSession, HistoryCursor, Presence, SessionFolder},
+use beep_proto::node::agent::{
+    AgentSessions, ExternalSession, HistoryCursor, Presence, SessionFolder,
 };
+use folder_place::of_folder;
 use std::{
     cmp::Reverse,
     collections::HashMap,
@@ -19,7 +19,7 @@ use std::{
 mod common;
 pub(crate) use common::{
     Agent, Memos, Seen, first_line, is_jsonl, newest_files, open_database, quiet_presence,
-    unix_millis, unix_secs, unix_seconds, walk_files,
+    unix_millis, unix_seconds, unix_secs, walk_files,
 };
 pub(crate) use memo::wal_path;
 pub(crate) mod agy;
@@ -28,17 +28,17 @@ mod codex_run;
 mod delete;
 mod disk;
 pub(crate) mod flsh;
+pub(crate) mod folder_place;
 pub(crate) mod memo;
 pub(crate) mod opencode;
 pub(crate) mod pi;
-pub(crate) mod folder_place;
 mod transcript;
 
-pub(crate) use delete::{remove_dir_in, remove_file_in};
-pub(crate) use disk::{forget_checkouts, rescan, saved_checkouts, walk};
 pub(crate) use crate::fs::git_read::{
     Checkout, checkout, common_dir, default_branch, git_dir, last_commit, place, repository,
 };
+pub(crate) use delete::{remove_dir_in, remove_file_in};
+pub(crate) use disk::{forget_checkouts, rescan, saved_checkouts, walk};
 pub(crate) use memo::Memo;
 
 /// The most distinct folders looked up with git in one listing.
@@ -115,10 +115,19 @@ impl Stores {
         Self {
             codex: Some(home.join(".codex")),
             pi: Some(home.join(".pi").join("agent").join("sessions")),
-            flsh: Some(home.join(".local").join("share").join("flashmind").join("sessions")),
+            flsh: Some(
+                home.join(".local")
+                    .join("share")
+                    .join("flashmind")
+                    .join("sessions"),
+            ),
             opencode: Some(home.join(".local").join("share").join("opencode")),
             opencode_file: false,
-            agy: Some(home.join(".gemini").join("antigravity-cli").join("conversations")),
+            agy: Some(
+                home.join(".gemini")
+                    .join("antigravity-cli")
+                    .join("conversations"),
+            ),
             memos: Arc::default(),
             in_wsl: true,
         }
@@ -344,7 +353,9 @@ impl Stores {
                     return None;
                 }
 
-                self.archived_codex().into_iter().find(|seen| seen.id == *id)
+                self.archived_codex()
+                    .into_iter()
+                    .find(|seen| seen.id == *id)
             })
     }
 
@@ -429,7 +440,9 @@ pub(crate) fn folders(
     let skipped = |path: &Path| {
         path.parent().is_none()
             || Some(path) == home
-            || hidden.as_ref().is_some_and(|hidden| path.starts_with(hidden))
+            || hidden
+                .as_ref()
+                .is_some_and(|hidden| path.starts_with(hidden))
     };
     let mut roots: HashMap<PathBuf, (String, Tally)> = HashMap::new();
 
@@ -558,7 +571,10 @@ pub(crate) struct Under<'a> {
 
 impl<'a> Under<'a> {
     pub(crate) fn new(folders: &'a [PathBuf]) -> Self {
-        Self { folders, resolved: HashMap::new() }
+        Self {
+            folders,
+            resolved: HashMap::new(),
+        }
     }
 
     pub(crate) fn has(&mut self, cwd: &Path) -> bool {

@@ -405,8 +405,7 @@ fn questions_form(
             "type": "string",
             "_meta": {"codex": {"isOther": question["isOther"], "isSecret": question["isSecret"]}},
         });
-        if let Some(header) = question["header"]
-            .as_str()
+        if let Some(header) = question["header"].as_str()
             && !header.is_empty()
         {
             field["description"] = json!(header);

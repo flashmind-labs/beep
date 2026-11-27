@@ -1,10 +1,10 @@
 use super::*;
 use crate::agents::Parts;
 use crate::occupancy::presence::Registration;
-use beep_proto::SessionId;
-use beep_proto::node::agent::{ExternalSession, Presence, SessionsReply, SessionsRequest};
 use crate::occupancy::presence::Registry;
+use beep_proto::SessionId;
 use beep_proto::node::LinkRx;
+use beep_proto::node::agent::{ExternalSession, Presence, SessionsReply, SessionsRequest};
 use serde_json::json;
 use std::sync::Arc;
 use tokio::time::{Duration, timeout};
@@ -28,20 +28,29 @@ async fn native_presence_answers_without_a_transcript_and_overrides_recent_files
         .register(registration("session_a"), id)
         .unwrap();
     let found = agents
-        .listings.stores_external("flsh", 10, Some("session_a".into()))
+        .listings
+        .stores_external("flsh", 10, Some("session_a".into()))
         .await
         .unwrap();
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].presence, Presence::Running);
     assert!(
         agents
-            .listings.stores_external("codex", 10, None)
+            .listings
+            .stores_external("codex", 10, None)
             .await
             .unwrap()
             .is_empty()
     );
-    agents.occupancy.presence().close(&SessionId::from("session_a"), id);
-    let found = agents.listings.stores_external("flsh", 10, None).await.unwrap();
+    agents
+        .occupancy
+        .presence()
+        .close(&SessionId::from("session_a"), id);
+    let found = agents
+        .listings
+        .stores_external("flsh", 10, None)
+        .await
+        .unwrap();
     assert_eq!(found[0].presence, Presence::Stopped);
 }
 
@@ -86,7 +95,10 @@ async fn a_mesh_follow_reports_open_and_close_without_polling() {
         panic!("no presence snapshot");
     };
     assert_eq!(sessions[0].presence, Presence::Running);
-    agents.occupancy.presence().close(&SessionId::from("session_a"), id);
+    agents
+        .occupancy
+        .presence()
+        .close(&SessionId::from("session_a"), id);
     let Some(SessionsReply::External { sessions }) = next(&mut client_rx).await else {
         panic!("no presence snapshot");
     };
@@ -138,13 +150,25 @@ async fn continuing_here_ends_only_the_followed_session_s_process() {
         .unwrap();
     let mut outside = registration("session_a");
     outside.pid = child.id();
-    agents.occupancy.presence().register(outside, Uuid::new_v4()).unwrap();
+    agents
+        .occupancy
+        .presence()
+        .register(outside, Uuid::new_v4())
+        .unwrap();
     let mut node = registration("session_b");
     node.pid = Some(std::process::id());
-    agents.occupancy.presence().register(node, Uuid::new_v4()).unwrap();
+    agents
+        .occupancy
+        .presence()
+        .register(node, Uuid::new_v4())
+        .unwrap();
 
     // The process is the one the node finds running that harness's session.
-    for (agent, session) in [("codex", "session_a"), ("flsh", "session_c"), ("flsh", "session_b")] {
+    for (agent, session) in [
+        ("codex", "session_a"),
+        ("flsh", "session_c"),
+        ("flsh", "session_b"),
+    ] {
         let reply = ask(
             &agents,
             SessionsRequest::CloseExternal {
@@ -230,7 +254,10 @@ async fn starting_and_owned_sessions_mark_their_presence_taken_over() {
         default_model: None,
         bridge: None,
     };
-    let agents = Arc::new(Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() }));
+    let agents = Arc::new(Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    }));
     let link = beep_proto::node::local_link();
     let (mut client_tx, mut client_rx) = link.caller;
     let (server_tx, server_rx) = link.node;
@@ -269,7 +296,11 @@ async fn starting_and_owned_sessions_mark_their_presence_taken_over() {
         .unwrap();
     let mut spawned = registration("session_starting");
     spawned.pid = Some(starting.processes.root());
-    agents.occupancy.presence().register(spawned, Uuid::new_v4()).unwrap();
+    agents
+        .occupancy
+        .presence()
+        .register(spawned, Uuid::new_v4())
+        .unwrap();
     let sessions = next(&mut client_rx).await;
     assert_eq!(
         sessions[0].taken_over,
@@ -281,7 +312,11 @@ async fn starting_and_owned_sessions_mark_their_presence_taken_over() {
     // new registration on the presence socket.
     let mut outside = registration("session_outside");
     outside.pid = Some(u32::MAX);
-    agents.occupancy.presence().register(outside, Uuid::new_v4()).unwrap();
+    agents
+        .occupancy
+        .presence()
+        .register(outside, Uuid::new_v4())
+        .unwrap();
     let sessions = next(&mut client_rx).await;
     assert_eq!(
         sessions

@@ -1,11 +1,7 @@
 //! Keeping the team link current with the mesh, and handing what waits to a desktop.
 
 use super::TeamLink;
-use crate::{
-    membership::on_team,
-    peer_stream::forward as to_desktop,
-    team::home::read,
-};
+use crate::{membership::on_team, peer_stream::forward as to_desktop, team::home::read};
 use beep_mesh::{DeviceKind, Key, Mesh, TeamWrites, keep_contacts, take_roster};
 use beep_proto::{
     SessionId, lenient,
@@ -14,10 +10,12 @@ use beep_proto::{
 };
 use futures::future::{join_all, pending};
 use serde::Serialize;
-use std::{mem, time::{Duration, SystemTime}};
+use std::{
+    mem,
+    time::{Duration, SystemTime},
+};
 use tokio::{
-    join,
-    select,
+    join, select,
     sync::broadcast::error::RecvError,
     task::JoinSet,
     time::{Instant, sleep, sleep_until},
@@ -118,7 +116,6 @@ fn refresh(mesh: &Mesh, link: &TeamLink) {
     link.set_home(home);
 }
 
-
 /// Keeps the contacts in step with the teams, then hands the rosters and
 /// invites that wait to a desktop. A desktop writes its own rosters; a roster
 /// already in `handed` is not sent again. The calls to the desktop run
@@ -128,9 +125,7 @@ async fn hand(mesh: Mesh, link: TeamLink, mut handed: Vec<TeamRecord>) -> Handed
 
     // A desktop's node writes rosters itself, so its desktop keeps the
     // contacts in step with them here.
-    if desktop_here
-        && let Err(e) = keep_contacts(&mesh, &TeamWrites::lock().await).await
-    {
+    if desktop_here && let Err(e) = keep_contacts(&mesh, &TeamWrites::lock().await).await {
         log::warn!("the contacts were not kept in step with the teams: {e}");
     }
 
@@ -164,11 +159,16 @@ async fn hand(mesh: Mesh, link: TeamLink, mut handed: Vec<TeamRecord>) -> Handed
     }));
 
     // A desktop's own node keeps the invites for the desktop.
-    let invites = join_all(invites.into_iter().filter(|_| !desktop_here).map(|invite| async {
-        let sent = call(&mesh, Tool::TeamInvite, &invite).await;
+    let invites = join_all(
+        invites
+            .into_iter()
+            .filter(|_| !desktop_here)
+            .map(|invite| async {
+                let sent = call(&mesh, Tool::TeamInvite, &invite).await;
 
-        (invite, sent)
-    }));
+                (invite, sent)
+            }),
+    );
 
     let (rosters, invites) = join!(rosters, invites);
     let mut waiting = false;
@@ -211,4 +211,3 @@ async fn call(mesh: &Mesh, tool: Tool, args: &impl Serialize) -> Result<(), Stri
         _ => Err("the desktop answered something else".to_owned()),
     }
 }
-

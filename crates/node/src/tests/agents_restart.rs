@@ -1,6 +1,6 @@
-use crate::agents::sessions;
 use super::*;
 use crate::agents::Parts;
+use crate::agents::sessions;
 use crate::{
     agents::{AgentKind, Session, family::RemoteKid, live::Live},
     link::restart::{self, Reopen},
@@ -8,9 +8,9 @@ use crate::{
 use beep_proto::ModelId;
 use beep_proto::node::agent::{EntryKind, ExternalSession, ParentLink};
 use beep_proto::watched;
+use std::time::Duration;
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 use tokio::{sync::watch, time::timeout};
-use std::time::Duration;
 
 /// An ACP adapter in shell that logs each line it reads to `$1`. It
 /// asks permission on the prompt "first" and ends that turn once
@@ -81,7 +81,8 @@ async fn until(live: &mut watch::Receiver<Live>, done: impl FnMut(&Live) -> bool
 async fn queued_during_a_turn(agents: &Agents, kind: &AgentKind, cwd: &Path) -> Arc<Session> {
     let session = agents
         .start(kind, Some(&cwd.to_string_lossy()), begin("first"))
-        .await.expect("the session starts");
+        .await
+        .expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.status() == Status::Asking).await;
     session
@@ -96,7 +97,10 @@ async fn an_update_waits_for_the_turn_and_the_next_prompt_goes_after() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let log = dir.path().join("log");
     let kind = adapter(&log);
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let session = queued_during_a_turn(&agents, &kind, dir.path()).await;
     let mut live = session.live.clone();
     let idle = agents.reopen.until_idle();
@@ -126,13 +130,19 @@ async fn an_update_waits_for_the_turn_and_the_next_prompt_goes_after() {
 async fn an_update_restarts_once_the_busy_session_closes() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let kind = adapter(&dir.path().join("log"));
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let session = agents
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("first"))
-        .await.expect("the session starts");
+        .await
+        .expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.status() == Status::Asking).await;
-    let restarted = agents.reopen.restart_when_idle(Duration::from_secs(600), async {});
+    let restarted = agents
+        .reopen
+        .restart_when_idle(Duration::from_secs(600), async {});
     tokio::pin!(restarted);
     assert!(
         futures::poll!(&mut restarted).is_pending(),
@@ -150,10 +160,14 @@ async fn an_interrupted_turn_continues_before_queued_prompts() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let log = dir.path().join("log");
     let kind = adapter(&log);
-    let before = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let before = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let session = before
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("first"))
-        .await.expect("the session starts");
+        .await
+        .expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.status() == Status::Asking).await;
     session
@@ -174,10 +188,16 @@ async fn an_interrupted_turn_continues_before_queued_prompts() {
             .collect::<Vec<_>>(),
         vec![crate::tags::context(CONTINUE), "after".to_owned()]
     );
-    let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
+    let after = Agents::new(Parts {
+        kinds: vec![kind],
+        ..Parts::default()
+    });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
-    let resumed = after.sessions.get(&SessionId::from("held-1")).expect("resumed");
+    let resumed = after
+        .sessions
+        .get(&SessionId::from("held-1"))
+        .expect("resumed");
     let mut live = resumed.live.clone();
     until(&mut live, |live| live.info.turns == 2).await;
     let read = std::fs::read_to_string(&log).expect("adapter log");
@@ -193,7 +213,10 @@ async fn a_held_session_resumes_after_the_restart_with_its_prompt() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let log = dir.path().join("log");
     let kind = adapter(&log);
-    let before = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let before = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let _session = queued_during_a_turn(&before, &kind, dir.path()).await;
     before.shutdown().await;
     let stopped = before.reopen.open_sessions();
@@ -210,10 +233,16 @@ async fn a_held_session_resumes_after_the_restart_with_its_prompt() {
     let read = std::fs::read_to_string(&log).expect("the adapter's log");
     assert!(!read.contains(r#""text":"after""#), "{read}");
 
-    let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
+    let after = Agents::new(Parts {
+        kinds: vec![kind],
+        ..Parts::default()
+    });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
-    let session = after.sessions.get(&SessionId::from("held-1")).expect("resumed under the agent's id");
+    let session = after
+        .sessions
+        .get(&SessionId::from("held-1"))
+        .expect("resumed under the agent's id");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 2).await;
     let read = std::fs::read_to_string(&log).expect("the adapter's log");
@@ -227,10 +256,14 @@ async fn a_session_resumed_without_a_replay_keeps_its_transcript() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let log = dir.path().join("log");
     let kind = resuming_adapter(&log);
-    let before = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let before = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let session = before
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
-        .await.expect("the session starts");
+        .await
+        .expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
     before.shutdown().await;
@@ -239,10 +272,16 @@ async fn a_session_resumed_without_a_replay_keeps_its_transcript() {
     stopped[0].started_at = 100;
     stopped[0].last_activity = 200;
 
-    let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
+    let after = Agents::new(Parts {
+        kinds: vec![kind],
+        ..Parts::default()
+    });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
-    let resumed = after.sessions.get(&SessionId::from("held-1")).expect("resumed under the agent's id");
+    let resumed = after
+        .sessions
+        .get(&SessionId::from("held-1"))
+        .expect("resumed under the agent's id");
     let mut live = resumed.live.clone();
     until(&mut live, |live| live.status() == Status::Idle).await;
     assert_eq!(watched::read(&live, |live| live.info.started_at), 100);
@@ -269,10 +308,14 @@ async fn a_session_the_agent_replays_keeps_a_timestamp_snapshot() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let log = dir.path().join("log");
     let kind = adapter(&log);
-    let before = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let before = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let session = before
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
-        .await.expect("the session starts");
+        .await
+        .expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
     before.shutdown().await;
@@ -301,7 +344,10 @@ async fn a_child_on_another_machine_is_noted_and_comes_back_after_a_crash() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let log = dir.path().join("log");
     let kind = adapter(&log);
-    let before = Arc::new(Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() }));
+    let before = Arc::new(Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    }));
     let keeping = {
         let (dir, agents) = (dir.path().to_path_buf(), before.clone());
         tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
@@ -310,7 +356,8 @@ async fn a_child_on_another_machine_is_noted_and_comes_back_after_a_crash() {
     };
     let session = before
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
-        .await.expect("the session starts");
+        .await
+        .expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
     let name = sessions::name_of(&session);
@@ -329,11 +376,20 @@ async fn a_child_on_another_machine_is_noted_and_comes_back_after_a_crash() {
     // The node dies here: the note is what is left.
     drop(keeping);
 
-    let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
+    let after = Agents::new(Parts {
+        kinds: vec![kind],
+        ..Parts::default()
+    });
     after.catalog.settings_arrived();
     after.reopen(vec![noted]).await;
-    let resumed = after.sessions.get(&name).expect("resumed under the agent's id");
-    assert_eq!(after.links.remote_kids(&sessions::name_of(&resumed)), vec![kid]);
+    let resumed = after
+        .sessions
+        .get(&name)
+        .expect("resumed under the agent's id");
+    assert_eq!(
+        after.links.remote_kids(&sessions::name_of(&resumed)),
+        vec![kid]
+    );
     before.shutdown().await;
     after.shutdown().await;
 }
@@ -343,7 +399,10 @@ async fn a_session_comes_back_after_a_crash() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let log = dir.path().join("log");
     let kind = adapter(&log);
-    let before = Arc::new(Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() }));
+    let before = Arc::new(Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    }));
     let keeping = {
         let (dir, agents) = (dir.path().to_path_buf(), before.clone());
         tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
@@ -352,7 +411,8 @@ async fn a_session_comes_back_after_a_crash() {
     };
     let session = before
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
-        .await.expect("the session starts");
+        .await
+        .expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
     let noted = timeout(Duration::from_secs(20), async {
@@ -372,10 +432,16 @@ async fn a_session_comes_back_after_a_crash() {
     drop(keeping);
     assert_eq!(Reopen::read(dir.path()).sessions, noted.sessions);
 
-    let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
+    let after = Agents::new(Parts {
+        kinds: vec![kind],
+        ..Parts::default()
+    });
     after.catalog.settings_arrived();
     after.reopen(noted.sessions).await;
-    let resumed = after.sessions.get(&SessionId::from("held-1")).expect("resumed under the agent's id");
+    let resumed = after
+        .sessions
+        .get(&SessionId::from("held-1"))
+        .expect("resumed under the agent's id");
     let mut live = resumed.live.clone();
     until(&mut live, |live| live.status() == Status::Idle).await;
     let read = std::fs::read_to_string(&log).expect("the adapter's log");
@@ -399,7 +465,10 @@ async fn a_resumed_session_goes_back_to_the_model_it_ran_on() {
             r#"*'"session/load"'*) reply '{}'"#,
             &format!(r#"*'"session/load"'*) reply '{{{MODELS}}}'"#),
         );
-    let before = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let before = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let session = before
         .start(
             &kind,
@@ -410,7 +479,8 @@ async fn a_resumed_session_goes_back_to_the_model_it_ran_on() {
                 ..begin("hello")
             },
         )
-        .await.expect("the session starts");
+        .await
+        .expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
     before.shutdown().await;
@@ -419,17 +489,26 @@ async fn a_resumed_session_goes_back_to_the_model_it_ran_on() {
     // Kept for a take-over after it ended, across the restart note.
     let noted = Agents::new(Parts::default());
     noted.reopen.keep_saved(before.reopen.saved_sessions());
-    let saved = noted.reopen.saved(&SessionId::from("held-1")).expect("saved across the note");
+    let saved = noted
+        .reopen
+        .saved(&SessionId::from("held-1"))
+        .expect("saved across the note");
     assert_eq!(saved.info.model, Some(ModelId::new("deep")));
     assert_eq!(
         noted.reopen.created_worktrees(&SessionId::from("held-1")),
         vec!["/srv/app/.worktrees/fix".to_owned()]
     );
 
-    let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
+    let after = Agents::new(Parts {
+        kinds: vec![kind],
+        ..Parts::default()
+    });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
-    let session = after.sessions.get(&SessionId::from("held-1")).expect("resumed under the agent's id");
+    let session = after
+        .sessions
+        .get(&SessionId::from("held-1"))
+        .expect("resumed under the agent's id");
     let mut live = session.live.clone();
     until(&mut live, |live| {
         live.info.model == Some(ModelId::new("deep"))
@@ -455,20 +534,30 @@ async fn recovery_context_keeps_the_title_even_when_the_adapter_renames_it() {
           echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"held-1","update":{"sessionUpdate":"session_info_update","title":"Continue after node restart"}}}'
           reply '{"stopReason":"end_turn"}'"#,
     );
-    let before = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let before = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let session = before
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("first"))
-        .await.expect("starts");
+        .await
+        .expect("starts");
     until(&mut session.live.clone(), |live| {
         live.status() == Status::Asking
     })
     .await;
     before.shutdown().await;
     let stopped = before.reopen.open_sessions();
-    let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
+    let after = Agents::new(Parts {
+        kinds: vec![kind],
+        ..Parts::default()
+    });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
-    let resumed = after.sessions.get(&SessionId::from("held-1")).expect("resumed");
+    let resumed = after
+        .sessions
+        .get(&SessionId::from("held-1"))
+        .expect("resumed");
     let mut live = resumed.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
     watched::read(&live, |live| {
@@ -487,7 +576,10 @@ async fn recovery_context_keeps_the_title_even_when_the_adapter_renames_it() {
 async fn begin_assistant_lists_as_assistant() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let kind = adapter(&dir.path().join("log"));
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let session = agents
         .start(
             &kind,
@@ -497,7 +589,8 @@ async fn begin_assistant_lists_as_assistant() {
                 ..begin("hello")
             },
         )
-        .await.expect("the session starts");
+        .await
+        .expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
 
@@ -513,7 +606,10 @@ async fn assistant_survives_restart() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let log = dir.path().join("log");
     let kind = adapter(&log);
-    let before = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let before = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let session = before
         .start(
             &kind,
@@ -523,14 +619,18 @@ async fn assistant_survives_restart() {
                 ..begin("hello")
             },
         )
-        .await.expect("the session starts");
+        .await
+        .expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
     before.shutdown().await;
     let stopped = before.reopen.open_sessions();
     assert!(stopped[0].assistant);
 
-    let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
+    let after = Agents::new(Parts {
+        kinds: vec![kind],
+        ..Parts::default()
+    });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
     assert!(after.reviews.is_assistant(&SessionId::from("held-1")));
@@ -541,11 +641,15 @@ async fn assistant_survives_restart() {
 async fn a_fresh_start_in_the_home_folder_is_no_assistant() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let kind = adapter(&dir.path().join("log"));
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     // No folder is the home folder; only the flag makes the assistant.
     let home = agents
         .start(&kind, None, begin("hello"))
-        .await.expect("the session starts");
+        .await
+        .expect("the session starts");
 
     assert!(!agents.reviews.is_assistant(&home.id));
     agents.shutdown().await;
@@ -556,7 +660,10 @@ async fn an_ended_assistant_stays_the_assistant_after_a_restart() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let kind = adapter(&dir.path().join("log"));
     // Not the home folder: only the flag makes it the assistant, as on Windows.
-    let before = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let before = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let session = before
         .start(
             &kind,
@@ -566,18 +673,26 @@ async fn an_ended_assistant_stays_the_assistant_after_a_restart() {
                 ..begin("hello")
             },
         )
-        .await.expect("the session starts");
+        .await
+        .expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
     session.close().await;
     until(&mut live, |live| live.status() == Status::Ended).await;
     let title = session.info().title;
-    let note = Reopen::new(before.reopen.open_sessions(), Vec::new(), before.reopen.saved_sessions());
+    let note = Reopen::new(
+        before.reopen.open_sessions(),
+        Vec::new(),
+        before.reopen.saved_sessions(),
+    );
     assert!(note.sessions.is_empty(), "closed, so not reopened");
     note.save(dir.path()).expect("the note writes");
     before.shutdown().await;
 
-    let after = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let after = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     after.reopen.keep_saved(Reopen::read(dir.path()).saved);
     after.catalog.settings_arrived();
     let resumed = after
@@ -595,7 +710,10 @@ async fn a_saved_session_in_the_home_folder_keeps_its_saved_flag() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let kind = adapter(&dir.path().join("log"));
     let home = dirs::home_dir().expect("a home folder");
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     agents.reopen.keep_saved(vec![SavedSession {
         info: SessionInfo {
             id: "held-1".into(),
@@ -663,9 +781,21 @@ fn an_ended_assistant_kept_from_before_is_still_the_assistant() {
         .collect();
     assert_eq!(assistants, ["chat"]);
     // Only a name its parent gave stands in for its agent's.
-    let titles: Vec<_> = found.iter().map(|session| session.title.as_deref()).collect();
+    let titles: Vec<_> = found
+        .iter()
+        .map(|session| session.title.as_deref())
+        .collect();
     let agents_name = Some("Its agent's name");
-    assert_eq!(titles, [agents_name, agents_name, agents_name, Some("Prices"), agents_name]);
+    assert_eq!(
+        titles,
+        [
+            agents_name,
+            agents_name,
+            agents_name,
+            Some("Prices"),
+            agents_name
+        ]
+    );
 }
 
 #[test]
@@ -756,7 +886,10 @@ fn a_new_note_reads_as_an_old_node_keeps_it() {
 async fn a_saved_session_keeps_what_it_goes_on_with_and_not_its_state() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let kind = adapter(&dir.path().join("log"));
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let session = agents
         .start(
             &kind,
@@ -766,11 +899,15 @@ async fn a_saved_session_keeps_what_it_goes_on_with_and_not_its_state() {
                 ..begin("hello")
             },
         )
-        .await.expect("the session starts");
+        .await
+        .expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
 
-    let saved = agents.reopen.saved(&SessionId::from("held-1")).expect("saved");
+    let saved = agents
+        .reopen
+        .saved(&SessionId::from("held-1"))
+        .expect("saved");
     assert_eq!(saved.info.cwd, session.info().cwd);
     assert!(saved.info.assistant);
     assert_eq!(saved.info.turns, 0);
@@ -783,7 +920,10 @@ async fn a_saved_session_keeps_what_it_goes_on_with_and_not_its_state() {
 async fn a_refiled_session_is_saved_and_reopened_in_its_new_folder() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let kind = adapter(&dir.path().join("log"));
-    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let session = agents
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
         .await
@@ -798,7 +938,10 @@ async fn a_refiled_session_is_saved_and_reopened_in_its_new_folder() {
     assert!(live.has_changed().expect("the state is kept"));
     assert_eq!(session.info().cwd, "/srv/refiled");
     assert_eq!(agents.sessions.list()[0].cwd, "/srv/refiled");
-    let saved = agents.reopen.saved(&SessionId::from("held-1")).expect("saved");
+    let saved = agents
+        .reopen
+        .saved(&SessionId::from("held-1"))
+        .expect("saved");
     assert_eq!(saved.info.cwd, "/srv/refiled");
     agents.shutdown().await;
 }
@@ -819,7 +962,11 @@ fn a_reviewer_taken_over_is_never_the_assistant() {
         named: false,
     };
 
-    assert!(!agents.resumed_begin(&SessionId::from("held-1"), saved).assistant);
+    assert!(
+        !agents
+            .resumed_begin(&SessionId::from("held-1"), saved)
+            .assistant
+    );
 }
 
 /// flsh sends a session's title again right after `session/load`. A session
@@ -833,19 +980,33 @@ async fn a_reopened_session_takes_the_title_the_agent_sends_after_loading() {
         r#"*'"session/load"'*) reply '{}'
           echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"held-1","update":{"sessionUpdate":"session_info_update","title":"Explain Rust lifetimes"}}}' ;;"#,
     );
-    let before = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let before = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let session = before
-        .start(&kind, Some(&dir.path().to_string_lossy()), begin("explain lifetimes"))
-        .await.expect("starts");
+        .start(
+            &kind,
+            Some(&dir.path().to_string_lossy()),
+            begin("explain lifetimes"),
+        )
+        .await
+        .expect("starts");
     until(&mut session.live.clone(), |live| live.info.turns == 1).await;
     before.shutdown().await;
     let stopped = before.reopen.open_sessions();
     assert_eq!(stopped[0].title.as_deref(), Some("explain lifetimes"));
 
-    let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
+    let after = Agents::new(Parts {
+        kinds: vec![kind],
+        ..Parts::default()
+    });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
-    let resumed = after.sessions.get(&SessionId::from("held-1")).expect("resumed");
+    let resumed = after
+        .sessions
+        .get(&SessionId::from("held-1"))
+        .expect("resumed");
     until(&mut resumed.live.clone(), |live| {
         live.info.title.as_deref() == Some("Explain Rust lifetimes")
     })
@@ -866,24 +1027,41 @@ async fn a_reopened_session_keeps_its_title_when_the_agent_titles_a_prompt() {
       reply '{"stopReason":"end_turn"}' ;;
     *'"session/prompt"'*) reply '{"stopReason":"end_turn"}' ;;"#,
     );
-    let before = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let before = Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        ..Parts::default()
+    });
     let session = before
-        .start(&kind, Some(&dir.path().to_string_lossy()), begin("explain lifetimes"))
-        .await.expect("starts");
+        .start(
+            &kind,
+            Some(&dir.path().to_string_lossy()),
+            begin("explain lifetimes"),
+        )
+        .await
+        .expect("starts");
     until(&mut session.live.clone(), |live| live.info.turns == 1).await;
     before.shutdown().await;
     let stopped = before.reopen.open_sessions();
 
-    let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
+    let after = Agents::new(Parts {
+        kinds: vec![kind],
+        ..Parts::default()
+    });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
-    let resumed = after.sessions.get(&SessionId::from("held-1")).expect("resumed");
+    let resumed = after
+        .sessions
+        .get(&SessionId::from("held-1"))
+        .expect("resumed");
     resumed
         .order(Command::Prompt("rename it".to_owned().into()))
         .await
         .expect("the prompt is taken");
     let mut live = resumed.live.clone();
-    until(&mut live, |live| live.info.turns >= 1 && live.status() == Status::Idle).await;
+    until(&mut live, |live| {
+        live.info.turns >= 1 && live.status() == Status::Idle
+    })
+    .await;
     assert_eq!(
         watched::read(&live, |live| live.info.title.clone()).as_deref(),
         Some("explain lifetimes")
@@ -894,7 +1072,10 @@ async fn a_reopened_session_keeps_its_title_when_the_agent_titles_a_prompt() {
 #[tokio::test]
 async fn a_saved_assistant_chat_still_names_its_folder_to_delete() {
     let dir = tempfile::tempdir().expect("a temporary folder");
-    let agents = Agents::new(Parts { kinds: vec![adapter(&dir.path().join("log"))], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        kinds: vec![adapter(&dir.path().join("log"))],
+        ..Parts::default()
+    });
     let kept = |id: &str, assistant: bool, parent: Option<ParentLink>| SavedSession {
         info: SessionInfo {
             id: id.into(),
@@ -930,24 +1111,45 @@ async fn a_saved_assistant_chat_still_names_its_folder_to_delete() {
     // Only the main chat of an assistant conversation takes its folder with it.
     assert_eq!(
         agents.delete.conversation_of(&SessionId::from("main-1")),
-        Some(std::path::PathBuf::from("/home/user/.beep/assistant/main-1"))
+        Some(std::path::PathBuf::from(
+            "/home/user/.beep/assistant/main-1"
+        ))
     );
-    assert_eq!(agents.delete.conversation_of(&SessionId::from("thread-1")), None);
-    assert_eq!(agents.delete.conversation_of(&SessionId::from("plain-1")), None);
+    assert_eq!(
+        agents.delete.conversation_of(&SessionId::from("thread-1")),
+        None
+    );
+    assert_eq!(
+        agents.delete.conversation_of(&SessionId::from("plain-1")),
+        None
+    );
 
     // A chat started in another's folder shares it: neither takes it while
     // the other is there, and the last of them does.
     let mut guest = kept("main-2", true, None);
     guest.info.cwd = "/home/user/.beep/assistant/main-1".into();
-    agents.reopen.keep_saved(vec![kept("main-1", true, None), guest]);
-    assert_eq!(agents.delete.conversation_of(&SessionId::from("main-1")), None);
-    assert_eq!(agents.delete.conversation_of(&SessionId::from("main-2")), None);
+    agents
+        .reopen
+        .keep_saved(vec![kept("main-1", true, None), guest]);
+    assert_eq!(
+        agents.delete.conversation_of(&SessionId::from("main-1")),
+        None
+    );
+    assert_eq!(
+        agents.delete.conversation_of(&SessionId::from("main-2")),
+        None
+    );
     agents.reopen.forget_saved(&SessionId::from("main-2"));
     assert_eq!(
         agents.delete.conversation_of(&SessionId::from("main-1")),
-        Some(std::path::PathBuf::from("/home/user/.beep/assistant/main-1"))
+        Some(std::path::PathBuf::from(
+            "/home/user/.beep/assistant/main-1"
+        ))
     );
-    assert_eq!(agents.delete.conversation_of(&SessionId::from("gone-1")), None);
+    assert_eq!(
+        agents.delete.conversation_of(&SessionId::from("gone-1")),
+        None
+    );
     agents.shutdown().await;
 }
 

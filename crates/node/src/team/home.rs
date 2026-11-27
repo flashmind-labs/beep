@@ -9,13 +9,14 @@ use crate::{
 };
 use beep_mesh::{Key, Mesh};
 use beep_projects::{
-    github_owner_var,
     commands::{OpenIssue, parse_open_issues, parse_open_prs},
+    github_owner_var,
     model::{IssueHost, RepoName},
     team_forge::{
-        ForgeCall, assigned_issues_call, assignment_events_call, parse_self_assigned, collaborator_answer, collaborator_call, open_issues_call,
-        branch_pulls_call, parse_stampers, parse_user_login, permission_answer, permission_call,
-        repo_call, stamp_call, stamps_call, user_call,
+        ForgeCall, assigned_issues_call, assignment_events_call, branch_pulls_call,
+        collaborator_answer, collaborator_call, open_issues_call, parse_self_assigned,
+        parse_stampers, parse_user_login, permission_answer, permission_call, repo_call,
+        stamp_call, stamps_call, user_call,
     },
 };
 use beep_proto::{
@@ -34,10 +35,7 @@ use std::{
     process::{Output, Stdio},
     time::{Duration, SystemTime},
 };
-use tokio::{
-    process::Command,
-    time::timeout,
-};
+use tokio::{process::Command, time::timeout};
 
 /// How long a forge call or a branch read may take.
 pub(super) const FORGE_LIMIT: Duration = Duration::from_secs(30);
@@ -125,7 +123,13 @@ impl Home {
         deepest(
             folder,
             self.projects.iter().map(|(repo, project)| {
-                (repo, project.checkout.as_ref().map(|checkout| checkout.folder.as_path()))
+                (
+                    repo,
+                    project
+                        .checkout
+                        .as_ref()
+                        .map(|checkout| checkout.folder.as_path()),
+                )
             }),
         )
     }
@@ -138,14 +142,11 @@ impl Home {
     }
 }
 
-
-
 /// Whether `repo`'s team, as the mesh holds it, picks up issues assigned to
 /// this mesh's person.
 pub(crate) fn picks_up(mesh: &Mesh, repo: &TeamRepo) -> bool {
     team_record(mesh, repo).is_some_and(|record| record.pickup)
 }
-
 
 pub(crate) fn read(mesh: &Mesh) -> Home {
     let me = mesh.me();

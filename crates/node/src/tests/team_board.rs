@@ -1,18 +1,21 @@
 use super::*;
 use crate::team::home::TeamForge;
-use crate::tools::Node;
 use crate::team::link::{
     TeamLink,
     board_io::{Followed, Heard, follow},
 };
+use crate::tools::Node;
 use beep_proto::team::{Card, ForgeLogin, Lane, Member, TeamMsg, TeamRecord};
 use futures::future::BoxFuture;
+use iroh::EndpointId;
 use iroh::{
     Endpoint, EndpointAddr, SecretKey, address_lookup::memory::MemoryLookup, endpoint::presets,
     protocol::Router,
 };
-use std::{sync::Arc, time::{Duration, SystemTime}};
-use iroh::EndpointId;
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tokio_util::task::AbortOnDropHandle;
@@ -187,7 +190,8 @@ impl Pair {
     }
 
     fn set(&self, cards: Vec<Card>) {
-        self.gateway.publish(|served| served.boards.set(&repo(), cards));
+        self.gateway
+            .publish(|served| served.boards.set(&repo(), cards));
     }
 }
 

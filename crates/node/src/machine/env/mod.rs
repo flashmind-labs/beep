@@ -4,9 +4,9 @@
 mod apps;
 mod gpu;
 mod latest;
+pub(crate) mod locate;
 mod probe;
 pub(crate) mod syncthing;
-pub(crate) mod locate;
 
 pub(crate) use latest::{Probes, changed, fresh, machine};
 pub(crate) use probe::{beside, output};
@@ -15,12 +15,12 @@ use probe::{first_line, ran};
 use crate::process::spawn_env::{self, Scope};
 use beep_proto::node::harness::parse_version;
 use beep_proto::node::{EnvReport, Login, ToolInfo};
+#[cfg(windows)]
+use std::time::Duration;
 use std::{
     env,
     path::{Path, PathBuf},
 };
-#[cfg(windows)]
-use std::time::Duration;
 use tokio::sync::OnceCell;
 #[cfg(windows)]
 use tokio::time::timeout;
@@ -65,7 +65,10 @@ async fn wsl() -> Vec<beep_proto::node::WslDistro> {
     timeout(WSL_LIMIT, crate::machine::wsl::report())
         .await
         .unwrap_or_else(|_| {
-            log::warn!("the WSL distributions took over {} s to list", WSL_LIMIT.as_secs());
+            log::warn!(
+                "the WSL distributions took over {} s to list",
+                WSL_LIMIT.as_secs()
+            );
             Vec::new()
         })
 }
@@ -145,7 +148,10 @@ async fn probe_machine() -> EnvReport {
         avds: avds().await,
         apps: apps::apps().await,
         gpus: gpu::gpus().await,
-        syncthing: syncthing::Daemon::local().folders().await.unwrap_or_default(),
+        syncthing: syncthing::Daemon::local()
+            .folders()
+            .await
+            .unwrap_or_default(),
         // Filled in by the status stream, which knows the installs.
         adapters: Vec::new(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -408,14 +414,19 @@ fn sdk_tool(dir: &str, name: &str) -> Option<PathBuf> {
             .map(PathBuf::from);
         let home = dirs::home_dir();
         let usual = [
-            Some(PathBuf::from("/opt/homebrew/share/android-commandlinetools")),
+            Some(PathBuf::from(
+                "/opt/homebrew/share/android-commandlinetools",
+            )),
             home.as_ref().map(|home| home.join("Library/Android/sdk")),
             home.as_ref().map(|home| home.join("Android/Sdk")),
             dirs::data_local_dir().map(|local| local.join("Android").join("Sdk")),
         ];
         named
             .chain(usual.into_iter().flatten())
-            .map(|sdk| sdk.join(dir).join(format!("{name}{}", env::consts::EXE_SUFFIX)))
+            .map(|sdk| {
+                sdk.join(dir)
+                    .join(format!("{name}{}", env::consts::EXE_SUFFIX))
+            })
             .find(|path| path.is_file())
     })
 }

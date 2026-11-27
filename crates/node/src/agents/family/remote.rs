@@ -2,10 +2,10 @@
 //! them: noted before the order goes, stopped with the parent (and again
 //! until the machine says so), and kept over a restart.
 
-use beep_proto::SessionId;
 use super::links::{Links, RemoteKid};
 use crate::agents::Session;
 use crate::agents::session::parent_gone;
+use beep_proto::SessionId;
 use iroh::EndpointId;
 use std::sync::Mutex;
 use tokio_util::task::AbortOnDropHandle;

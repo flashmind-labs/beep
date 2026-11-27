@@ -1,8 +1,8 @@
 //! Which entries of a transcript a read answers with, and bounded JSONL
 //! line and text helpers shared across session stores.
 
-use beep_proto::node::agent::Entry;
 use crate::logs::picture::Picture;
+use beep_proto::node::agent::Entry;
 use serde_json::Value;
 use std::{
     fs::File,
@@ -34,10 +34,7 @@ pub(crate) fn clamp_limit(limit: u32, default: usize, max: usize) -> usize {
 }
 
 /// Complete lines within the first `max` bytes of `path`.
-pub(crate) fn head_lines(
-    path: &Path,
-    max: u64,
-) -> io::Result<impl Iterator<Item = String>> {
+pub(crate) fn head_lines(path: &Path, max: u64) -> io::Result<impl Iterator<Item = String>> {
     Ok(BufReader::new(File::open(path)?.take(max))
         .lines()
         .map_while(Result::ok))
@@ -45,10 +42,7 @@ pub(crate) fn head_lines(
 
 /// Complete lines within the last `max` bytes of `path`; a line cut by the
 /// start of that stretch is skipped.
-pub(crate) fn tail_lines(
-    path: &Path,
-    max: u64,
-) -> io::Result<impl Iterator<Item = String>> {
+pub(crate) fn tail_lines(path: &Path, max: u64) -> io::Result<impl Iterator<Item = String>> {
     let mut file = File::open(path)?;
     let cut_at = file.metadata()?.len().saturating_sub(max);
     file.seek(SeekFrom::Start(cut_at))?;
@@ -83,12 +77,7 @@ pub(crate) fn titled_call(name: &str, detail: Option<&str>) -> String {
 }
 
 /// Replaces an in-progress native tool call line with its completion status and output.
-pub(crate) fn finish_tool_call(
-    text: &mut String,
-    failed: bool,
-    output: &str,
-    max: usize,
-) {
+pub(crate) fn finish_tool_call(text: &mut String, failed: bool, output: &str, max: usize) {
     let title = text.strip_suffix(" [in_progress]").unwrap_or(text);
     let status = if failed { "failed" } else { "completed" };
     *text = crate::text::cut(&format!("{title} [{status}]\n{output}"), max);

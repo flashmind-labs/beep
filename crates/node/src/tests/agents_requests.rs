@@ -52,13 +52,18 @@ fn pi_session() -> String {
 fn agents(codex: &Path, pi: &Path) -> Agents {
     let nothing = tempfile::tempdir().expect("a temp folder");
     Agents::new(Parts {
-        occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::at(nothing.path()), crate::logs::found::Stores::at(Some(codex), Some(pi), None)),
+        occupancy: crate::occupancy::Occupancy::over(
+            crate::logs::claude::Store::at(nothing.path()),
+            crate::logs::found::Stores::at(Some(codex), Some(pi), None),
+        ),
         ..Parts::default()
     })
 }
 
 async fn read(agents: &Agents, id: &str, last: u32) -> SessionsReply {
-    agents.transcript_reply(&SessionId::from(id), last, true, None).await
+    agents
+        .transcript_reply(&SessionId::from(id), last, true, None)
+        .await
 }
 
 #[tokio::test]
@@ -75,7 +80,8 @@ async fn a_codex_session_started_outside_beep_lists_then_reads() {
     let agents = agents(codex.path(), pi.path());
 
     let listed = agents
-        .listings.stores_external("codex", 10, Some(CODEX_ID.into()))
+        .listings
+        .stores_external("codex", 10, Some(CODEX_ID.into()))
         .await
         .expect("the listing");
     assert_eq!(listed.len(), 1);
@@ -130,8 +136,9 @@ async fn pages_before_an_entry_cover_a_found_session_without_a_gap_or_a_repeat()
     let mut before = None;
 
     loop {
-        let SessionsReply::Transcript { entries, earlier } =
-            agents.transcript_reply(&SessionId::from(CODEX_ID), 4, true, before).await
+        let SessionsReply::Transcript { entries, earlier } = agents
+            .transcript_reply(&SessionId::from(CODEX_ID), 4, true, before)
+            .await
         else {
             panic!("a transcript");
         };
@@ -221,12 +228,14 @@ async fn a_native_codex_conversation_reads_only_its_own_messages_and_outputs() {
     let agents = agents(codex.path(), pi.path());
     let id = format!("subagent:codex:{CODEX_ID}");
     let listed = agents
-        .listings.stores_external("codex", 10, None)
+        .listings
+        .stores_external("codex", 10, None)
         .await
         .expect("roots");
     assert!(listed.is_empty());
     let listed = agents
-        .listings.stores_external("codex", 1, Some(SessionId::from(id.clone())))
+        .listings
+        .stores_external("codex", 1, Some(SessionId::from(id.clone())))
         .await
         .expect("native session");
     assert_eq!(listed.len(), 1);
@@ -257,7 +266,9 @@ async fn a_native_codex_conversation_reads_only_its_own_messages_and_outputs() {
     let SessionsReply::Transcript {
         entries: first,
         earlier,
-    } = agents.transcript_reply(&SessionId::from(&id), 2, true, Some(2)).await
+    } = agents
+        .transcript_reply(&SessionId::from(&id), 2, true, Some(2))
+        .await
     else {
         panic!("older entries")
     };
@@ -275,15 +286,20 @@ async fn a_folder_listing_shows_an_edit_made_after_the_status_was_kept() {
     }
 
     let (_dir, work) = repo("folder");
-    let agents = Agents::new(Parts { folders: vec![work.clone()], ..Parts::default() });
+    let agents = Agents::new(Parts {
+        folders: vec![work.clone()],
+        ..Parts::default()
+    });
     let root = work.to_str().unwrap();
     let readme = |reply: SessionsReply| match reply {
-        SessionsReply::Folder { folder } => folder
-            .entries
-            .iter()
-            .find(|e| e.name == "README.md")
-            .unwrap()
-            .change,
+        SessionsReply::Folder { folder } => {
+            folder
+                .entries
+                .iter()
+                .find(|e| e.name == "README.md")
+                .unwrap()
+                .change
+        }
         other => panic!("not a folder: {other:?}"),
     };
 
@@ -349,7 +365,10 @@ async fn a_found_session_reads_from_the_listings_alone() {
         ),
         Arc::default(),
         events.clone(),
-        Arc::new(crate::agents::reviews::kept::Reviews::new(events, sessions.clone())),
+        Arc::new(crate::agents::reviews::kept::Reviews::new(
+            events,
+            sessions.clone(),
+        )),
         Arc::new(crate::agents::reopen::Reopen::new(
             sessions,
             Arc::new(crate::agents::family::links::Links::new(Default::default())),

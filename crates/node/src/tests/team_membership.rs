@@ -1,7 +1,7 @@
 use super::*;
 use crate::team::board::tests::{Pair, device, member, repo};
-use iroh::{SecretKey, protocol::Router};
 use beep_proto::team::TeamRecord;
+use iroh::{SecretKey, protocol::Router};
 use tokio::time::{Duration, timeout};
 
 #[test]
@@ -47,8 +47,10 @@ fn bob_knows_the_team(pair: &Pair) {
     let record = pair
         .gateway
         .with(|teams| teams.rosters.written(&repo()).unwrap().clone());
-    pair.bob_link.with(|teams| teams.rosters.refresh([(repo(), record)].into()));
-    pair.bob_link.edit_home(|home| home.mesh = Some(pair.bob.mesh));
+    pair.bob_link
+        .with(|teams| teams.rosters.refresh([(repo(), record)].into()));
+    pair.bob_link
+        .edit_home(|home| home.mesh = Some(pair.bob.mesh));
 }
 
 /// Waits for the last send on `repo()` to end, and keeps whom it missed.
@@ -275,11 +277,7 @@ async fn a_member_who_lost_access_is_removed() {
         let record = teams.rosters.get(&repo()).unwrap().clone();
         (record, teams.rosters.pending())
     });
-    let logins: Vec<&ForgeLogin> = record
-        .members
-        .iter()
-        .map(|member| &member.login)
-        .collect();
+    let logins: Vec<&ForgeLogin> = record.members.iter().map(|member| &member.login).collect();
     assert_eq!(logins, [&pair.alice.login, &pair.bob.login]);
     assert_eq!(pending[0].removed[0].login, carol.login);
 }
@@ -308,7 +306,12 @@ async fn a_member_who_may_only_read_leaves() {
         .await
         .expect("the change waits for a desktop");
     let pending = pair.gateway.with(|teams| teams.rosters.pending());
-    assert!(pending[0].members.iter().all(|member| member.mesh != carol.mesh));
+    assert!(
+        pending[0]
+            .members
+            .iter()
+            .all(|member| member.mesh != carol.mesh)
+    );
     assert_eq!(pending[0].removed[0].login, carol.login);
 }
 
@@ -319,10 +322,15 @@ async fn a_member_who_may_only_read_leaves() {
 async fn a_teammate_offline_at_a_rejoin_takes_the_member_later() {
     let pair = Pair::new().await;
     let dana = member("dana", SecretKey::generate().public());
-    let mut bobs = TeamRecord::new(repo(), vec![pair.alice.clone(), pair.bob.clone(), dana.clone()]);
+    let mut bobs = TeamRecord::new(
+        repo(),
+        vec![pair.alice.clone(), pair.bob.clone(), dana.clone()],
+    );
     bobs.remove(&dana.login);
-    pair.bob_link.with(|teams| teams.rosters.refresh([(repo(), bobs)].into()));
-    pair.bob_link.edit_home(|home| home.mesh = Some(pair.bob.mesh));
+    pair.bob_link
+        .with(|teams| teams.rosters.refresh([(repo(), bobs)].into()));
+    pair.bob_link
+        .edit_home(|home| home.mesh = Some(pair.bob.mesh));
     let again = Member {
         joined_at: dana.joined_at + Duration::from_secs(60),
         admitted_by: Some(pair.alice.mesh),
@@ -352,7 +360,10 @@ async fn a_teammate_offline_at_a_rejoin_takes_the_member_later() {
 
     let (allowed, removed) = pair.bob_link.with(|teams| {
         let record = teams.rosters.get(&repo()).unwrap();
-        (teams.rosters.allows(again.devices[0].id, &repo()), record.removed.clone())
+        (
+            teams.rosters.allows(again.devices[0].id, &repo()),
+            record.removed.clone(),
+        )
     });
     assert!(allowed);
     assert!(removed.is_empty());
@@ -404,7 +415,8 @@ async fn a_gateway_not_on_the_entry_takes_the_entry_naming_it() {
     let old = SecretKey::generate().public();
     let mine = member("alice", old);
     let record = TeamRecord::new(repo(), vec![mine.clone(), pair.bob.clone()]);
-    pair.gateway.with(|teams| teams.rosters.refresh([(repo(), record)].into()));
+    pair.gateway
+        .with(|teams| teams.rosters.refresh([(repo(), record)].into()));
     pair.gateway.edit_home(|home| home.mesh = Some(mine.mesh));
     let team = Team {
         repo: repo(),

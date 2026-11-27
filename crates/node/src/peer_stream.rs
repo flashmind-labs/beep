@@ -263,7 +263,9 @@ pub(crate) async fn forward(mesh: &Mesh, request: &tools::Request) -> tools::Rep
 pub(crate) fn from_desktop(name: &str, replied: Result<tools::Reply, CallFailed>) -> tools::Reply {
     match replied {
         // A desktop from before the tool answers that it serves no such tool.
-        Ok(tools::Reply::Done { text, failed: true }) if text.contains("does not serve Unknown") => {
+        Ok(tools::Reply::Done { text, failed: true })
+            if text.contains("does not serve Unknown") =>
+        {
             failed(format!(
                 "{name}: That desktop's Beep is too old for the project tools. Update it."
             ))

@@ -29,7 +29,11 @@ fn node_home(dir: &Path) -> PathBuf {
 /// Windows, which winget does not put on the running node's `PATH`.
 pub(super) fn path_dirs(dir: &Path) -> Vec<PathBuf> {
     let node = node_home(dir);
-    let node = if cfg!(windows) { node } else { node.join("bin") };
+    let node = if cfg!(windows) {
+        node
+    } else {
+        node.join("bin")
+    };
     let git = cfg!(windows)
         .then(|| env::var_os("ProgramFiles"))
         .flatten()

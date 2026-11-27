@@ -2,13 +2,13 @@
 //! `<session>/subagents/agent-<id>.jsonl` and its `.meta.json`, each shown on
 //! the entry of the call that started it.
 
-use beep_proto::SessionId;
 use super::transcript::{Page, Spawn, is_native, read_tail, tool_line};
 use super::{discover::Store, transcript};
-use crate::text::cut;
-use crate::logs::window::Excerpt;
 use crate::logs::found::memo::Memo;
 use crate::logs::subagent::Conversation;
+use crate::logs::window::Excerpt;
+use crate::text::cut;
+use beep_proto::SessionId;
 use beep_proto::node::agent::{Entry, ExternalSession, Presence};
 use serde::Deserialize;
 use serde_json::Value;
@@ -32,7 +32,8 @@ fn conversation(session: &Path, agent: &str) -> Option<String> {
 
 /// The native child reached through its parent's conversation, never a root listing.
 pub(crate) fn session(store: &Store, id: &SessionId) -> std::io::Result<Option<ExternalSession>> {
-    let Some(Conversation::Claude { parent, agent }) = Conversation::try_from(id.as_ref()).ok() else {
+    let Some(Conversation::Claude { parent, agent }) = Conversation::try_from(id.as_ref()).ok()
+    else {
         return Ok(None);
     };
     let Some(path) = store.find(id) else {
@@ -49,7 +50,12 @@ pub(crate) fn session(store: &Store, id: &SessionId) -> std::io::Result<Option<E
         .find(&Into::<SessionId>::into(parent))
         .and_then(|path| transcript::head(&path).ok())
         .and_then(|head| head.said.cwd);
-    let cwd = digest.said.cwd.or(head.said.cwd).or(parent_cwd).unwrap_or_default();
+    let cwd = digest
+        .said
+        .cwd
+        .or(head.said.cwd)
+        .or(parent_cwd)
+        .unwrap_or_default();
     let presence = match status(&Spawn::default(), &found) {
         Status::InProgress => Presence::Working,
         _ => Presence::Stopped,
@@ -57,7 +63,11 @@ pub(crate) fn session(store: &Store, id: &SessionId) -> std::io::Result<Option<E
     Ok(Some(ExternalSession {
         id: id.to_owned(),
         agent: "claude".to_owned(),
-        title: found.meta.description.or(head.said.title).or(head.said.last_prompt),
+        title: found
+            .meta
+            .description
+            .or(head.said.title)
+            .or(head.said.last_prompt),
         place: crate::logs::found::folder_place::of_folder(Path::new(&cwd)),
         cwd,
         started_at: head.first_at.unwrap_or(0),
@@ -345,10 +355,9 @@ impl Run {
 
         match value["type"].as_str() {
             Some("assistant") => {
-                if let Some(model) = value["message"]["model"]
-                    .as_str()
-                    .map(str::trim)
-                    && !model.is_empty() && model != "<synthetic>"
+                if let Some(model) = value["message"]["model"].as_str().map(str::trim)
+                    && !model.is_empty()
+                    && model != "<synthetic>"
                 {
                     self.model = Some(cut(model, MAX_STEP));
                 }

@@ -33,10 +33,9 @@ impl From<Target> for Format {
     fn from(target: Target) -> Self {
         match target {
             Target::WindowsX86_64 => Self::Zip,
-            Target::LinuxX86_64
-            | Target::LinuxAarch64
-            | Target::MacAarch64
-            | Target::MacX86_64 => Self::TarGz,
+            Target::LinuxX86_64 | Target::LinuxAarch64 | Target::MacAarch64 | Target::MacX86_64 => {
+                Self::TarGz
+            }
         }
     }
 }

@@ -45,9 +45,10 @@ pub(crate) fn write(path: &Path, bytes: &[u8]) -> Result<()> {
     // Each sync project has its own state file; one label covers them all.
     let file = match path.extension().and_then(|extension| extension.to_str()) {
         Some("state") => "sync.state".to_owned(),
-        _ => path
-            .file_name()
-            .map_or_else(|| "other".to_owned(), |name| name.to_string_lossy().into_owned()),
+        _ => path.file_name().map_or_else(
+            || "other".to_owned(),
+            |name| name.to_string_lossy().into_owned(),
+        ),
     };
     metrics::counter!("beep_persist_writes_total", "file" => file).increment(1);
     let mut temp = OsString::from(path);

@@ -152,9 +152,9 @@ pub(in crate::agents) fn prompt(
     let mut blocks = Vec::with_capacity(3 + prompt.images.len());
 
     for context in brief.into_iter().chain(prompt.context.as_deref()) {
-        blocks.push(ContentBlock::Text(TextContent::new(
-            crate::tags::context(context),
-        )));
+        blocks.push(ContentBlock::Text(TextContent::new(crate::tags::context(
+            context,
+        ))));
     }
 
     if !prompt.text.is_empty() || prompt.images.is_empty() {

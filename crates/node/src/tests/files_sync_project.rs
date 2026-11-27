@@ -11,7 +11,6 @@ use crate::files::sync::gitdir::{
     Repo,
     tests::{commit, init},
 };
-use crate::fs::paths;
 use crate::files::sync::{
     Parts,
     disk::{Found, Stat},
@@ -21,6 +20,7 @@ use crate::files::sync::{
     scan::{self, MAX_FILES},
     watch::{Mode, Watcher},
 };
+use crate::fs::paths;
 use crate::{
     files::Folders,
     files::place::{Journal, open_target},

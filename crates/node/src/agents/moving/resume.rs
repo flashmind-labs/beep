@@ -3,11 +3,11 @@
 //! bytes as counted (the machine that ran it counted them), and starts it
 //! through its agent, or keeps it ended when it came ended.
 
-use beep_proto::SessionId;
 use super::{Env, Harness, rewrite, store};
 use crate::agents::{AgentKind, Begin, SavedSession};
 use crate::logs::found::Agent;
 use anyhow::{Context, Result};
+use beep_proto::SessionId;
 use beep_proto::{ModelId, node::agent::ParentLink};
 use iroh::EndpointId;
 use std::{
@@ -116,7 +116,11 @@ pub(super) async fn resume(
 
 /// What a session that came ended is kept as here: as the source saved it,
 /// in `folder`, with a thread's link to its chat pointing here.
-pub(super) fn kept_here(arrival: &Arrival<'_>, folder: &Path, me: EndpointId) -> Option<SavedSession> {
+pub(super) fn kept_here(
+    arrival: &Arrival<'_>,
+    folder: &Path,
+    me: EndpointId,
+) -> Option<SavedSession> {
     let mut saved = arrival.saved.clone()?;
     saved.info.cwd = folder.to_string_lossy().into_owned();
     saved.info.parent = arrival.parent(me);
@@ -157,7 +161,13 @@ impl Arrival<'_> {
     /// chat moves whole. `None` for any other session, which leaves the one
     /// that started it behind.
     fn parent(&self, me: EndpointId) -> Option<ParentLink> {
-        let link = self.saved.as_ref()?.info.parent.clone().filter(|_| self.chat)?;
+        let link = self
+            .saved
+            .as_ref()?
+            .info
+            .parent
+            .clone()
+            .filter(|_| self.chat)?;
         let here = |machine: Option<EndpointId>| machine.filter(|at| *at != self.from).or(Some(me));
         Some(ParentLink {
             machine: here(link.machine),

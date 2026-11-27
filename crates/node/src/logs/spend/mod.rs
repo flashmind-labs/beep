@@ -53,4 +53,3 @@ pub(crate) struct Request {
     /// How it was paid for, when the line itself tells.
     billing: Billing,
 }
-

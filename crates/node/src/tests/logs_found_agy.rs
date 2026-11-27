@@ -38,7 +38,8 @@ fn lists_conversations_with_titles_and_skips_subagents() {
     conversation(&root, "child", "/srv/project", 300, 1);
     conversation(&root, "empty", "/srv/project", 400, 0);
 
-    let summaries = Connection::open(home.path().join("conversation_summaries.db")).expect("a database");
+    let summaries =
+        Connection::open(home.path().join("conversation_summaries.db")).expect("a database");
     summaries
         .execute_batch(
             "CREATE TABLE conversation_summaries (conversation_id TEXT PRIMARY KEY,
@@ -64,5 +65,3 @@ fn lists_conversations_with_titles_and_skips_subagents() {
     assert_eq!(found[1].title.as_deref(), Some("Fix the build"));
     assert_eq!(found[1].agent, Agent::Agy);
 }
-
-

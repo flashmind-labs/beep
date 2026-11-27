@@ -16,10 +16,7 @@ use crate::logs::prices::Tokens;
 use beep_proto::{ModelId, SessionId, node::usage::Billing};
 use prost::Message;
 use rusqlite::OptionalExtension;
-use std::{
-    collections::BTreeMap,
-    path::Path,
-};
+use std::{collections::BTreeMap, path::Path};
 
 /// The most model requests one conversation gives in a pass.
 const MAX_ROWS: i64 = 50_000;
@@ -81,7 +78,10 @@ pub(crate) fn conversation(
             continue;
         }
 
-        let at = match request.label("last_step_index").and_then(|step| step.parse::<i64>().ok()) {
+        let at = match request
+            .label("last_step_index")
+            .and_then(|step| step.parse::<i64>().ok())
+        {
             Some(step) => steps
                 .query_row([step], |row| row.get::<_, Vec<u8>>(0))
                 .optional()?

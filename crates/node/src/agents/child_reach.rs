@@ -1,9 +1,15 @@
 //! How a caller reaches its children (`Reach`), and the subagent card its
 //! transcript shows for each `start_agent` call (`show_children`).
 
+use super::{
+    Agents, Session,
+    child_view::ChildView,
+    family::{RemoteKid, Who},
+    live::Mark,
+    machine_list::{Machine, find_named, machine_name},
+};
 use crate::agents::sessions;
 use crate::calls::command_name;
-use super::{Agents, Session, child_view::ChildView, family::{RemoteKid, Who}, live::Mark, machine_list::{Machine, find_named, machine_name}};
 use beep_mesh::Mesh;
 use beep_proto::SessionId;
 use beep_proto::node::agent::{Entry, EntryKind};
@@ -133,10 +139,13 @@ impl Reach<'_> {
         let none = || format!("You have no agent {}.", id.session);
 
         match self.target(id.machine).map_err(|_| none())? {
-            None => Ok(Found::Here(self.agents.sessions.child_of(self.who, &id.session)?)),
+            None => Ok(Found::Here(
+                self.agents.sessions.child_of(self.who, &id.session)?,
+            )),
             Some(machine) => self
                 .agents
-                .links.remote_kids(&self.who.session)
+                .links
+                .remote_kids(&self.who.session)
                 .into_iter()
                 .find(|kid| kid.machine == machine.id && kid.id == id.session)
                 .map(Found::There)
@@ -162,7 +171,8 @@ impl Reach<'_> {
                 .and_then(|mesh| self.agents.links.views.of(mesh, &self.who.session, &kid))
                 .map_or_else(|| started.clone(), |view| view.named(&kid.name)),
         }
-    }}
+    }
+}
 
 /// The child a `start_agent` entry's text names, from the JSON line it holds.
 fn started_view(text: &str) -> Option<ChildView> {

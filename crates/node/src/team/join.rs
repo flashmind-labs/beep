@@ -12,6 +12,7 @@ use super::{
     roster::vet_roster,
 };
 use beep_mesh::{JoinSecret, TeamTicket, secret_hash};
+use beep_proto::watched;
 use beep_proto::{
     node::{
         LinkRx, LinkTx,
@@ -19,7 +20,6 @@ use beep_proto::{
     },
     team::{ForgeLogin, Member, TeamMsg, TeamRecord, TeamRepo},
 };
-use beep_proto::watched;
 use futures::future::join_all;
 use iroh::{EndpointAddr, EndpointId};
 use std::{
@@ -156,7 +156,9 @@ impl TeamLink {
         self.forge()
             .stamp(&repo, &sha, &proof_context(&nonce))
             .await
-            .map_err(|e| TeamError::Refused(format!("Could not mark the proof on {}: {e}", repo.host)))?;
+            .map_err(|e| {
+                TeamError::Refused(format!("Could not mark the proof on {}: {e}", repo.host))
+            })?;
         tx.send(&TeamMsg::Proved {
             nonce: nonce.to_string(),
         })
@@ -211,7 +213,10 @@ impl TeamLink {
         });
         let answers = join_all(checks).await;
 
-        match answers.into_iter().find(|(_, pushes)| *pushes == Some(false)) {
+        match answers
+            .into_iter()
+            .find(|(_, pushes)| *pushes == Some(false))
+        {
             Some((member, _)) => Err(TeamError::Refused(format!(
                 "{} is not a collaborator on {repo}",
                 member.login
@@ -332,9 +337,17 @@ impl TeamLink {
             })?;
         let sha = seen.ok_or_else(|| ProofError::Denied(repo.to_string()).to_string())?;
 
-        match self.marked(repo, &sha, &proof_context(&nonce), &join.login).await {
+        match self
+            .marked(repo, &sha, &proof_context(&nonce), &join.login)
+            .await
+        {
             Some(true) => {}
-            Some(false) => return Err(format!("{} did not mark the proof on the forge", join.login)),
+            Some(false) => {
+                return Err(format!(
+                    "{} did not mark the proof on the forge",
+                    join.login
+                ));
+            }
             None => return Err("Could not check access on the forge".to_owned()),
         }
         let entry = Member {

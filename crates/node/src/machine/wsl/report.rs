@@ -40,7 +40,9 @@ pub(crate) fn found() -> Vec<(DistroName, Found)> {
         .iter()
         .map(|(distro, found)| (distro.clone(), found.clone()))
         .collect();
-    found.sort_by(|(a, _), (b, _)| (default.as_ref() != Some(a), a).cmp(&(default.as_ref() != Some(b), b)));
+    found.sort_by(|(a, _), (b, _)| {
+        (default.as_ref() != Some(a), a).cmp(&(default.as_ref() != Some(b), b))
+    });
     found
 }
 
@@ -125,7 +127,10 @@ async fn probe(distros: &[&DistroName], limit: Duration) {
     });
 
     if timeout(limit, join_all(probes)).await.is_err() {
-        log::debug!("probing the WSL distributions took over {} s", limit.as_secs());
+        log::debug!(
+            "probing the WSL distributions took over {} s",
+            limit.as_secs()
+        );
     }
 }
 
@@ -135,7 +140,13 @@ fn described(distro: &DistroName, found: Option<&Found>) -> WslDistro {
     WslDistro {
         name: distro.to_string(),
         agents: found
-            .map(|found| found.agents.iter().map(|agent| agent.name.clone()).collect())
+            .map(|found| {
+                found
+                    .agents
+                    .iter()
+                    .map(|agent| agent.name.clone())
+                    .collect()
+            })
             .unwrap_or_default(),
         node: None,
         machine_id: None,

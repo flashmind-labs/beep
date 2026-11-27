@@ -10,10 +10,7 @@ use anyhow::{Context, Result, bail};
 use beep_mesh::{OPEN_TIMEOUT, RETRY};
 use beep_proto::node::LinkRx;
 use beep_proto::watched;
-use iroh::{
-    Endpoint, EndpointAddr, EndpointId,
-    endpoint::Connection,
-};
+use iroh::{Endpoint, EndpointAddr, EndpointId, endpoint::Connection};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},

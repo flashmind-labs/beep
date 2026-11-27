@@ -1,18 +1,22 @@
 //! Sessions and folders found in the agents' own logs and on disk.
 
-use super::{AgentKind, Agents, Begin, SavedSession, Session, claude, listings::{Listed, Listings}, sessions, limits::{DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS, MAX_FOLDERS, MAX_IN_FOLDERS}, session::{Command, History}};
-use crate::logs::{claude::Store, found::Stores};
-use crate::occupancy::Holding;
+use super::{
+    AgentKind, Agents, Begin, SavedSession, Session, claude,
+    limits::{DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS, MAX_FOLDERS, MAX_IN_FOLDERS},
+    listings::{Listed, Listings},
+    session::{Command, History},
+    sessions,
+};
+use crate::logs::found::{self, Agent};
 use crate::logs::picture::Picture;
 use crate::logs::window::clamp_limit;
-use crate::{
-    logs::found::{self, Agent},
-};
+use crate::logs::{claude::Store, found::Stores};
+use crate::occupancy::Holding;
 use anyhow::{Context, Result};
 use beep_proto::node::{
     agent::{
-        Entry, ExternalAsk, ExternalSession, HistoryCursor, MAX_EXTERNAL_NAMED, Presence, SessionInfo,
-        SessionFolder, SessionPage, Status,
+        Entry, ExternalAsk, ExternalSession, HistoryCursor, MAX_EXTERNAL_NAMED, Presence,
+        SessionFolder, SessionInfo, SessionPage, Status,
     },
     events::Topic,
 };
@@ -294,7 +298,9 @@ impl Listings {
     ) -> Result<Vec<ExternalSession>> {
         let starting = self.sessions.starting_pids();
         let mut sessions = if agent == Agent::Claude.as_ref() {
-            self.external().list(limit, session, self.sessions.owned()).await?
+            self.external()
+                .list(limit, session, self.sessions.owned())
+                .await?
         } else {
             self.stores_external(agent, limit, session).await?
         };
@@ -321,7 +327,8 @@ impl Listings {
     /// as, which its agent's files lack.
     pub(super) fn mark_kept(&self, sessions: &mut [ExternalSession]) {
         let kept: HashMap<SessionId, SavedSession> = self
-            .reopen.saved_sessions()
+            .reopen
+            .saved_sessions()
             .into_iter()
             .map(|saved| (saved.info.id.clone(), saved))
             .collect();
@@ -464,7 +471,10 @@ impl Listings {
     /// so it can go on here. The process is the one this node finds running
     /// that session now, never one a caller names.
     pub(super) async fn close_external(&self, agent: &str, id: &SessionId) -> Result<()> {
-        anyhow::ensure!(sessions::find_session(&self.sessions.read(), id).is_none(), "the session already runs in Beep");
+        anyhow::ensure!(
+            sessions::find_session(&self.sessions.read(), id).is_none(),
+            "the session already runs in Beep"
+        );
         let found = self.external_of(agent, 1, Some(id.clone())).await?;
         let session = found
             .into_iter()
@@ -498,7 +508,11 @@ impl Listings {
     /// The picture `key` of `session`'s transcript: kept, or else found
     /// again in the agent's own file of the session and kept. `session` is
     /// one of this node's sessions or one started outside Beep.
-    pub(crate) async fn image(&self, session: &SessionId, key: &str) -> Result<Option<Arc<Picture>>> {
+    pub(crate) async fn image(
+        &self,
+        session: &SessionId,
+        key: &str,
+    ) -> Result<Option<Arc<Picture>>> {
         if let Some(picture) = self.images.get(session, key) {
             return Ok(Some(picture));
         }
@@ -574,7 +588,11 @@ impl Listings {
             return sessions;
         }
 
-        match self.external().places(owned.keys().cloned().collect()).await {
+        match self
+            .external()
+            .places(owned.keys().cloned().collect())
+            .await
+        {
             Ok(found) => {
                 for (id, place) in found {
                     if let Some(info) = sessions
@@ -612,8 +630,7 @@ impl Listings {
         if session.id != id && dropped == 0 {
             return None;
         }
-        if let Some(history) = cached
-            .as_ref()
+        if let Some(history) = cached.as_ref()
             && (history.dropped == dropped || (before.is_none() && last <= retained))
         {
             return Some(history.clone());
@@ -812,13 +829,15 @@ impl Agents {
         // harness's private store. Outside sessions still need that reader.
         let cwd = if let Ok(agent) = kind.name.parse::<Agent>() {
             let mut found = self
-                .listings.find_external(agent, id, owned)
+                .listings
+                .find_external(agent, id, owned)
                 .await?
                 .with_context(|| {
                     format!("there is no {} session {id} on this machine", kind.name)
                 })?;
             found.presence = self.occupancy.presence_of(agent, &found).await;
-            self.occupancy.settle_closed(std::slice::from_mut(&mut found));
+            self.occupancy
+                .settle_closed(std::slice::from_mut(&mut found));
 
             if let Some(reason) = claude::refuse_takeover(&found) {
                 anyhow::bail!("{reason}");

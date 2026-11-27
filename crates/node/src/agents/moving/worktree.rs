@@ -3,9 +3,9 @@
 //! committed, the target makes a worktree on the same branch and applies it.
 //! Everything here blocks: call it from `spawn_blocking`.
 
-use serde::{Deserialize, Serialize};
 use crate::fs::paths;
 use anyhow::{Context, Result, bail};
+use serde::{Deserialize, Serialize};
 use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -49,7 +49,12 @@ pub(super) fn bundle(dir: &Path, head: &str, base: &str) -> Result<Vec<u8>> {
     }
 
     let not = format!("^{base}");
-    let bytes = capped(dir, &["bundle", "create", "-", "HEAD", &not], MAX_BUNDLE, &[])?;
+    let bytes = capped(
+        dir,
+        &["bundle", "create", "-", "HEAD", &not],
+        MAX_BUNDLE,
+        &[],
+    )?;
 
     if text(dir, &["rev-parse", "HEAD"])? != head {
         bail!("the worktree's commit changed during the move");
@@ -145,7 +150,16 @@ impl Moved {
 
 /// The commit `branch` is at in the checkout `main`, if it exists.
 pub(super) fn tip(main: &Path, branch: &str) -> Option<String> {
-    text(main, &["rev-parse", "--verify", "-q", &format!("refs/heads/{branch}")]).ok()
+    text(
+        main,
+        &[
+            "rev-parse",
+            "--verify",
+            "-q",
+            &format!("refs/heads/{branch}"),
+        ],
+    )
+    .ok()
 }
 
 /// Git's diff options that do not depend on the user's configuration.
@@ -607,7 +621,11 @@ pub(super) fn take_back(
             run(main, &["worktree", "remove", &made], None)?;
         }
         Placed::Reused { prior } => {
-            run(path, &["checkout", "--quiet", "--force", "--detach", prior], None)?;
+            run(
+                path,
+                &["checkout", "--quiet", "--force", "--detach", prior],
+                None,
+            )?;
             run(path, &["clean", "-fdq"], None)?;
         }
         Placed::Held => {}

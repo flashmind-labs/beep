@@ -2,9 +2,9 @@ use super::content::{replayed, thought_line};
 use super::limits::*;
 use super::*;
 use crate::agents::{compaction::COMPACTED_ENTRY, image_files};
-use crate::text::cut;
 use crate::logs::picture::Picture;
 use crate::logs::subagent::{Run, RunStep};
+use crate::text::cut;
 use agent_client_protocol::v1::schema::SessionUpdate;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::node::agent::{EntryKind, Status};
@@ -162,13 +162,21 @@ fn a_loaded_session_replays_its_prompts_and_answers() {
 
 #[test]
 fn interruption_replay_stays_apart_from_the_next_user_prompt() {
-    let chunk = |kind: &str, text: &str| update(json!({"sessionUpdate": kind, "content": {"type": "text", "text": text}}));
-    for notice in ["[Request interrupted by user]", "[Request interrupted by user for tool use]"] {
+    let chunk = |kind: &str, text: &str| {
+        update(json!({"sessionUpdate": kind, "content": {"type": "text", "text": text}}))
+    };
+    for notice in [
+        "[Request interrupted by user]",
+        "[Request interrupted by user for tool use]",
+    ] {
         for joined in [false, true] {
             let mut live = live_titled("A conversation");
             live.info.state.status = Status::Starting;
             if joined {
-                live.apply(&chunk("user_message_chunk", &format!("{notice}Use the other machine")));
+                live.apply(&chunk(
+                    "user_message_chunk",
+                    &format!("{notice}Use the other machine"),
+                ));
             } else {
                 live.apply(&chunk("user_message_chunk", notice));
                 live.apply(&chunk("user_message_chunk", "Use the other machine"));
@@ -315,8 +323,10 @@ fn a_tool_result_image_shows_on_its_tool_and_goes_to_the_server() {
 fn a_turn_the_agent_starts_on_its_own_is_a_new_message() {
     let mut live = live();
     let chunk = |id: &str, text: &str| {
-        update(json!({"sessionUpdate": "agent_message_chunk", "messageId": id,
-            "content": {"type": "text", "text": text}}))
+        update(
+            json!({"sessionUpdate": "agent_message_chunk", "messageId": id,
+            "content": {"type": "text", "text": text}}),
+        )
     };
     live.prompted("watch it");
     live.apply(&chunk("msg_1", "Still "));
@@ -987,26 +997,47 @@ fn flsh_credit_snapshots_preserve_context_and_do_not_count_as_session_cost() {
     assert_eq!(live.unbilled, None);
     let plans = usage.plans();
     assert_eq!(
-        watched::read(&plans, |plans| plans[&(beep_proto::AgentSlug::new("flsh"), None)].credits[0].remaining.clone()).as_deref(),
+        watched::read(&plans, |plans| plans
+            [&(beep_proto::AgentSlug::new("flsh"), None)]
+            .credits[0]
+            .remaining
+            .clone())
+        .as_deref(),
         Some("7.25")
     );
     live.apply(&balance(Some("0")));
     assert_eq!(
-        watched::read(&plans, |plans| plans[&(beep_proto::AgentSlug::new("flsh"), None)].credits.len()),
+        watched::read(&plans, |plans| plans
+            [&(beep_proto::AgentSlug::new("flsh"), None)]
+            .credits
+            .len()),
         1
     );
     assert_eq!(
-        watched::read(&plans, |plans| plans[&(beep_proto::AgentSlug::new("flsh"), None)].credits[0].remaining.clone()).as_deref(),
+        watched::read(&plans, |plans| plans
+            [&(beep_proto::AgentSlug::new("flsh"), None)]
+            .credits[0]
+            .remaining
+            .clone())
+        .as_deref(),
         Some("0")
     );
     live.apply(&balance(None));
     assert_eq!(
-        watched::read(&plans, |plans| plans[&(beep_proto::AgentSlug::new("flsh"), None)].credits[0].remaining.clone()),
+        watched::read(&plans, |plans| plans
+            [&(beep_proto::AgentSlug::new("flsh"), None)]
+            .credits[0]
+            .remaining
+            .clone()),
         None
     );
     live.apply(&balance(Some("NaN")));
     assert_eq!(
-        watched::read(&plans, |plans| plans[&(beep_proto::AgentSlug::new("flsh"), None)].credits[0].remaining.clone()),
+        watched::read(&plans, |plans| plans
+            [&(beep_proto::AgentSlug::new("flsh"), None)]
+            .credits[0]
+            .remaining
+            .clone()),
         None
     );
 }
@@ -1442,7 +1473,11 @@ fn a_turn_claude_code_starts_on_its_own_shows_as_working() {
     live.info.state.status = Status::Idle;
 
     assert!(live.apply_task(spawned("turn1")));
-    assert_eq!(live.status(), Status::Working, "a background task's report woke it");
+    assert_eq!(
+        live.status(),
+        Status::Working,
+        "a background task's report woke it"
+    );
     assert!(live.apply_task(ended("turn1")));
     assert_eq!(live.status(), Status::Idle);
 
@@ -1480,14 +1515,21 @@ fn a_live_claude_spawn_shows_its_requested_model() {
 
 #[test]
 fn automatic_titles_are_cleaned_on_updates_and_restore() {
-    let tagged = crate::tags::from_session("parent", "Parent task", "Fix the upload queue.\nDetails");
+    let tagged =
+        crate::tags::from_session("parent", "Parent task", "Fix the upload queue.\nDetails");
     let mut session = live_titled(&tagged);
     assert_eq!(session.info.title.as_deref(), Some("Fix the upload queue."));
-    session.apply(&update(json!({"sessionUpdate": "session_info_update", "title": tagged})));
+    session.apply(&update(
+        json!({"sessionUpdate": "session_info_update", "title": tagged}),
+    ));
     assert_eq!(session.info.title.as_deref(), Some("Fix the upload queue."));
-    session.apply(&update(json!({"sessionUpdate": "session_info_update", "title": "<from-session id=\"parent\""})));
+    session.apply(&update(
+        json!({"sessionUpdate": "session_info_update", "title": "<from-session id=\"parent\""}),
+    ));
     assert_eq!(session.info.title.as_deref(), Some("Fix the upload queue."));
-    session.apply(&update(json!({"sessionUpdate": "session_info_update", "title": "task ".repeat(40)})));
+    session.apply(&update(
+        json!({"sessionUpdate": "session_info_update", "title": "task ".repeat(40)}),
+    ));
     assert!(session.info.title.as_ref().unwrap().chars().count() <= 80);
 }
 
@@ -1495,7 +1537,13 @@ fn automatic_titles_are_cleaned_on_updates_and_restore() {
 fn streamed_prompt_titles_wait_for_complete_headers() {
     let mut session = live();
 
-    for chunk in ["<from-", "session id=\"parent\" name=\"Parent", " task\">\n", "Fix the upload queue.", "\n</from-session>"] {
+    for chunk in [
+        "<from-",
+        "session id=\"parent\" name=\"Parent",
+        " task\">\n",
+        "Fix the upload queue.",
+        "\n</from-session>",
+    ] {
         session.apply(&update(json!({"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": chunk}})));
         if chunk.contains("queue") || chunk.contains("</from-session>") {
             assert_eq!(session.info.title.as_deref(), Some("Fix the upload queue."));
@@ -1520,7 +1568,13 @@ fn recorded_times_survive_streaming_and_replay() {
     replay.info.state.status = Status::Starting;
     replay.apply_at(&update(json!({"sessionUpdate":"user_message_chunk", "content":{"type":"text","text":"fix it"}})), Instant::now());
     replay.apply_at(&said("Fixed."), Instant::now());
-    assert!(replay.transcript(10).0.iter().all(|entry| entry.sent_at.is_none()));
+    assert!(
+        replay
+            .transcript(10)
+            .0
+            .iter()
+            .all(|entry| entry.sent_at.is_none())
+    );
     replay.restore_times(&saved);
     assert_eq!(replay.transcript(10).0, saved);
 }
@@ -1662,7 +1716,11 @@ fn flsh_agents_show_progress_and_stop_counting_when_finished() {
     })));
     let (entries, _) = live.transcript(10);
     assert_eq!(entries.len(), 2);
-    assert!(entries[1].text.contains("[step completed] read: src/lib.rs"));
+    assert!(
+        entries[1]
+            .text
+            .contains("[step completed] read: src/lib.rs")
+    );
     assert!(entries[1].text.contains("[agent] worker"));
     assert!(entries[1].text.contains("[model] provider:model"));
     live.apply(&update(json!({
@@ -1717,7 +1775,9 @@ fn flsh_beep_mcp_calls_with_summarized_arguments_format_as_beep_calls() {
 }
 
 /// The next finished turn, taken as a stream does: read, then sent.
-async fn next_turn(turns: &crate::agents::alerts::Follow<'_, beep_proto::node::usage::TurnUsage>) -> beep_proto::node::usage::TurnUsage {
+async fn next_turn(
+    turns: &crate::agents::alerts::Follow<'_, beep_proto::node::usage::TurnUsage>,
+) -> beep_proto::node::usage::TurnUsage {
     let turn = turns.next().await;
     turns.sent();
     turn

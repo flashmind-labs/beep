@@ -1,13 +1,10 @@
-use crate::agents::Parts;
+use super::saved::{Folder, Outgoing, Phase, Saved};
 use super::{
     read::{ALPN, Access, Leaving, Pulled, pull},
     worktree::MovingWorktree,
 };
-use super::saved::{Folder, Outgoing, Phase, Saved};
-use crate::{
-    agents::Agents,
-    membership::Membership,
-};
+use crate::agents::Parts;
+use crate::{agents::Agents, membership::Membership};
 use beep_proto::SessionId;
 use beep_proto::{AgentSlug, node::link};
 use iroh::{
@@ -63,7 +60,10 @@ fn source(content: &str) -> Source {
     let rollout = day.join(format!("rollout-2026-11-04T09-30-00-{ID}.jsonl"));
     fs::write(&rollout, content).expect("a rollout");
     let agents = Agents::new(Parts {
-        occupancy: crate::occupancy::Occupancy::over(Default::default(), crate::logs::found::Stores::at(Some(dir.path()), None, None)),
+        occupancy: crate::occupancy::Occupancy::over(
+            Default::default(),
+            crate::logs::found::Stores::at(Some(dir.path()), None, None),
+        ),
         ..Parts::default()
     });
     // The sessions open before the last stop run again: none were open.
@@ -558,7 +558,10 @@ fn flsh_source() -> (TempDir, Arc<Agents>) {
     )
     .expect("a database");
     let agents = Agents::new(Parts {
-        occupancy: crate::occupancy::Occupancy::over(Default::default(), crate::logs::found::Stores::at(None, None, Some(dir.path()))),
+        occupancy: crate::occupancy::Occupancy::over(
+            Default::default(),
+            crate::logs::found::Stores::at(None, None, Some(dir.path())),
+        ),
         ..Parts::default()
     });
     agents.reopen.reopened.send_replace(true);
@@ -999,7 +1002,11 @@ async fn a_project_sessions_folder_is_not_sent_as_a_chats_files() {
 
 async fn stream_to(
     server: &Router,
-) -> (beep_proto::node::LinkTx, beep_proto::node::LinkRx, (Endpoint, Connection)) {
+) -> (
+    beep_proto::node::LinkTx,
+    beep_proto::node::LinkRx,
+    (Endpoint, Connection),
+) {
     let client = endpoint().await;
     let connection = client
         .connect(server.endpoint().addr(), ALPN)
@@ -1021,8 +1028,8 @@ fn state(taken: bool, starting: bool, landed: bool) -> super::read::Reply {
 
 #[tokio::test]
 async fn a_followed_move_pushes_each_state_on_one_stream() {
-    use beep_proto::node::agent::MovePhase;
     use super::read::{Reply, Request};
+    use beep_proto::node::agent::MovePhase;
 
     let source = source(&header(""));
     let id = SessionId::from(ID);
@@ -1034,13 +1041,25 @@ async fn a_followed_move_pushes_each_state_on_one_stream() {
     let (mut tx, mut rx, _connection) = stream_to(&server).await;
     tx.send(&Request::Follow { id, at: 7 }).await.expect("sent");
 
-    assert_eq!(rx.recv::<Reply>().await.expect("a reply"), Some(state(false, false, false)));
+    assert_eq!(
+        rx.recv::<Reply>().await.expect("a reply"),
+        Some(state(false, false, false))
+    );
     tracker.take();
-    assert_eq!(rx.recv::<Reply>().await.expect("a reply"), Some(state(true, false, false)));
+    assert_eq!(
+        rx.recv::<Reply>().await.expect("a reply"),
+        Some(state(true, false, false))
+    );
     assert!(tracker.resume());
-    assert_eq!(rx.recv::<Reply>().await.expect("a reply"), Some(state(true, true, false)));
+    assert_eq!(
+        rx.recv::<Reply>().await.expect("a reply"),
+        Some(state(true, true, false))
+    );
     tracker.finish(MovePhase::Done, None);
-    assert_eq!(rx.recv::<Reply>().await.expect("a reply"), Some(state(true, false, true)));
+    assert_eq!(
+        rx.recv::<Reply>().await.expect("a reply"),
+        Some(state(true, false, true))
+    );
     assert_eq!(rx.recv::<Reply>().await.expect("the end"), None);
     server.shutdown().await.expect("the test router shuts down");
 }
@@ -1063,7 +1082,10 @@ async fn a_source_that_follows_says_on_the_stream_when_it_is_done_with_the_sessi
         let _ = told.send(pulled.live);
     });
     let release = async {
-        assert!(heard.await.expect("told"), "the session still ran when it was read");
+        assert!(
+            heard.await.expect("told"),
+            "the session still ran when it was read"
+        );
         drop(held);
     };
     let (pulled, ()) = tokio::join!(follow, release);

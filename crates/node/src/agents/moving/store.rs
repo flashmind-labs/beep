@@ -195,7 +195,8 @@ impl Delete {
         let mut owned = self.sessions.owned();
         owned.remove(&agent_id);
         let old = PathBuf::from(
-            self.listings.find_external(which, &agent_id, owned)
+            self.listings
+                .find_external(which, &agent_id, owned)
                 .await?
                 .context("session not found")?
                 .cwd,

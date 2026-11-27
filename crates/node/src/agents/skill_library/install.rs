@@ -160,7 +160,11 @@ pub(super) fn wants(ready: &[Ready], global: &[PathBuf], checkouts: &[Checkout])
             };
 
             if lib.library.global.has(&skill) {
-                out.extend(global.iter().map(|dir| want(dir.join(&skill), Place::Global)));
+                out.extend(
+                    global
+                        .iter()
+                        .map(|dir| want(dir.join(&skill), Place::Global)),
+                );
             }
 
             for checkout in checkouts {
@@ -172,7 +176,10 @@ pub(super) fn wants(ready: &[Ready], global: &[PathBuf], checkouts: &[Checkout])
 
                 if picks.is_some_and(|pick| pick.has(&skill)) {
                     out.extend(PROJECT_FOLDERS.iter().map(|rel| {
-                        want(checkout.folder.join(rel).join(&skill), checkout.place.clone())
+                        want(
+                            checkout.folder.join(rel).join(&skill),
+                            checkout.place.clone(),
+                        )
                     }));
                 }
             }
@@ -206,7 +213,11 @@ fn at(path: &Path) -> At {
 
 /// Installs every one of `wants`, uninstalls what `record` holds that none asks for, and keeps
 /// each checkout's Git exclude block in step. What could not be done, as problems.
-pub(super) fn apply(record: &mut Record, mut wants: Vec<Want>, checkouts: &[Checkout]) -> Vec<Problem> {
+pub(super) fn apply(
+    record: &mut Record,
+    mut wants: Vec<Want>,
+    checkouts: &[Checkout],
+) -> Vec<Problem> {
     let mut problems = Vec::new();
     let mut desired = BTreeSet::new();
     let mut sources: HashMap<PathBuf, Option<(Vec<SkillFile>, String)>> = HashMap::new();
@@ -239,13 +250,10 @@ pub(super) fn apply(record: &mut Record, mut wants: Vec<Want>, checkouts: &[Chec
             continue;
         };
         let copy = sources.entry(source.clone()).or_insert_with(|| {
-            skill_disk::read(source)
-                .ok()
-                .flatten()
-                .map(|files| {
-                    let hash = skill_disk::hash(&files);
-                    (files, hash)
-                })
+            skill_disk::read(source).ok().flatten().map(|files| {
+                let hash = skill_disk::hash(&files);
+                (files, hash)
+            })
         });
         let Some((files, hash)) = copy else {
             problems.push(problem(format!("{} cannot be read", want.skill)));
@@ -267,7 +275,10 @@ pub(super) fn apply(record: &mut Record, mut wants: Vec<Want>, checkouts: &[Chec
         }
 
         if let Err(e) = exclude(record, checkout) {
-            log::debug!("skill libraries: the Git exclude of {} not written: {e:#}", checkout.place);
+            log::debug!(
+                "skill libraries: the Git exclude of {} not written: {e:#}",
+                checkout.place
+            );
         }
     }
 
@@ -275,7 +286,12 @@ pub(super) fn apply(record: &mut Record, mut wants: Vec<Want>, checkouts: &[Chec
 }
 
 /// Installs one skill folder, records it, and says why it was left alone, if it was.
-fn install(record: &mut Record, want: &Want, files: &[SkillFile], hash: &str) -> Result<Option<String>> {
+fn install(
+    record: &mut Record,
+    want: &Want,
+    files: &[SkillFile],
+    hash: &str,
+) -> Result<Option<String>> {
     let now = at(&want.path);
     let recorded = record.installs.get(&want.path);
 
@@ -294,13 +310,21 @@ fn install(record: &mut Record, want: &Want, files: &[SkillFile], hash: &str) ->
             _ => return Ok(None),
         },
         Some(_) => {
-            return Ok(Some(format!("a skill named {} is already there", want.skill)));
+            return Ok(Some(format!(
+                "a skill named {} is already there",
+                want.skill
+            )));
         }
         None => match now {
             At::Missing => write(&want.path, files)?,
             // The same skill, put there before the library was added: it is the library's now.
             At::Skill(found) if found == hash => {}
-            _ => return Ok(Some(format!("a skill named {} is already there", want.skill))),
+            _ => {
+                return Ok(Some(format!(
+                    "a skill named {} is already there",
+                    want.skill
+                )));
+            }
         },
     }
 
@@ -349,7 +373,10 @@ fn uninstall(record: &mut Record, desired: &BTreeSet<PathBuf>) {
         match at(&install.path) {
             At::Skill(found) if found == install.hash => {
                 if let Err(e) = skill_disk::remove_entry(&install.path) {
-                    log::warn!("skill libraries: {} not removed: {e:#}", install.path.display());
+                    log::warn!(
+                        "skill libraries: {} not removed: {e:#}",
+                        install.path.display()
+                    );
                     continue;
                 }
             }
@@ -370,19 +397,28 @@ fn exclude(record: &Record, checkout: &Checkout) -> Result<()> {
     let names: BTreeSet<&str> = record
         .installs
         .values()
-        .filter(|install| install.place == checkout.place && install.path.starts_with(&checkout.folder))
+        .filter(|install| {
+            install.place == checkout.place && install.path.starts_with(&checkout.folder)
+        })
         .map(|install| install.skill.as_str())
         .collect();
     let lines: Vec<String> = if checkout.keep_out_of_git {
         names
             .iter()
-            .flat_map(|name| PROJECT_FOLDERS.iter().map(move |rel| format!("/{rel}/{name}/")))
+            .flat_map(|name| {
+                PROJECT_FOLDERS
+                    .iter()
+                    .map(move |rel| format!("/{rel}/{name}/"))
+            })
             .collect()
     } else {
         Vec::new()
     };
 
-    let Ok(found) = store::git(&checkout.folder, &["rev-parse", "--git-path", "info/exclude"]) else {
+    let Ok(found) = store::git(
+        &checkout.folder,
+        &["rev-parse", "--git-path", "info/exclude"],
+    ) else {
         return Ok(());
     };
     let file = checkout.folder.join(found.trim());
@@ -436,7 +472,11 @@ pub(super) fn with_block(text: &str, lines: &[String]) -> String {
     }
 
     // Untouched when the block did not change, even if the file did not end in a newline.
-    if out.trim_end() == text.trim_end() { text.to_owned() } else { out }
+    if out.trim_end() == text.trim_end() {
+        text.to_owned()
+    } else {
+        out
+    }
 }
 
 #[cfg(test)]

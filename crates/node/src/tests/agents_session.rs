@@ -1,15 +1,15 @@
 // The fake agents are sh scripts, so most tests run on Unix only.
 #![cfg_attr(windows, allow(dead_code, unused_imports))]
 
-use super::*;
 use super::types::{MAX_QUEUED, MAX_QUEUED_BYTES};
-use beep_proto::ModelId;
-use beep_proto::node::agent::{AnswerOption, Effort};
+use super::*;
 use super::{
     orders::{choose, queue_room},
     turns::take_steers,
 };
-use crate::agents::{compaction::{COMPACT_PROMPT, COMPACTED_ENTRY}};
+use crate::agents::compaction::{COMPACT_PROMPT, COMPACTED_ENTRY};
+use beep_proto::ModelId;
+use beep_proto::node::agent::{AnswerOption, Effort};
 use beep_proto::node::{
     agent::{Alert, AlertKind, OptionKind, StopReason, TaskState},
     harness::{AutoCompact, ModelCompact},
@@ -161,7 +161,15 @@ async fn a_takeover_resumes_without_permission_prompts() {
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let id = "0f3c2a9e-1111-4222-8333-944455556666";
-    let session = Session::start(Start { begin: Begin { prompt: Some(String::from("carry on")), resume: Some(id.into()), earlier: Vec::new(), ..begun(None) }, ..start_on(&fake("claude", &log), dir, None) })
+    let session = Session::start(Start {
+        begin: Begin {
+            prompt: Some(String::from("carry on")),
+            resume: Some(id.into()),
+            earlier: Vec::new(),
+            ..begun(None)
+        },
+        ..start_on(&fake("claude", &log), dir, None)
+    })
     .unwrap();
     settle(&session).await;
     let info = session.info();
@@ -204,7 +212,13 @@ async fn the_first_prompt_carries_the_brief() {
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("codex", PLAIN_ADAPTER, &log);
-    let session = Session::start(Start { begin: Begin { brief: Some("Worktree first.".into()), ..begun(None) }, ..start_on(&kind, dir, None) })
+    let session = Session::start(Start {
+        begin: Begin {
+            brief: Some("Worktree first.".into()),
+            ..begun(None)
+        },
+        ..start_on(&kind, dir, None)
+    })
     .unwrap();
     settle(&session).await;
     assert_eq!(session.info().turns, 1, "{:?}", session.info().state.error);
@@ -218,10 +232,7 @@ async fn the_first_prompt_carries_the_brief() {
         .collect();
     assert_eq!(
         blocks,
-        [
-            crate::tags::context("Worktree first.").as_str(),
-            "go"
-        ]
+        [crate::tags::context("Worktree first.").as_str(), "go"]
     );
 }
 
@@ -258,7 +269,14 @@ async fn an_agent_that_takes_a_system_prompt_gets_the_brief_in_session_new() {
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("codex", SYSTEM_PROMPT_ADAPTER, &log);
-    let session = Session::start(Start { begin: Begin { brief: Some("Worktree first.".into()), ..begun(None) }, mcp: Some(beep_server()), ..start_on(&kind, dir, None) })
+    let session = Session::start(Start {
+        begin: Begin {
+            brief: Some("Worktree first.".into()),
+            ..begun(None)
+        },
+        mcp: Some(beep_server()),
+        ..start_on(&kind, dir, None)
+    })
     .unwrap();
     settle(&session).await;
     assert_eq!(session.info().turns, 1, "{:?}", session.info().state.error);
@@ -284,7 +302,15 @@ async fn a_resumed_session_gets_the_tools_in_session_load_and_the_brief_in_its_p
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("codex", SYSTEM_PROMPT_ADAPTER, &log);
-    let session = Session::start(Start { begin: Begin { resume: Some("s".into()), brief: Some("This session moved.".into()), ..begun(None) }, mcp: Some(beep_server()), ..start_on(&kind, dir, None) })
+    let session = Session::start(Start {
+        begin: Begin {
+            resume: Some("s".into()),
+            brief: Some("This session moved.".into()),
+            ..begun(None)
+        },
+        mcp: Some(beep_server()),
+        ..start_on(&kind, dir, None)
+    })
     .unwrap();
     settle(&session).await;
     assert_eq!(session.info().turns, 1, "{:?}", session.info().state.error);
@@ -299,10 +325,7 @@ async fn a_resumed_session_gets_the_tools_in_session_load_and_the_brief_in_its_p
     );
     assert_eq!(
         prompt_texts(&sent[2]),
-        [
-            crate::tags::context("This session moved.").as_str(),
-            "go"
-        ]
+        [crate::tags::context("This session moved.").as_str(), "go"]
     );
 }
 
@@ -313,7 +336,14 @@ async fn an_agent_without_a_system_prompt_gets_the_whole_brief_in_its_first_prom
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("pi", PLAIN_ADAPTER, &log);
-    let session = Session::start(Start { begin: Begin { brief: Some("Worktree first.".into()), ..begun(None) }, mcp: Some(beep_server()), ..start_on(&kind, dir, None) })
+    let session = Session::start(Start {
+        begin: Begin {
+            brief: Some("Worktree first.".into()),
+            ..begun(None)
+        },
+        mcp: Some(beep_server()),
+        ..start_on(&kind, dir, None)
+    })
     .unwrap();
     settle(&session).await;
     let sent = sent(&log);
@@ -343,7 +373,13 @@ async fn a_question_of_the_nodes_takes_an_option_or_any_words() {
     let temp = tempfile::tempdir().unwrap();
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
-    let session = Session::start(Start { begin: Begin { prompt: Some(String::from("hello")), ..begun(None) }, ..start_on(&script("fake", PLAIN_ADAPTER, &log), dir, None) })
+    let session = Session::start(Start {
+        begin: Begin {
+            prompt: Some(String::from("hello")),
+            ..begun(None)
+        },
+        ..start_on(&script("fake", PLAIN_ADAPTER, &log), dir, None)
+    })
     .unwrap();
     settle(&session).await;
     let ask = |reply| Command::Ask {
@@ -655,7 +691,13 @@ async fn a_large_prompt_and_a_large_burst_do_not_deadlock() {
     let temp = tempfile::tempdir().unwrap();
     let dir = temp.path();
     let log = dir.join("unused");
-    let session = Session::start(Start { begin: Begin { prompt: Some("y".repeat(4 * 1024 * 1024)), ..begun(None) }, ..start_on(&script("codex", BURSTING_ADAPTER, &log), dir, None) })
+    let session = Session::start(Start {
+        begin: Begin {
+            prompt: Some("y".repeat(4 * 1024 * 1024)),
+            ..begun(None)
+        },
+        ..start_on(&script("codex", BURSTING_ADAPTER, &log), dir, None)
+    })
     .unwrap();
     let mut live = session.live.clone();
     // The timeout only bounds a failure; the turn ending is the signal.
@@ -824,7 +866,10 @@ async fn codex_on_its_direct_bridge_runs_a_turn_and_stops_with_the_session() {
     };
     let session = Session::start(start_on(&kind, dir, None)).unwrap();
 
-    until(&session, |live| live.info.turns >= 1 || live.status() == Status::Ended).await;
+    until(&session, |live| {
+        live.info.turns >= 1 || live.status() == Status::Ended
+    })
+    .await;
     let info = session.info();
     assert_eq!(info.turns, 1, "{:?}", info.state.error);
     assert_eq!(info.last_message, "Done.");
@@ -851,7 +896,13 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
 async fn image_session(dir: &Path, images: bool) -> Session {
     let mut kind = script("codex", IMAGES_ADAPTER, &dir.join("sent.jsonl"));
     kind.args.push(images.to_string());
-    let session = Session::start(Start { begin: Begin { prompt: None, ..begun(None) }, ..start_on(&kind, dir, None) })
+    let session = Session::start(Start {
+        begin: Begin {
+            prompt: None,
+            ..begun(None)
+        },
+        ..start_on(&kind, dir, None)
+    })
     .unwrap();
     until(&session, |live| {
         matches!(live.status(), Status::Idle | Status::Ended)
@@ -1149,7 +1200,13 @@ async fn a_resumed_session_switches_its_model_with_what_load_offers() {
     let log = dir.join("sent.jsonl");
     let mut kind = script("codex", RESUMED_CODEX_ADAPTER, &log);
     kind.default_model = Some(ModelId::new("deep"));
-    let start = Start { begin: Begin { resume: Some("0f3c2a9e-1111-4222-8333-944455556666".into()), ..begun(None) }, ..start_on(&kind, dir, None) };
+    let start = Start {
+        begin: Begin {
+            resume: Some("0f3c2a9e-1111-4222-8333-944455556666".into()),
+            ..begun(None)
+        },
+        ..start_on(&kind, dir, None)
+    };
     let session = Session::start(start).unwrap();
     settle(&session).await;
     assert_eq!(
@@ -1207,7 +1264,13 @@ async fn a_new_session_sets_its_thinking_before_the_first_prompt() {
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("codex", THINKING_ADAPTER, &log);
-    let session = Session::start(Start { begin: Begin { effort: Some(Effort::Max), ..begun(None) }, ..start_on(&kind, dir, None) })
+    let session = Session::start(Start {
+        begin: Begin {
+            effort: Some(Effort::Max),
+            ..begun(None)
+        },
+        ..start_on(&kind, dir, None)
+    })
     .unwrap();
     settle(&session).await;
     assert_eq!(session.info().turns, 1);
@@ -1299,7 +1362,10 @@ async fn a_full_window_is_compacted_as_soon_as_its_turn_ends() {
     let log = dir.join("sent.jsonl");
     let adapter = COMPACTING_ADAPTER.replace("handshake ", "system_handshake ");
     let kind = script("codex", &adapter, &log);
-    let session = Session::start(Start { instructions: Some("Use plain words.".into()), ..start_on(&kind, dir, None) })
+    let session = Session::start(Start {
+        instructions: Some("Use plain words.".into()),
+        ..start_on(&kind, dir, None)
+    })
     .unwrap();
     settle(&session).await;
     // Nothing waits: the compaction goes before the next message comes, so
@@ -1324,8 +1390,14 @@ async fn a_full_window_is_compacted_as_soon_as_its_turn_ends() {
     assert_eq!(info.turns, 2, "{:?}", info.state.error);
     assert_eq!(prompts(&log), ["go", COMPACT_PROMPT, "next"]);
     let requests = sent(&log);
-    assert_eq!(requests[1]["params"]["systemPrompt"]["content"][0]["text"], "Use plain words.");
-    for request in requests.iter().filter(|request| request["method"] == "session/prompt") {
+    assert_eq!(
+        requests[1]["params"]["systemPrompt"]["content"][0]["text"],
+        "Use plain words."
+    );
+    for request in requests
+        .iter()
+        .filter(|request| request["method"] == "session/prompt")
+    {
         assert_eq!(prompt_texts(request).len(), 1);
     }
     assert_eq!(
@@ -1379,10 +1451,19 @@ async fn a_compaction_summary_shows_as_the_compaction_not_the_last_reply() {
     .await;
     assert_eq!(prompts(&log), ["go", COMPACT_PROMPT]);
     let (entries, _) = watched::read(&session.live, |live| live.transcript(100));
-    let texts: Vec<_> = entries.iter().map(|entry| (entry.kind, entry.text.as_str())).collect();
-    assert!(texts.contains(&(EntryKind::Agent, "Buckets are ready.")), "{texts:?}");
+    let texts: Vec<_> = entries
+        .iter()
+        .map(|entry| (entry.kind, entry.text.as_str()))
+        .collect();
     assert!(
-        texts.contains(&(EntryKind::Compacted, "[conversation compacted]\n## Goal\nShip the buckets.")),
+        texts.contains(&(EntryKind::Agent, "Buckets are ready.")),
+        "{texts:?}"
+    );
+    assert!(
+        texts.contains(&(
+            EntryKind::Compacted,
+            "[conversation compacted]\n## Goal\nShip the buckets."
+        )),
         "{texts:?}"
     );
 }
@@ -1442,7 +1523,11 @@ async fn an_agent_without_a_system_prompt_hears_instructions_again_after_compact
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("pi", COMPACTING_ADAPTER, &log);
-    let session = Session::start(Start { instructions: Some("Use plain words.".into()), rule: Some("Worktree first.".into()), ..start_on(&kind, dir, None) })
+    let session = Session::start(Start {
+        instructions: Some("Use plain words.".into()),
+        rule: Some("Worktree first.".into()),
+        ..start_on(&kind, dir, None)
+    })
     .unwrap();
     settle(&session).await;
     session
@@ -1477,7 +1562,15 @@ async fn a_resumed_session_keeps_the_rule_in_its_system_prompt() {
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("codex", SYSTEM_PROMPT_ADAPTER, &log);
-    let session = Session::start(Start { begin: Begin { resume: Some("s".into()), ..begun(None) }, rule: Some("Worktree first.".into()), mcp: Some(beep_server()), ..start_on(&kind, dir, None) })
+    let session = Session::start(Start {
+        begin: Begin {
+            resume: Some("s".into()),
+            ..begun(None)
+        },
+        rule: Some("Worktree first.".into()),
+        mcp: Some(beep_server()),
+        ..start_on(&kind, dir, None)
+    })
     .unwrap();
     settle(&session).await;
     let sent = sent(&log);
@@ -1519,7 +1612,10 @@ async fn a_question_alerts_and_a_queued_prompt_ends_in_one_alert() {
     let log = dir.join("sent.jsonl");
     let kind = script("pi", TWO_TURN_ADAPTER, &log);
     let alerts = Arc::new(AlertHub::default());
-    let session = Session::start(Start { alerts: alerts.clone(), ..start_on(&kind, dir, None) })
+    let session = Session::start(Start {
+        alerts: alerts.clone(),
+        ..start_on(&kind, dir, None)
+    })
     .unwrap();
     settle(&session).await;
     let question = session.info().question.expect("a question");
@@ -1603,7 +1699,10 @@ async fn a_turn_alerts_its_end_once_its_subagents_end() {
     let mut kind = script("pi", SUBAGENT_ADAPTER, &log);
     kind.args.push(fifo.display().to_string());
     let alerts = Arc::new(AlertHub::default());
-    let session = Session::start(Start { alerts: alerts.clone(), ..start_on(&kind, dir, None) })
+    let session = Session::start(Start {
+        alerts: alerts.clone(),
+        ..start_on(&kind, dir, None)
+    })
     .unwrap();
     settle(&session).await;
     let question = session.info().question.expect("a question");
@@ -1676,7 +1775,10 @@ async fn a_turn_alerts_its_end_once_its_subagents_go_quiet() {
     let mut kind = script("pi", SUBAGENT_ADAPTER, &log);
     kind.args.push(fifo.display().to_string());
     let alerts = Arc::new(AlertHub::default());
-    let session = Session::start(Start { alerts: alerts.clone(), ..start_on(&kind, dir, None) })
+    let session = Session::start(Start {
+        alerts: alerts.clone(),
+        ..start_on(&kind, dir, None)
+    })
     .unwrap();
     settle(&session).await;
     let question = session.info().question.expect("a question");
@@ -1945,7 +2047,13 @@ async fn plan_mode_waits_for_approval_and_goes_back_to_the_mode_before_it() {
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("claude", PLAN_ADAPTER, &log);
-    let session = Session::start(Start { begin: Begin { prompt: None, ..begun(None) }, ..start_on(&kind, dir, None) })
+    let session = Session::start(Start {
+        begin: Begin {
+            prompt: None,
+            ..begun(None)
+        },
+        ..start_on(&kind, dir, None)
+    })
     .unwrap();
     until(&session, |live| live.status() == Status::Idle).await;
     let info = session.info();
@@ -2532,7 +2640,8 @@ async fn saved_instructions_reach_new_and_resumed_sessions_without_editing_files
                     ..Begin::default()
                 },
             )
-            .await.unwrap();
+            .await
+            .unwrap();
         settle(&session).await;
         let sent = sent(&log);
         assert_eq!(
@@ -2574,7 +2683,14 @@ cat > /dev/null
 "#;
         let kind = script("agy", &adapter.replace("LOAD_SESSION", load_session), &log);
         let instructions = "Use plain words.";
-        let session = Session::start(Start { begin: Begin { resume, ..begun(None) }, instructions: Some(instructions.into()), ..start_on(&kind, temp.path(), None) })
+        let session = Session::start(Start {
+            begin: Begin {
+                resume,
+                ..begun(None)
+            },
+            instructions: Some(instructions.into()),
+            ..start_on(&kind, temp.path(), None)
+        })
         .unwrap();
 
         settle(&session).await;
@@ -2607,7 +2723,14 @@ reply '{"stopReason":"end_turn"}'
 cat > /dev/null
 "#;
         let kind = script("custom", adapter, &log);
-        let session = Session::start(Start { begin: Begin { resume, ..begun(None) }, instructions: Some("Use plain words.".into()), ..start_on(&kind, temp.path(), None) })
+        let session = Session::start(Start {
+            begin: Begin {
+                resume,
+                ..begun(None)
+            },
+            instructions: Some("Use plain words.".into()),
+            ..start_on(&kind, temp.path(), None)
+        })
         .unwrap();
 
         settle(&session).await;
@@ -2667,14 +2790,19 @@ cat > /dev/null
         let mut kind = fake("pi", &log);
         kind.program = adapter.display().to_string();
         kind.args.clear();
-        kind.env.insert("PI_ACP_PI_COMMAND".into(), pi.display().to_string());
-        kind.env.insert("PI_CODING_AGENT_DIR".into(), dir.display().to_string());
+        kind.env
+            .insert("PI_ACP_PI_COMMAND".into(), pi.display().to_string());
+        kind.env
+            .insert("PI_CODING_AGENT_DIR".into(), dir.display().to_string());
         if has_append_file {
             std::fs::write(dir.join("APPEND_SYSTEM.md"), "Keep Pi's own instructions.").unwrap();
         }
         let instructions = "Use plain words.\nKeep `quotes`, $variables and spaces.";
         let session = Session::start(Start {
-            begin: Begin { resume, ..begun(None) },
+            begin: Begin {
+                resume,
+                ..begun(None)
+            },
             instructions: with_instructions.then(|| instructions.into()),
             ..start_on(&kind, dir, None)
         })
@@ -2739,8 +2867,10 @@ cat > /dev/null
     let mut kind = fake("pi", &log);
     kind.program = adapter.display().to_string();
     kind.args.clear();
-    kind.env.insert("PI_ACP_PI_COMMAND".into(), pi.display().to_string());
-    kind.env.insert("PI_CODING_AGENT_DIR".into(), dir.display().to_string());
+    kind.env
+        .insert("PI_ACP_PI_COMMAND".into(), pi.display().to_string());
+    kind.env
+        .insert("PI_CODING_AGENT_DIR".into(), dir.display().to_string());
     std::fs::write(dir.join("APPEND_SYSTEM.md"), "Keep Pi's own instructions.").unwrap();
 
     let mcp = agent_client_protocol::v1::schema::McpServer::Stdio(
@@ -2908,7 +3038,15 @@ cat > /dev/null
             args,
             ..script("flsh", "", &log)
         };
-        let session = Session::start(Start { begin: Begin { resume: resume.clone(), ..begun(None) }, instructions: Some("Use plain words.".into()), rule: Some("Use a worktree.".into()), ..start_on(&kind, dir, None) })
+        let session = Session::start(Start {
+            begin: Begin {
+                resume: resume.clone(),
+                ..begun(None)
+            },
+            instructions: Some("Use plain words.".into()),
+            rule: Some("Use a worktree.".into()),
+            ..start_on(&kind, dir, None)
+        })
         .unwrap();
 
         settle(&session).await;
@@ -3178,7 +3316,14 @@ async fn an_image_sent_during_resume_waits_for_image_capabilities() {
         let mut kind = script("codex", &adapter, &dir.join("sent.jsonl"));
         kind.args
             .extend([images.to_string(), fifo.display().to_string()]);
-        let session = Session::start(Start { begin: Begin { prompt: None, resume: Some("s".into()), ..begun(None) }, ..start_on(&kind, dir, None) })
+        let session = Session::start(Start {
+            begin: Begin {
+                prompt: None,
+                resume: Some("s".into()),
+                ..begun(None)
+            },
+            ..start_on(&kind, dir, None)
+        })
         .unwrap();
         session
             .order(Command::Steer(shot()))
@@ -3229,7 +3374,13 @@ read -r line; log "$1"; reply '{}'
 cat > /dev/null
 "#;
     let kind = script("codex", adapter, &log);
-    let session = Session::start(Start { begin: Begin { fast: Some(true), ..begun(None) }, ..start_on(&kind, temp.path(), None) })
+    let session = Session::start(Start {
+        begin: Begin {
+            fast: Some(true),
+            ..begun(None)
+        },
+        ..start_on(&kind, temp.path(), None)
+    })
     .unwrap();
     settle(&session).await;
     assert_eq!(session.info().turns, 1);
@@ -3266,7 +3417,13 @@ read -r line; log "$1"; reply '{"stopReason":"end_turn"}'
 cat > /dev/null
 "#;
     let kind = script("codex", adapter, &log);
-    let session = Session::start(Start { begin: Begin { fast: Some(true), ..begun(Some("model-b")) }, ..start_on(&kind, temp.path(), Some("model-b")) })
+    let session = Session::start(Start {
+        begin: Begin {
+            fast: Some(true),
+            ..begun(Some("model-b"))
+        },
+        ..start_on(&kind, temp.path(), Some("model-b"))
+    })
     .unwrap();
     settle(&session).await;
     assert_eq!(session.info().turns, 1);
@@ -3287,16 +3444,35 @@ fn switches_join_the_json_a_variable_holds() {
     let deny = serde_json::Map::from_iter([("task".to_owned(), serde_json::json!("deny"))]);
     add_json_env(&mut process, OPENCODE_PERMISSION, deny).unwrap();
     let value = |process: &tokio::process::Command, name: &str| {
-        process.as_std().get_envs().find(|(var, _)| *var == name).and_then(|(_, value)| value).map(|value| value.to_string_lossy().into_owned())
+        process
+            .as_std()
+            .get_envs()
+            .find(|(var, _)| *var == name)
+            .and_then(|(_, value)| value)
+            .map(|value| value.to_string_lossy().into_owned())
     };
 
     // `*` first, so OpenCode's last matching rule for `task` is the deny.
-    assert_eq!(value(&process, OPENCODE_PERMISSION).as_deref(), Some(r#"{"*":"allow","task":"deny"}"#));
+    assert_eq!(
+        value(&process, OPENCODE_PERMISSION).as_deref(),
+        Some(r#"{"*":"allow","task":"deny"}"#)
+    );
 
     process.env(CODEX_CONFIG, "not json");
-    assert!(add_json_env(&mut process, CODEX_CONFIG, serde_json::Map::from_iter([("model".to_owned(), serde_json::json!("m"))])).is_err());
+    assert!(
+        add_json_env(
+            &mut process,
+            CODEX_CONFIG,
+            serde_json::Map::from_iter([("model".to_owned(), serde_json::json!("m"))])
+        )
+        .is_err()
+    );
     add_json_env(&mut process, CODEX_CONFIG, serde_json::Map::new()).unwrap();
-    assert_eq!(value(&process, CODEX_CONFIG).as_deref(), Some("not json"), "nothing to add changes nothing");
+    assert_eq!(
+        value(&process, CODEX_CONFIG).as_deref(),
+        Some("not json"),
+        "nothing to add changes nothing"
+    );
 }
 
 #[cfg(unix)]

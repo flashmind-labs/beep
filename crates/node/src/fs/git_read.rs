@@ -148,7 +148,12 @@ pub(crate) fn last_commit(root: &Path) -> Option<u64> {
     let files = GitFiles::above(root)?;
     let stamp = files.stamp(&files.head_files());
     COMMITS.get(root, stamp, || {
-        let seconds = repository(root)?.head_commit().ok()?.committer().ok()?.seconds();
+        let seconds = repository(root)?
+            .head_commit()
+            .ok()?
+            .committer()
+            .ok()?
+            .seconds();
         u64::try_from(seconds).ok()
     })
 }
@@ -185,7 +190,6 @@ fn main_folder(dir: &Path, top: &Path, common: &Path) -> PathBuf {
         _ => top.to_owned(),
     }
 }
-
 
 /// The git folder the worktrees of the repository holding `dir` share,
 /// found without running git; `None` when `dir` is in no checkout.
