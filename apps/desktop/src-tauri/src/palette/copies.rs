@@ -1,6 +1,6 @@
-//! The desktop's copy of each machine's search index, one file per machine,
-//! kept current over the machine's `FollowIndex` stream. Cmd+K searches the
-//! copies (`palette_store::copies`), so it answers at once and finds sessions of offline machines too.
+//! Keeps the copies of the machines' search indexes current over each machine's `FollowIndex`
+//! stream, and searches them for Cmd+K, so it answers at once and finds sessions of offline
+//! machines too. The copies themselves are kept in `palette_store`.
 
 use super::projects::Found;
 use crate::{fleet::Fleet, palette_store::copies::Copies, store::lock};
@@ -15,7 +15,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::{task::spawn_blocking, time::sleep};
 
 /// Follows every online machine's index while a mesh is open.
-pub(crate) async fn follow(app: AppHandle) {
+pub(super) async fn follow(app: AppHandle) {
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
     let copies = app.state::<Arc<Copies>>().inner().clone();
 

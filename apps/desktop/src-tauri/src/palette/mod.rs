@@ -4,7 +4,7 @@
 //! keystroke (`palette-rank.ts`), with no call to this side.
 
 #[cfg(desktop)]
-pub(crate) mod copies;
+mod copies;
 pub(crate) mod index;
 pub(crate) mod lists;
 mod projects;

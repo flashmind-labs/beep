@@ -1,5 +1,5 @@
-//! What the palette searches, kept below the areas that write it (projects, agents) and the
-//! palette that reads it. A write bumps a revision the palette follows.
+//! What the palette searches, kept below the areas that write or read it. A write to the lists
+//! bumps a revision the palette follows.
 
 #[cfg(desktop)]
 pub(crate) mod copies;

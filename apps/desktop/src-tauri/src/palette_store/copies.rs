@@ -1,5 +1,5 @@
-//! The desktop's copy of each machine's search index, one file per machine. `palette::copies`
-//! keeps them current; the palette and the agents search them.
+//! The desktop's copy of each machine's search index, one file per machine, and the lookups
+//! over the copies.
 
 use crate::store::lock;
 use beep_node::agents::search::IndexCopy;
