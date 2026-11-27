@@ -1,13 +1,9 @@
 //! Projects, sync and the git hosts, through the mesh. The work is in `beep_fleet`; this gives it
 //! the machines of the mesh.
 
-use super::Fleet;
 use crate::error::{DesktopError, Result};
-use async_trait::async_trait;
-use beep_fleet::{Desk, FleetError, Peers, Session};
-use beep_mesh::{Mesh, PeerClient};
-use beep_proto::{ApiError, node::EnvReport};
-use iroh::EndpointId;
+use beep_fleet::{Desk, Session};
+use beep_proto::ApiError;
 use std::sync::Arc;
 use tauri::State;
 use uuid::Uuid;
@@ -15,38 +11,6 @@ use uuid::Uuid;
 /// The session over the mesh, as a command takes it: one HTTP client and the last reads of the
 /// projects, for the whole run of the app.
 pub(crate) type FleetState<'a> = State<'a, Arc<Session>>;
-
-fn into_fleet(e: DesktopError) -> FleetError {
-    match e {
-        DesktopError::Offline(name) => FleetError::Offline(name),
-        DesktopError::NoMesh(why) => FleetError::NoMesh(why),
-        DesktopError::Mesh(e) => FleetError::Mesh(e),
-        other => FleetError::Other(anyhow::anyhow!("{other}")),
-    }
-}
-
-#[async_trait]
-impl Peers for Fleet {
-    async fn mesh(&self) -> std::result::Result<Mesh, FleetError> {
-        self.ready().await.map_err(into_fleet)
-    }
-
-    fn me(&self) -> EndpointId {
-        self.id()
-    }
-
-    async fn client(&self, machine: EndpointId) -> std::result::Result<PeerClient, FleetError> {
-        Fleet::client(self, machine).await.map_err(into_fleet)
-    }
-
-    fn last_env(&self, machine: EndpointId) -> Option<EnvReport> {
-        self.status().last_env(machine)
-    }
-
-    fn last_offers(&self, machine: EndpointId) -> Option<Vec<String>> {
-        self.status().last_offers(machine)
-    }
-}
 
 /// A desk over the mesh, waiting for it to open.
 pub(crate) async fn desk(session: &Arc<Session>) -> Result<Desk> {

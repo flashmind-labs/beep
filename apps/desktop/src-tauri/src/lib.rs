@@ -898,7 +898,7 @@ fn setup(
     });
     // What the projects pages read, kept for the run of the app.
     let session = beep_fleet::Session::new(
-        fleet.clone(),
+        fleet.reach().clone(),
         beep_fleet::Options {
             usage_file: Some(dir.join("usage.msgpack")),
             ..beep_fleet::Options::default()

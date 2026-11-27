@@ -78,7 +78,8 @@ impl SubscriptionWorker {
         let generation = Uuid::new_v4();
         let (mut tx, mut rx) = client.open_subscriptions().await?;
         if !fleet
-            .snapshots
+            .reach
+            .snapshots()
             .connected(machine, topic.clone(), generation)
         {
             return Ok(());
@@ -86,15 +87,15 @@ impl SubscriptionWorker {
         let _snapshots = SnapshotConnection {
             app,
             topic,
-            snapshots: &fleet.snapshots,
+            snapshots: fleet.reach.snapshots(),
             machine,
             generation,
         };
-        let mut query_changes = fleet.snapshots.changes();
+        let mut query_changes = fleet.reach.snapshots().changes();
         let mut refresh = app.state::<WindowOutbox>().refresh();
-        let queries = fleet.snapshots.queries_for(machine, topic);
+        let queries = fleet.reach.snapshots().queries_for(machine, topic);
         app.state::<WindowOutbox>()
-            .forget_queries(machine, &fleet.snapshots.queries(machine));
+            .forget_queries(machine, &fleet.reach.snapshots().queries(machine));
         let mut sent = queries.clone();
         log::debug!(
             "node watch sending machine={machine} generation={generation} watch=1 topics=1 queries={}",
@@ -113,7 +114,7 @@ impl SubscriptionWorker {
         .await
         .map_err(|_| DesktopError::Lost("the machine".into()))??;
         let mut watches = HashSet::from([1]);
-        let mut sweep = tokio::time::interval(super::snapshots::LINGER / 3);
+        let mut sweep = tokio::time::interval(beep_mesh::LINGER / 3);
         let mut next = 1_u64;
         let mut dirty = false;
         let mut revision = 0;
@@ -123,9 +124,9 @@ impl SubscriptionWorker {
 
         loop {
             if dirty && watches.is_empty() {
-                let queries = fleet.snapshots.queries_for(machine, topic);
+                let queries = fleet.reach.snapshots().queries_for(machine, topic);
                 app.state::<WindowOutbox>()
-                    .forget_queries(machine, &fleet.snapshots.queries(machine));
+                    .forget_queries(machine, &fleet.reach.snapshots().queries(machine));
 
                 if queries == sent {
                     dirty = false;
@@ -158,7 +159,7 @@ impl SubscriptionWorker {
 
             tokio::select! {
                 _ = sweep.tick() => {
-                    fleet.snapshots.sweep(machine, topic, Instant::now());
+                    fleet.reach.snapshots().sweep(machine, topic, Instant::now());
                 },
                 changed = query_changes.changed() => {
                     if changed.is_err() { return Ok(()); }
@@ -198,13 +199,13 @@ impl SubscriptionWorker {
                             log::debug!("node snapshot received machine={machine} generation={generation} query={:?} topic={} revision={}", snapshot.query, snapshot.topic.name(), snapshot.revision);
                             revision = snapshot.revision;
                             let snapshot = Arc::new(snapshot);
-                            let Some(initial) = fleet.snapshots.install(machine, generation, &snapshot) else { continue; };
+                            let Some(initial) = fleet.reach.snapshots().install(machine, generation, &snapshot) else { continue; };
 
                             if snapshot.topic.name() == super::TOOL_UPDATES {
                                 tool_updates_heard(app, fleet, machine, Some(&snapshot.value));
                             }
 
-                            fleet.snapshots.tell(Heard::said(machine, &snapshot));
+                            fleet.reach.snapshots().tell(Heard::said(machine, &snapshot));
 
                             if snapshot.topic.name() == "terminals" {
                                 fleet.projections().terminal_pushes.heard(machine, Some(&snapshot.value));
@@ -251,13 +252,13 @@ impl SubscriptionWorker {
                         },
                         Reply::SnapshotError { query, topic, reason } => {
                             log::warn!("node snapshot failed machine={machine} generation={generation} query={query:?} topic={}: {reason}", topic.name());
-                            if let Some(query) = query && !fleet.snapshots.failed(machine, generation, query, reason.clone()) { continue; }
+                            if let Some(query) = query && !fleet.reach.snapshots().failed(machine, generation, query, reason.clone()) { continue; }
 
                             if topic.name() == super::TOOL_UPDATES {
                                 tool_updates_heard(app, fleet, machine, None);
                             }
                             invalidate(app, machine, &topic, None);
-                            fleet.snapshots.tell(Heard::refused(machine, topic.clone()));
+                            fleet.reach.snapshots().tell(Heard::refused(machine, topic.clone()));
 
                             if topic.name() == "terminals" {
                                 fleet.projections().terminal_pushes.heard(machine, None);

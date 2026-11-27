@@ -3,6 +3,7 @@
 //! per online member, started and stopped as the mesh changes, so a read
 //! never waits on the network.
 
+use beep_fleet::Machines;
 use beep_mesh::{Device, Mesh, PeerClient, RETRY, SessionFn, machine::machine_capability};
 use beep_proto::watched;
 use beep_proto::{
@@ -72,8 +73,6 @@ struct Peer {
     /// How far its clock is ahead of this Mac's, in milliseconds, when the
     /// node said its time in a round trip that was quick enough.
     clock_offset_ms: Option<i64>,
-    offers: Vec<String>,
-    env: Option<EnvReport>,
     stats: Option<Sampled<StatsReport>>,
     traffic: Option<Sampled<TrafficReport>>,
 }
@@ -88,15 +87,9 @@ impl Peer {
             connecting_since: None,
             version: None,
             clock_offset_ms: None,
-            offers: Vec::new(),
-            env: None,
             stats: None,
             traffic: None,
         }
-    }
-
-    fn offers(&self, protocol: &str) -> bool {
-        self.offers.iter().any(|offer| offer == protocol)
     }
 
     /// Whether the mesh is still trying to reach it for the first time
@@ -119,6 +112,8 @@ pub(super) struct Revision {
 /// The members and what they reported, shared with the follows.
 struct Shared {
     peers: Mutex<BTreeMap<EndpointId, Peer>>,
+    /// What each machine reported about its environment and what it offers.
+    machines: Arc<Machines>,
     /// Counts every change, for a reader that redraws.
     changes: watch::Sender<Revision>,
 }
@@ -139,6 +134,8 @@ impl Shared {
         let mut peers = self.peers();
         let before = peers.len();
         peers.retain(|id, _| devices.iter().any(|status| status.device.id == *id));
+        self.machines
+            .keep_only(|id| devices.iter().any(|status| status.device.id == id));
         let mut changed = peers.len() != before;
 
         for status in devices {
@@ -260,16 +257,8 @@ impl Shared {
         };
         peer.seen_at = Some(now);
         let (machines, telemetry) = match report {
-            Report::Offers(offers) => {
-                let changed = peer.offers != offers;
-                peer.offers = offers;
-                (changed, false)
-            }
-            Report::Env(env) => {
-                let changed = peer.env.as_ref() != Some(&env);
-                peer.env = Some(env);
-                (changed, false)
-            }
+            Report::Offers(offers) => (self.machines.set_offers(id, offers), false),
+            Report::Env(env) => (self.machines.set_env(id, env), false),
             Report::Stats(report) => {
                 peer.stats = Some(Sampled { at: now, report });
                 (false, true)
@@ -316,16 +305,17 @@ pub struct Status {
 impl Status {
     /// The status of the mesh `me` is in, keeping when machines were seen
     /// in `dir`.
-    pub(super) fn new(me: EndpointId, session: Option<SessionFn>, dir: &Path) -> Self {
+    pub(super) fn new(machines: Arc<Machines>, session: Option<SessionFn>, dir: &Path) -> Self {
         let seen_file = dir.join(SEEN_FILE);
         let remembered = read_seen(&seen_file);
         Self {
-            me,
+            me: machines.me(),
             session,
             seen_file,
             remembered,
             shared: Arc::new(Shared {
                 peers: Mutex::default(),
+                machines,
                 changes: watch::channel(Revision::default()).0,
             }),
             watching: Mutex::new(None),
@@ -392,7 +382,11 @@ impl Status {
                     .seen_at
                     .unwrap_or_else(|| UNIX_EPOCH + Duration::from_millis(peer.device.added_at_ms)),
                 version: peer.version.clone().unwrap_or_default(),
-                env: peer.env.clone().map(machine_env),
+                env: self
+                    .shared
+                    .machines
+                    .last_env(peer.device.id)
+                    .map(machine_env),
             })
             .collect()
     }
@@ -415,14 +409,7 @@ impl Status {
 
     /// What `machine` last reported about itself, if it did.
     pub fn last_env(&self, machine: EndpointId) -> Option<EnvReport> {
-        self.shared.peers().get(&machine)?.env.clone()
-    }
-
-    /// The protocols `machine` last reported offering on `status/1`, once it has said.
-    pub fn last_offers(&self, machine: EndpointId) -> Option<Vec<String>> {
-        let peers = self.shared.peers();
-        let peer = peers.get(&machine)?;
-        (!peer.offers.is_empty()).then(|| peer.offers.clone())
+        self.shared.machines.last_env(machine)
     }
 
     /// The apps, graphics cards and abilities of each machine; one that has
@@ -431,7 +418,12 @@ impl Status {
         self.shared
             .peers()
             .values()
-            .map(|peer| machine_details(peer.device.id.to_string(), peer.env.clone()))
+            .map(|peer| {
+                machine_details(
+                    peer.device.id.to_string(),
+                    self.shared.machines.last_env(peer.device.id),
+                )
+            })
             .collect()
     }
 
@@ -503,7 +495,13 @@ impl Status {
         self.shared
             .peers()
             .values()
-            .filter(|peer| peer.online && peer.offers(update::PROTOCOL))
+            .filter(|peer| {
+                peer.online
+                    && self
+                        .shared
+                        .machines
+                        .offers_protocol(peer.device.id, update::PROTOCOL)
+            })
             .map(|peer| UpdatableMachine {
                 id: peer.device.id.to_string(),
                 agent_sessions: 0,
@@ -519,7 +517,12 @@ impl Status {
             .peers()
             .values()
             .filter(|peer| {
-                peer.online && peer.offers(update::PROTOCOL) && peer.device.id != self.me
+                peer.online
+                    && self
+                        .shared
+                        .machines
+                        .offers_protocol(peer.device.id, update::PROTOCOL)
+                    && peer.device.id != self.me
             })
             .filter(|peer| {
                 peer.version
@@ -539,7 +542,11 @@ impl Status {
             .peers()
             .values()
             .filter(|peer| peer.online || (local && peer.device.id == self.me))
-            .filter(|peer| peer.offers(protocol))
+            .filter(|peer| {
+                self.shared
+                    .machines
+                    .offers_protocol(peer.device.id, protocol)
+            })
             .map(|peer| peer.device.id)
             .collect()
     }
@@ -551,7 +558,7 @@ impl Status {
             .peers()
             .values()
             .filter(|peer| peer.online)
-            .filter_map(|peer| agent_host(peer, &is_off))
+            .filter_map(|peer| agent_host(peer, &self.shared.machines, &is_off))
             .collect()
     }
 
@@ -565,15 +572,19 @@ impl Status {
         self.shared
             .peers()
             .get(&machine)
-            .and_then(|peer| agent_host(peer, &is_off))
+            .and_then(|peer| agent_host(peer, &self.shared.machines, &is_off))
     }
 }
 
 /// `peer` as a place to run the agents it offers that `is_off` does not
 /// switch off; `None` when it offers none.
-fn agent_host(peer: &Peer, is_off: impl Fn(&str) -> bool) -> Option<AgentHost> {
-    let agents: Vec<String> = peer
-        .offers
+fn agent_host(
+    peer: &Peer,
+    machines: &Machines,
+    is_off: impl Fn(&str) -> bool,
+) -> Option<AgentHost> {
+    let offers = machines.last_offers(peer.device.id)?;
+    let agents: Vec<String> = offers
         .iter()
         .filter_map(|offer| agent_of(offer))
         .filter(|agent| !is_off(agent))
@@ -584,7 +595,8 @@ fn agent_host(peer: &Peer, is_off: impl Fn(&str) -> bool) -> Option<AgentHost> {
         return None;
     }
 
-    let env = peer.env.as_ref();
+    let env = machines.last_env(peer.device.id);
+    let env = env.as_ref();
     Some(AgentHost {
         machine_id: peer.device.id.to_string(),
         machine_name: peer.device.name.clone(),

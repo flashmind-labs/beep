@@ -25,6 +25,7 @@ fn telemetry_does_not_invalidate_machine_metadata() {
                 added_at_ms: 0,
             }),
         )])),
+        machines: std::sync::Arc::new(beep_fleet::Machines::new(id, None)),
         changes: tokio::sync::watch::channel(Revision::default()).0,
     };
     shared.record(id, Report::Stats(StatsReport::default()));
@@ -226,6 +227,7 @@ async fn a_stalled_version_probe_does_not_delay_status_reports() {
 
     let id = iroh::SecretKey::generate().public();
     let shared = Arc::new(Shared {
+        machines: Arc::new(beep_fleet::Machines::new(id, None)),
         peers: Mutex::new(BTreeMap::from([(
             id,
             Peer::new(Device {
@@ -300,6 +302,7 @@ fn a_machine_off_since_a_restart_keeps_when_it_was_seen() {
                 added_at_ms: 0,
             }),
         )])),
+        machines: std::sync::Arc::new(beep_fleet::Machines::new(id, None)),
         changes: tokio::sync::watch::channel(Revision::default()).0,
     };
     shared.recall(&read_seen(&file));

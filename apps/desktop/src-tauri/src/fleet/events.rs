@@ -28,12 +28,11 @@ use tokio::{
 use uuid::Uuid;
 
 mod commands;
-mod snapshots;
 mod subscriptions;
+pub(crate) use beep_mesh::{Heard, Snapshots};
 #[cfg(test)]
 use commands::Registered;
 use commands::{Call, CommandWorker, Commands};
-pub(crate) use snapshots::{Current, Heard, Snapshots};
 use subscriptions::SubscriptionWorker;
 
 #[derive(Default)]
@@ -306,10 +305,10 @@ async fn run(
     mut demand: watch::Receiver<Vec<Interest>>,
     commands: Commands,
 ) {
-    let mut mesh = fleet.mesh.subscribe();
+    let mut mesh = fleet.reach.opened();
     let mut members = fleet.mesh().map(|mesh| mesh.updates());
     let mut status = fleet.status.changes();
-    let mut holds = fleet.snapshots.holds();
+    let mut holds = fleet.reach.snapshots().holds();
     let mut local = beep_node::events::system().subscribe();
     let mut revision = watched::read_and_update(&mut status, |status| *status);
     let mut materialized = Vec::new();
@@ -327,7 +326,7 @@ async fn run(
             command_workers.clear();
             subscriptions.clear();
             workers.abort_all();
-            fleet.snapshots.reconcile(&BTreeMap::new());
+            fleet.reach.snapshots().reconcile(&BTreeMap::new());
             materialized.clear();
 
             if wake(&mut demand, &mut holds).await.is_err() {
@@ -350,8 +349,8 @@ async fn run(
         machines.push(fleet.me);
         machines.sort();
         machines.dedup();
-        let wanted = wanted_topics(&fleet.snapshots, &interests, &machines, fleet.me);
-        fleet.snapshots.reconcile(&wanted);
+        let wanted = wanted_topics(fleet.reach.snapshots(), &interests, &machines, fleet.me);
+        fleet.reach.snapshots().reconcile(&wanted);
         command_workers.retain(|machine, task| {
             if wanted.contains_key(machine) {
                 true
@@ -375,7 +374,7 @@ async fn run(
         for (machine, topics) in wanted {
             // A phone has no node to ask for its own events: a worker for it
             // would fail and retry for as long as the app runs.
-            if machine == fleet.me && fleet.session.is_none() {
+            if machine == fleet.me && !fleet.reach.hosts() {
                 continue;
             }
 
@@ -425,7 +424,7 @@ async fn run(
                 watched::read_and_update(&mut mesh, |_| ());
                 command_workers.clear(); subscriptions.clear(); workers.abort_all();
                 app.state::<WindowOutbox>().keep_only(fleet.me);
-                fleet.snapshots.reconcile(&BTreeMap::new());
+                fleet.reach.snapshots().reconcile(&BTreeMap::new());
                 members = fleet.mesh().map(|mesh| mesh.updates());
                 beep_node::events::system().changed(Topic::new("projects"));
                 beep_node::events::system().changed(Topic::new("accounts"));

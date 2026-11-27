@@ -1,5 +1,7 @@
 use super::*;
-use beep_mesh::{DEADLINE, DeviceKind, JOIN_ALPN, Key, Mesh, PEER_ALPN, transport_config};
+use beep_mesh::{
+    DEADLINE, DeviceKind, JOIN_ALPN, Key, Mesh, PEER_ALPN, transport_config, with_deadline,
+};
 use beep_node::machine::provision::Provision;
 use beep_proto::node::{
     files,

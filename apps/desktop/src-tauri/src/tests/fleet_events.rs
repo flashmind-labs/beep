@@ -1,5 +1,7 @@
 use super::*;
 use crate::fleet::outbox::*;
+use beep_mesh::Snapshots;
+use beep_proto::node::events::{Read, Snapshot, Value};
 use beep_proto::watched;
 use tokio::sync::mpsc;
 
@@ -1084,4 +1086,73 @@ fn a_terminal_list_is_not_taken_for_a_terminals_output() {
 /// Whether a shown window wants the controller view `topic`, as `Views` hears it.
 fn wanted(events: &WindowOutbox, topic: &Topic) -> bool {
     watched::read_sent(&events.wants, |wants| wants.controller_wanted(topic))
+}
+
+#[tokio::test]
+async fn a_wait_keeps_its_topic_subscribed_while_no_view_wants_it() {
+    let snapshots = Arc::new(Snapshots::default());
+    let id = iroh::SecretKey::generate().public();
+    let (_demand_sender, mut demand) = watch::channel(Vec::<Interest>::new());
+    let mut holds = snapshots.holds();
+    holds.mark_unchanged();
+
+    // No view and no wait: the loop idles and a hold wakes it.
+    assert!(nothing_wanted(&[], false));
+    {
+        let wake = wake(&mut demand, &mut holds);
+        tokio::pin!(wake);
+        assert!(futures::poll!(&mut wake).is_pending());
+        let hold = snapshots.hold(id, &Read::SyncList);
+        wake.await.unwrap();
+        drop(hold);
+    }
+    holds.mark_unchanged();
+
+    // A hold made while the loop runs wakes its select.
+    {
+        let changed = demand_or_hold_changed(&mut demand, &mut holds);
+        tokio::pin!(changed);
+        assert!(futures::poll!(&mut changed).is_pending());
+        let hold = snapshots.hold(id, &Read::SyncList);
+        changed.await.unwrap();
+        drop(hold);
+    }
+
+    let hold = snapshots.hold(id, &Read::SyncList);
+    let held = watched::read_and_update(&mut holds, |holds| !holds.is_empty());
+    assert!(!nothing_wanted(&[], held));
+
+    // What the events loop then subscribes to, with no view open.
+    let wanted = wanted_topics(&snapshots, &[], &[id], id);
+    snapshots.reconcile(&wanted);
+    let topics = wanted[&id].clone();
+    assert_eq!(topics, [Read::SyncList.topic().unwrap()]);
+
+    let follow = snapshots.subscribe(id, Read::SyncList);
+    tokio::pin!(follow);
+    assert!(futures::poll!(&mut follow).is_pending());
+
+    let generation = Uuid::new_v4();
+    assert!(snapshots.connected(id, topics[0].clone(), generation));
+    let current = follow.await.unwrap();
+    let query = snapshots.queries(id).pop().unwrap();
+    let status = Value::Sync(Box::new(beep_proto::node::sync::Reply::Status {
+        projects: Vec::new(),
+    }));
+    let snapshot = Snapshot {
+        topic: query.topic.clone(),
+        query: Some(query.id),
+        revision: 1,
+        value: status.clone(),
+    };
+    assert_eq!(snapshots.install(id, generation, &snapshot), Some(true));
+    assert_eq!(
+        watched::read(&current, |held| held.clone()),
+        Some(Ok(status))
+    );
+
+    drop(hold);
+    let held = watched::read_and_update(&mut holds, |holds| !holds.is_empty());
+    assert!(nothing_wanted(&[], held));
+    assert!(wanted_topics(&snapshots, &[], &[id], id).is_empty());
 }

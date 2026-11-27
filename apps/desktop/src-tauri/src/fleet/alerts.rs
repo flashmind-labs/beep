@@ -63,7 +63,7 @@ pub(crate) fn start(fleet: Arc<Fleet>) -> (impl Future<Output = ()>, mpsc::Recei
 }
 
 async fn follow(fleet: Arc<Fleet>, out: mpsc::Sender<Direct>) {
-    let mut opened = fleet.mesh.subscribe();
+    let mut opened = fleet.reach.opened();
 
     loop {
         let current = watched::read_and_update(&mut opened, Clone::clone);
@@ -74,7 +74,7 @@ async fn follow(fleet: Arc<Fleet>, out: mpsc::Sender<Direct>) {
             }
             continue;
         };
-        let (alerts, mut told) = shared::follow(fleet.clone(), mesh.clone());
+        let (alerts, mut told) = shared::follow(fleet.reach().clone(), mesh.clone());
         let presence = shared::each_machine(&mesh, |id| {
             tokio::spawn(presence(fleet.clone(), id, out.clone()))
         });
@@ -319,7 +319,7 @@ fn new_phones(known: &mut Option<HashSet<DeviceId>>, listed: Vec<Device>) -> Vec
 /// Answers the question `key` names, on the machine that asked it. Refused
 /// as a conflict when the session no longer asks it.
 pub(crate) async fn answer(fleet: &Fleet, key: &AgentNoticeKey, reply: &str) -> Result<()> {
-    Ok(shared::answer(fleet, key, reply).await?)
+    Ok(shared::answer(fleet.reach(), key, reply).await?)
 }
 
 /// Whether `machine`, as text, is this Mac or a member of its mesh: the
