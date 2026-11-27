@@ -26,10 +26,11 @@ export const headWanted = signal();
 /// A sheet or screen a view asks the window to open. screens.ts follows it and opens it.
 export type ScreenRequest =
   | { screen: "addmachine" }
-  | { screen: "importproject"; repo: string | null; machine: string | null }
+  | { screen: "importproject"; repo: string | null; machine: string | null; openAfter: boolean }
   | { screen: "addproject" }
   | { screen: "teamjoin" }
   | { screen: "machines" }
+  | { screen: "settings"; section: string | null }
   | { screen: "newthread"; chat: AgentRow };
 
 export const screenWanted = signal<ScreenRequest>();

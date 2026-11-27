@@ -10,10 +10,9 @@ import type { PaneTarget } from "../bar/pane.ts";
 import type { ProjectsArg } from "./state.ts";
 import { reason } from "../ui/format.ts";
 import { invoke, listen } from "../ui/tauri.ts";
-import { openSettings } from "../settings/sheet.ts";
 import { commandKey, WINDOWS } from "../ui/platform.ts";
 import { type Held, type Note, conflictProject, find, fromNote, markRead, opens, skillName, unreadIds, without } from "./notices-state.ts";
-import { go } from "./nav.ts";
+import { go, openScreen } from "./nav.ts";
 import { sessions } from "../agents/sessions.ts";
 import { chatOf } from "../agents/threads-state.ts";
 
@@ -131,7 +130,7 @@ export function mountNotices() {
     if (to === "project") go("projects", (i.target as { projects: ProjectsArg }).projects);
     else if (to === "session") go("pane", i.target as PaneTarget);
     else if (to === "conflict") openConflict(conflictProject(i));
-    else openSettings("machines");
+    else openScreen({ screen: "settings", section: "machines" });
   };
 
   /// A sync conflict opens its project's Machines section, or the projects when the note names none.

@@ -1,12 +1,12 @@
 // A project's or an assistant chat's Skills sheet: which library skills its checkouts get on
 // every machine, or its folder and its threads' folders.
+import { openScreen } from "../center/nav.ts";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { openSheet } from "../ui/parts.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { reason } from "../ui/format.ts";
 import { Button, Checkbox, SheetHead } from "../ui/kit.tsx";
-import { openSettings } from "../settings/sheet.ts";
 import { pickHas, placePicks, projectLines, toggleSkill, type Pick, type ProjectLibraries, type SkillLibrary, type SkillsPlace } from "../settings/skills-state.ts";
 
 export const openProjectSkills = (project: string) => openSkills({ kind: "project", project }, `Skills in ${project}`);
@@ -31,7 +31,7 @@ function openSkills(place: SkillsPlace, title: string) {
       throw error;
     }
   };
-  const manage = () => { if (!busy) { close(); openSettings("skills"); } };
+  const manage = () => { if (!busy) { close(); openScreen({ screen: "settings", section: "skills" }); } };
 
   flushSync(() => render(<>{head}<div className="dmuted">Loading…</div></>));
   const load: Promise<Loaded> = place.kind === "project"

@@ -16,7 +16,7 @@ import { ASSISTANT_CHATS } from "./leave.ts";
 import { shell } from "../center/window-shell.tsx";
 import { paneModel } from "../agentpane/media-layout.ts";
 import { RailList, Row, RunningStatus } from "../project/split-view.tsx";
-import { SideToggle } from "../center/sidebar-shell.tsx";
+import { SideToggle } from "../center/side-toggle.tsx";
 import { Button, EndedFold } from "../ui/kit.tsx";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { PersonaTag } from "../project/customagents-view.tsx";

@@ -7,7 +7,6 @@ import { ensureAgentHosts, type AgentHost } from "../agents/agents-state.ts";
 import { pillContent } from "../agents/agentpicker.tsx";
 import { ASSISTANT_WORDS, assistantHost, resolveAssistant } from "../agents/assistant-state.ts";
 import { loadAssistant, onAssistantSaved } from "../settings/assistant.ts";
-import { openSettings } from "../settings/sheet.ts";
 import { FoundSection } from "../project/outside-lists.tsx";
 import type { FoundRow } from "../project/projects-state.ts";
 import { PaintedEmpty } from "../ui/painted-art.tsx";
@@ -15,7 +14,7 @@ import { Button } from "../ui/kit.tsx";
 import { reason } from "../ui/format.ts";
 import { addProject, importFromPage } from "../project/addflow.ts";
 import { state } from "./state.ts";
-import { go } from "./nav.ts";
+import { go, openScreen } from "./nav.ts";
 
 const SUGGESTION = "Import my projects";
 
@@ -57,7 +56,7 @@ export function HomeAssistant({ found }: { found: FoundRow[] | null }) {
 const composer = makeStartComposer({
   presentation: "compact", externalChoices: true,
   // The harness is the assistant setting's, changed in Settings.
-  actions: { submit: () => void send(), harness: () => openSettings("assistant"), input: () => composer.update({ invalid: false }) },
+  actions: { submit: () => void send(), harness: () => openScreen({ screen: "settings", section: "assistant" }), input: () => composer.update({ invalid: false }) },
   place: () => null,
 });
 composer.update({ placeholder: ASSISTANT_WORDS.placeholder, words: ASSISTANT_WORDS });

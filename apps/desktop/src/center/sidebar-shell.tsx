@@ -4,8 +4,7 @@ import { spoken } from "../ui/format.ts";
 import type { GroupSlot } from "./state.ts";
 import { Button, useLazyCount } from "../ui/kit.tsx";
 import { invoke } from "../ui/tauri.ts";
-import { useStore } from "zustand";
-import { shell, sideCollapsed, toggleSide } from "./window-shell.tsx";
+import { SideToggle } from "./side-toggle.tsx";
 
 export type SideLink = Parameters<typeof SidebarItem>[0] & { count: number };
 export type SideFooter = { text: string; dot: "off" | "bad" | "on" | "dial" | null; count?: number; title?: string; action: "add" | null };
@@ -40,12 +39,4 @@ function StarPrompt() {
 }
 export function SidebarShell({ links, groups, footer, addMachine }: { links: SideLink[]; groups: ReactNode; footer: SideFooter; addMachine(): void }) {
   return <><div className="cc-head" data-tauri-drag-region="" /><div className="cc-brand"><b>Beep</b><SideToggle /></div><div className="cc-side-list" id="side-content"><div className="cc-grp cc-nav">{links.map(link => <SidebarItem key={link.label} {...link} />)}</div>{groups}<StarPrompt /><div className="cc-foot"><span title={footer.title}>{footer.dot && <span className={`ddot${footer.dot === "on" ? "" : ` ${footer.dot}`}`} />}{footer.dot && " "}{footer.count !== undefined ? <><b>{footer.count}</b>{footer.text}</> : footer.text}</span>{footer.action === "add" && <Button look="quiet" title="Add a machine" aria-label="Add a machine" onClick={event => { event.stopPropagation(); addMachine(); }} dangerouslySetInnerHTML={{ __html: IC.plus }} />}</div></div></>;
-}
-
-/// The button that folds the sidebar, or beside a project's session swaps it with the project's
-/// sessions. The sidebar and the sessions each show it in the same place.
-export function SideToggle() {
-  const side = useStore(shell, s => s.side), collapsed = sideCollapsed(side);
-  const label = side.rail ? (side.railHidden ? (side.rail.kind === "chat" ? "Show the chat's threads" : "Show the project's sessions") : "Show the sidebar") : collapsed ? "Expand sidebar" : "Collapse sidebar";
-  return <button type="button" className="cc-side-toggle" title={label} aria-label={label} aria-expanded={!collapsed} onClick={toggleSide}><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></svg></span></button>;
 }
