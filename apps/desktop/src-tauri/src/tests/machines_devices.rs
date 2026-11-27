@@ -424,10 +424,15 @@ async fn a_machine_that_never_answers_ends_as_a_failed_list() {
         DEVICE_LIST_LIMIT,
     );
 
-    let listed = listing(held.clone(), machine, || {
-        std::future::pending::<Result<Vec<Device>>>()
-    })
-    .await;
+    // Bounded, so a listing that never gives up fails here instead of hanging.
+    let listed = tokio::time::timeout(
+        DEVICE_LIST_LIMIT + Duration::from_secs(1),
+        listing(held.clone(), machine, || {
+            std::future::pending::<Result<Vec<Device>>>()
+        }),
+    )
+    .await
+    .expect("the listing gives up within its limit");
     assert!(matches!(listed, Ok(Listing::Failed(_))));
 
     held.put(machine, Listing::Failed("old".to_owned()));
