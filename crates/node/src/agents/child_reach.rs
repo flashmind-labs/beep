@@ -37,7 +37,7 @@ pub(crate) fn show_children(agents: &Agents, session: &Session, entries: &mut [E
     };
     let reach = Reach {
         agents,
-        mesh: agents.mesh(),
+        mesh: agents.links.mesh(),
         who: &who,
     };
 
@@ -136,7 +136,7 @@ impl Reach<'_> {
             None => Ok(Found::Here(self.agents.sessions.child_of(self.who, &id.session)?)),
             Some(machine) => self
                 .agents
-                .remote_kids(&self.who.session)
+                .links.remote_kids(&self.who.session)
                 .into_iter()
                 .find(|kid| kid.machine == machine.id && kid.id == id.session)
                 .map(Found::There)

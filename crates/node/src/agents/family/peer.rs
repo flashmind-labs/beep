@@ -386,7 +386,7 @@ pub(crate) struct Listed {
 }
 
 pub(crate) fn listed_here(agents: &Agents, ended_since: Option<u64>) -> Vec<Listed> {
-    let mesh = agents.mesh();
+    let mesh = agents.links.mesh();
 
     agents
         .sessions.peers(ended_since)

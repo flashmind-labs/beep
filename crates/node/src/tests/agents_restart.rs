@@ -317,10 +317,10 @@ async fn a_child_on_another_machine_is_noted_and_comes_back_after_a_crash() {
     let mut kid = RemoteKid::expected(&name, iroh::SecretKey::generate().public(), "box");
     kid.id = "k1".into();
     // Adopting changes the note with no session opening or closing.
-    before.adopt_remote(&session, kid.clone());
+    before.links.adopt_remote(&session, kid.clone());
     let noted = note_with(dir.path(), |open| open.kids == [kid.clone()]).await;
     // Ending it changes the note too.
-    before.end_remote(&kid);
+    before.links.end_remote(&kid);
     let ended = note_with(dir.path(), |open| {
         !open.kids.is_empty() && open.kids.iter().all(|kid| kid.ended)
     })
@@ -333,7 +333,7 @@ async fn a_child_on_another_machine_is_noted_and_comes_back_after_a_crash() {
     after.catalog.settings_arrived();
     after.reopen(vec![noted]).await;
     let resumed = after.sessions.get(&name).expect("resumed under the agent's id");
-    assert_eq!(after.remote_kids(&sessions::name_of(&resumed)), vec![kid]);
+    assert_eq!(after.links.remote_kids(&sessions::name_of(&resumed)), vec![kid]);
     before.shutdown().await;
     after.shutdown().await;
 }

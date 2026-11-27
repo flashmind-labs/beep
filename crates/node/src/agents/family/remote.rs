@@ -3,19 +3,19 @@
 //! until the machine says so), and kept over a restart.
 
 use beep_proto::SessionId;
-use super::links::RemoteKid;
-use crate::agents::{Agents, Session};
+use super::links::{Links, RemoteKid};
+use crate::agents::Session;
 use crate::agents::session::parent_gone;
 use iroh::EndpointId;
 use std::sync::Mutex;
 use tokio_util::task::AbortOnDropHandle;
 
-impl Agents {
+impl Links {
     /// Notes a child that runs on another machine, and has it stopped with
     /// its parent.
     pub(crate) fn adopt_remote(&self, parent: &Session, kid: RemoteKid) {
         {
-            let mut remote = crate::lock(&self.links.remote);
+            let mut remote = crate::lock(&self.remote);
 
             if !kid.pending() && remote.contains(&kid) {
                 return;
@@ -30,7 +30,7 @@ impl Agents {
     /// The child `kid` was told to start has started as `id`.
     pub(crate) fn settle_remote(&self, parent: &SessionId, machine: EndpointId, id: &SessionId) {
         {
-            let mut remote = crate::lock(&self.links.remote);
+            let mut remote = crate::lock(&self.remote);
             let known = remote
                 .iter()
                 .any(|kid| kid.parent == *parent && kid.machine == machine && kid.id == *id);
@@ -51,7 +51,7 @@ impl Agents {
     /// The machine turned a start down: nothing runs there for it.
     pub(crate) fn forget_expected(&self, parent: &SessionId, machine: EndpointId) {
         {
-            let mut remote = crate::lock(&self.links.remote);
+            let mut remote = crate::lock(&self.remote);
 
             if let Some(at) = remote
                 .iter()
@@ -65,7 +65,7 @@ impl Agents {
 
     /// The children of `parent` that run on other machines.
     pub(crate) fn remote_kids(&self, parent: &SessionId) -> Vec<RemoteKid> {
-        crate::lock(&self.links.remote)
+        crate::lock(&self.remote)
             .iter()
             .filter(|kid| kid.parent == *parent)
             .cloned()
@@ -75,7 +75,7 @@ impl Agents {
     /// Notes that a child ended or was stopped: it stays in the parent's
     /// list to read, but frees its place.
     pub(crate) fn end_remote(&self, kid: &RemoteKid) {
-        mark_ended(&self.links.remote, kid);
+        mark_ended(&self.remote, kid);
     }
 
     /// Watches `parent`, which started children on other machines under the
@@ -83,8 +83,8 @@ impl Agents {
     /// for a while if their machine does not answer.
     fn watch_kids(&self, parent: &Session, name: SessionId) {
         let mut live = parent.live.clone();
-        let remote = self.links.remote.clone();
-        let membership = self.links.membership.clone();
+        let remote = self.remote.clone();
+        let membership = self.membership.clone();
         let parent = name.clone();
         let task = tokio::spawn(async move {
             if !parent_gone(&mut live).await {
@@ -112,7 +112,7 @@ impl Agents {
             });
             futures::future::join_all(stops).await;
         });
-        crate::lock(&self.links.watchers).insert(name, AbortOnDropHandle::new(task));
+        crate::lock(&self.watchers).insert(name, AbortOnDropHandle::new(task));
     }
 }
 

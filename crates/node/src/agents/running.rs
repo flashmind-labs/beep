@@ -340,7 +340,7 @@ impl Agents {
             None => brief,
         };
         let team = self
-            .mesh()
+            .links.mesh()
             .and_then(|mesh| crate::membership::team_repo_of(&mesh, &cwd));
         let brief = match team {
             Some(_) => Some(Cow::Owned(match brief {
@@ -358,7 +358,7 @@ impl Agents {
             begin.issue = super::start::issue_of_prompt(repo, prompt);
         }
 
-        if let Some(mesh) = self.mesh() {
+        if let Some(mesh) = self.links.mesh() {
             projects::may_run(&mesh, &cwd, &kind.name).map_err(anyhow::Error::msg)?;
         }
 
@@ -381,7 +381,7 @@ impl Agents {
         } else {
             self.alerts.clone()
         };
-        let mesh = self.mesh();
+        let mesh = self.links.mesh();
         let context = super::brief::Context {
             machine: mesh
                 .as_ref()

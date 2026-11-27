@@ -1,4 +1,5 @@
 use super::*;
+use iroh::EndpointId;
 use crate::agents::Parts;
 use crate::agents::{AgentKind, OpenSession, SavedSession, family::links::{Links, Waits}};
 use crate::team::{asks::Delivery, link::TeamLink};
@@ -295,10 +296,10 @@ async fn a_session_may_not_have_more_than_eight_children() {
     let refused = rig.agents.link_for(&parent, &who).unwrap_err();
     assert!(refused.contains("8 children"), "{refused}");
     // One that ended frees its place but stays there to read.
-    let first = rig.agents.remote_kids(&who.session)[0].clone();
-    rig.agents.end_remote(&first);
+    let first = rig.agents.links.remote_kids(&who.session)[0].clone();
+    rig.agents.links.end_remote(&first);
     assert!(rig.agents.link_for(&parent, &who).is_ok());
-    assert_eq!(rig.agents.remote_kids(&who.session).len(), MAX_CHILDREN);
+    assert_eq!(rig.agents.links.remote_kids(&who.session).len(), MAX_CHILDREN);
     rig.agents.shutdown().await;
 }
 
@@ -1396,7 +1397,7 @@ async fn a_parents_node_says_which_remote_children_it_keeps() {
     let (there, other) = (SecretKeyFor::id(), SecretKeyFor::id());
     let mut kid = RemoteKid::expected(&name, there, "box");
     kid.id = "k1".into();
-    rig.agents.adopt_remote(&parent, kid.clone());
+    rig.agents.links.adopt_remote(&parent, kid.clone());
     assert!(rig.agents.keeps_child(there, &name, &SessionId::from("k1"), &SessionId::default()));
     // By the id it started under, too.
     assert!(rig.agents.keeps_child(there, &name, &SessionId::from("agent-id"), &SessionId::from("k1")));
@@ -1405,12 +1406,12 @@ async fn a_parents_node_says_which_remote_children_it_keeps() {
     assert!(!rig.agents.keeps_child(there, &name, &SessionId::from("k2"), &SessionId::default()));
     assert!(!rig.agents.keeps_child(there, &SessionId::from("no-such-parent"), &SessionId::from("k1"), &SessionId::default()));
     // One that ended is no longer kept.
-    rig.agents.end_remote(&kid);
+    rig.agents.links.end_remote(&kid);
     assert!(!rig.agents.keeps_child(there, &name, &SessionId::from("k1"), &SessionId::default()));
     // A start that got no answer is kept for a while, whichever id the
     // machine gave it.
     rig.agents
-        .adopt_remote(&parent, RemoteKid::expected(&name, other, "far"));
+        .links.adopt_remote(&parent, RemoteKid::expected(&name, other, "far"));
     assert!(rig.agents.keeps_child(other, &name, &SessionId::from("anything"), &SessionId::default()));
     // A parent that ended for good keeps nothing.
     parent.close().await;
@@ -1426,7 +1427,7 @@ async fn a_settle_note_wakes_a_wait_and_goes_in_no_prompt() {
     let there = SecretKeyFor::id();
     let mut kid = RemoteKid::expected(&name, there, "box");
     kid.id = "k1".into();
-    rig.agents.adopt_remote(&parent, kid);
+    rig.agents.links.adopt_remote(&parent, kid);
     let note = ChildNote {
         id: "k1".into(),
         key: SessionId::default(),
@@ -1464,20 +1465,20 @@ async fn a_start_with_no_answer_holds_its_place_until_it_expires_and_a_refusal_f
 
     for _ in 0..MAX_CHILDREN {
         rig.agents
-            .adopt_remote(&parent, RemoteKid::expected(&name, there, "box"));
+            .links.adopt_remote(&parent, RemoteKid::expected(&name, there, "box"));
     }
     // A retry cannot start a ninth behind the eight that may be running.
     let refused = rig.agents.link_for(&parent, &who).unwrap_err();
     assert!(refused.contains("8 children"), "{refused}");
     // One the machine turned down never started.
-    rig.agents.forget_expected(&name, there);
+    rig.agents.links.forget_expected(&name, there);
     assert!(rig.agents.link_for(&parent, &who).is_ok());
     // One that answered takes the id it was given, once.
-    rig.agents.settle_remote(&name, there, &SessionId::from("k1"));
-    rig.agents.settle_remote(&name, there, &SessionId::from("k1"));
+    rig.agents.links.settle_remote(&name, there, &SessionId::from("k1"));
+    rig.agents.links.settle_remote(&name, there, &SessionId::from("k1"));
     let ids: Vec<SessionId> = rig
         .agents
-        .remote_kids(&name)
+        .links.remote_kids(&name)
         .into_iter()
         .map(|kid| kid.id)
         .collect();
@@ -1528,7 +1529,7 @@ async fn sessions_are_listed_while_the_open_note_waits_on_the_children() {
     let name = sessions::name_of(&parent);
     let mut kid = RemoteKid::expected(&name, SecretKeyFor::id(), "box");
     kid.id = "k1".into();
-    rig.agents.adopt_remote(&parent, kid.clone());
+    rig.agents.links.adopt_remote(&parent, kid.clone());
     let agents = &rig.agents;
     let noted = std::thread::scope(|scope| {
         // The children's list is busy, so the note stops on it.
@@ -2043,4 +2044,26 @@ fn links_are_built_from_a_membership_and_name_the_kids_a_restart_keeps() {
     let kept = links.kids_to_keep(&parent);
     assert_eq!(kept.len(), 1);
     assert_eq!(kept[0].id, SessionId::from("k1"));
+}
+
+#[tokio::test]
+async fn links_adopt_and_end_remote_kids_without_an_agents() {
+    let rig = Rig::new();
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let name = sessions::name_of(&parent);
+    let there = SecretKeyFor::id();
+    let mut kid = RemoteKid::expected(&name, there, "box");
+    kid.id = "k1".into();
+
+    let links = Links::new(crate::membership::Membership::default());
+    assert!(links.mesh().is_none());
+
+    links.adopt_remote(&parent, kid.clone());
+    let kept = links.remote_kids(&name);
+    assert_eq!(kept.len(), 1);
+    assert!(!kept[0].ended);
+
+    links.end_remote(&kid);
+    assert!(links.remote_kids(&name)[0].ended);
+    rig.agents.shutdown().await;
 }

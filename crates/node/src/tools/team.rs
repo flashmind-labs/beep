@@ -342,7 +342,7 @@ pub(crate) async fn answer(
             if let Err(e) = acts_for(link, &order.repo, from) {
                 return fail(e);
             }
-            let Some(mesh) = agents.mesh() else {
+            let Some(mesh) = agents.links.mesh() else {
                 return fail("This machine is in no mesh.");
             };
 

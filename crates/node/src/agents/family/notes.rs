@@ -77,7 +77,7 @@ impl Agents {
             return;
         };
         let to = match link.machine {
-            Some(peer) if Some(peer) != self.me() => To::There {
+            Some(peer) if Some(peer) != self.links.me() => To::There {
                 peer,
                 parent: link.session,
             },
@@ -107,7 +107,7 @@ impl Agents {
         note: &ChildNote,
     ) -> Result<(), String> {
         let kid = self
-            .remote_kids(parent)
+            .links.remote_kids(parent)
             .into_iter()
             .find(|kid| {
                 kid.machine == peer && !kid.ended && (kid.id == note.id || kid.id == note.key)

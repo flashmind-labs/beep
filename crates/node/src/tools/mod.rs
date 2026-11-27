@@ -134,7 +134,7 @@ impl Backend for Served {
         match request.tool {
             Tool::ListProjects => {
                 return Ok(crate::agents::projects::call(
-                    self.node.agents.mesh().as_ref(),
+                    self.node.agents.links.mesh().as_ref(),
                     &request.args,
                 ));
             }

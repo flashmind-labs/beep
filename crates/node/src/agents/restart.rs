@@ -341,7 +341,7 @@ impl Agents {
         }
 
         for kid in open.kids {
-            self.adopt_remote(&session, kid);
+            self.links.adopt_remote(&session, kid);
         }
 
         for mut prompt in open.held {

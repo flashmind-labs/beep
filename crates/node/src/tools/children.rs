@@ -60,7 +60,7 @@ pub(super) async fn call(node: &Node, request: &Request) -> Reply {
     };
     let reach = Reach {
         agents,
-        mesh: agents.mesh(),
+        mesh: agents.links.mesh(),
         who: &who,
     };
 
@@ -327,7 +327,7 @@ impl Reach<'_> {
         };
         let me = &self.who.session;
         self.agents
-            .adopt_remote(parent, RemoteKid::expected(me, machine.id, &machine.name));
+            .links.adopt_remote(parent, RemoteKid::expected(me, machine.id, &machine.name));
 
         let text = match Call::to_machine(mesh, me, machine)
             .ask(Tool::StartAgent, &order, REMOTE_LIMIT)
@@ -335,7 +335,7 @@ impl Reach<'_> {
         {
             Answer::Text(text) => text,
             Answer::Refused(why) => {
-                self.agents.forget_expected(me, machine.id);
+                self.agents.links.forget_expected(me, machine.id);
                 return Err(why);
             }
             Answer::Silent(why) => {
@@ -347,7 +347,7 @@ impl Reach<'_> {
         };
         let view = parse_view(&machine.name, &text)?.named(&machine.name);
         self.agents
-            .settle_remote(me, machine.id, &ChildId::from(view.id.as_str()).session);
+            .links.settle_remote(me, machine.id, &ChildId::from(view.id.as_str()).session);
 
         Ok(view)
     }
@@ -374,7 +374,7 @@ impl Reach<'_> {
         let view = fetch_view(self.mesh()?, &self.who.session, kid).await?;
 
         if view.state == "ended" {
-            self.agents.end_remote(kid);
+            self.agents.links.end_remote(kid);
         }
 
         Ok(view.named(&kid.name))
@@ -471,7 +471,7 @@ impl Reach<'_> {
                     .map_err(|e| {
                         format!("{e} It is not stopped and still counts as running: try again.")
                     })?;
-                self.agents.end_remote(&kid);
+                self.agents.links.end_remote(&kid);
             }
         }
 
@@ -495,7 +495,7 @@ impl Reach<'_> {
             })
             .collect();
         // One whose start got no answer has no id to ask for yet.
-        let mut kids = self.agents.remote_kids(&self.who.session);
+        let mut kids = self.agents.links.remote_kids(&self.who.session);
         kids.retain(|kid| !kid.pending());
         let there = futures::future::join_all(kids.iter().map(|kid| self.view_there(kid))).await;
 
@@ -630,7 +630,7 @@ async fn serve_peer(agents: &Agents, peer: EndpointId, request: &Request) -> Res
     };
     // A node says it notes every settle only when it can send a note: one
     // with no mesh has nobody to tell, and its parent must keep reading.
-    let notes_settles = agents.mesh().is_some();
+    let notes_settles = agents.links.mesh().is_some();
     let child_view = |child: &Session| {
         json_of(&ChildView {
             notes_settles,

@@ -15,7 +15,6 @@ use crate::known::known;
 use beep_proto::AgentAccount;
 use beep_proto::node::agent::{ParentLink, Persona, SessionInfo, Status};
 use beep_proto::watched;
-use iroh::EndpointId;
 use std::{str::FromStr, sync::Arc, time::Duration};
 use tokio::sync::watch;
 
@@ -34,16 +33,6 @@ pub(crate) use links::NO_AGENT;
 /// How long the count of a root's agents on another machine may take.
 const COUNT_LIMIT: Duration = Duration::from_secs(3);
 impl Agents {
-    /// The mesh, when this node belongs to one.
-    pub(crate) fn mesh(&self) -> Option<beep_mesh::Mesh> {
-        self.links.membership.get()
-    }
-
-    /// This machine's id in its mesh.
-    fn me(&self) -> Option<EndpointId> {
-        self.mesh().map(|mesh| mesh.me())
-    }
-
     /// The calling session `session` of this node, and who it is to its
     /// children.
     pub(crate) fn caller(&self, session: &SessionId) -> Option<(Arc<Session>, Who)> {
@@ -55,7 +44,7 @@ impl Agents {
     /// Who `session` is to its children.
     pub(super) fn who_of(&self, session: &Session) -> Who {
         Who {
-            machine: self.me(),
+            machine: self.links.me(),
             session: sessions::name_of(session),
         }
     }
@@ -96,7 +85,7 @@ impl Agents {
     /// each online machine says of its own. A machine that does not answer
     /// in time counts none.
     async fn live_elsewhere(&self, root: &Root) -> usize {
-        let Some(mesh) = self.mesh() else {
+        let Some(mesh) = self.links.mesh() else {
             return 0;
         };
         let me = mesh.me();
@@ -132,7 +121,7 @@ impl Agents {
     fn children_count(&self, who: &Who) -> usize {
         let local = self.sessions.local_children(who);
         let remote = self
-            .remote_kids(&who.session)
+            .links.remote_kids(&who.session)
             .iter()
             .filter(|kid| kid.counts())
             .count();
@@ -178,7 +167,7 @@ impl Agents {
             None => child_mode(&link, &kind.name)?,
         };
         let follows = self.parent_live_of(&link);
-        let parent = (link.machine == self.me())
+        let parent = (link.machine == self.links.me())
             .then(|| self.sessions.get(&link.session))
             .flatten();
         let root = (link.root_machine, link.root.clone());
@@ -240,7 +229,7 @@ impl Agents {
 
     /// The parent's state, when it runs here: the child ends with it.
     pub(super) fn parent_live_of(&self, link: &ParentLink) -> Option<watch::Receiver<Live>> {
-        (link.machine == self.me())
+        (link.machine == self.links.me())
             .then(|| self.sessions.get(&link.session))
             .flatten()
             .map(|parent| parent.live.clone())
@@ -289,14 +278,14 @@ impl Agents {
                 }
             }
 
-            for kid in self.remote_kids(&who.session) {
+            for kid in self.links.remote_kids(&who.session) {
                 if kid.counts() && !kid.pending() {
                     remote.push((who.session.clone(), kid));
                 }
             }
         }
 
-        let mesh = self.mesh();
+        let mesh = self.links.mesh();
         let remote = remote.iter().map(|(parent, kid)| async {
             let Some(mesh) = &mesh else {
                 return;

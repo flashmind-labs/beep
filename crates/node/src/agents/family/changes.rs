@@ -110,7 +110,7 @@ impl Agents {
             }
         }
 
-        let here = crate::agents::machine_list::machine_name(self.mesh().as_ref());
+        let here = crate::agents::machine_list::machine_name(self.links.mesh().as_ref());
         let siblings = main
             .iter()
             .flat_map(|main| self.sessions.children_of(&self.who_of(main)))

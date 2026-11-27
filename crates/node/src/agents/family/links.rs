@@ -61,6 +61,16 @@ impl Links {
         }
     }
 
+    /// The mesh, when this node belongs to one.
+    pub(crate) fn mesh(&self) -> Option<beep_mesh::Mesh> {
+        self.membership.get()
+    }
+
+    /// This machine's id in its mesh.
+    pub(in crate::agents) fn me(&self) -> Option<EndpointId> {
+        self.mesh().map(|mesh| mesh.me())
+    }
+
     /// Whether `kid` is one `parent` keeps on `machine`: by the id its machine
     /// lists it under or the one it had when it started.
     pub(super) fn keeps(&self, parent: &SessionId, machine: EndpointId, id: &SessionId, key: &SessionId) -> bool {
