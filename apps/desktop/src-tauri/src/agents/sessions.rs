@@ -35,11 +35,7 @@ use beep_proto::{
 };
 use iroh::EndpointId;
 use serde::Serialize;
-use std::{
-    str::FromStr,
-    sync::Arc,
-    time::{Duration, Instant, UNIX_EPOCH},
-};
+use std::{str::FromStr, sync::Arc, time::Instant};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tokio::sync::broadcast;
 
@@ -296,12 +292,12 @@ pub async fn agent_session_find(
             cwd: meta.cwd,
             status: beep_proto::AgentStatus::Ended {},
             doing: None,
-            started_at: UNIX_EPOCH
-                .checked_add(Duration::from_secs(meta.started_at))
-                .unwrap_or(UNIX_EPOCH),
-            last_activity: UNIX_EPOCH
-                .checked_add(Duration::from_millis(activity_ms))
-                .unwrap_or(UNIX_EPOCH),
+            started_at: std::time::UNIX_EPOCH
+                .checked_add(std::time::Duration::from_secs(meta.started_at))
+                .unwrap_or(std::time::UNIX_EPOCH),
+            last_activity: std::time::UNIX_EPOCH
+                .checked_add(std::time::Duration::from_millis(activity_ms))
+                .unwrap_or(std::time::UNIX_EPOCH),
             external: meta.managed.is_none(),
             question: None,
             subagents: 0,
