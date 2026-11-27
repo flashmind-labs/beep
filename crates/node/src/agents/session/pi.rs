@@ -16,6 +16,7 @@ const PI_COMMAND: &str = "PI_ACP_PI_COMMAND";
 /// Match Beep's longest MCP tool waits (e.g. `remote_run` and `ask_user`).
 const MCP_TIMEOUT_SECS: u32 = 600;
 /// Leave room below Unix `SUN_LEN` (104 bytes on macOS and BSD).
+#[cfg(unix)]
 const MAX_UNIX_SOCKET_LEN: usize = 92;
 
 /// Configure Beep's ACP and RPC shims around `pi-acp` and standalone `pi`.
