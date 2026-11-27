@@ -63,7 +63,7 @@ mod watch;
 use actor::{Entry, FAILED, Phase, Projects, Running, STOPPING, Source, halt};
 pub(crate) use parts::Parts;
 use peer::SyncPool;
-pub(crate) use peer::{ALPN, PeerHandler};
+pub(crate) use peer::{ALPN, serve::PeerHandler};
 use project::{Shared, Start};
 pub(crate) use rules::Rules;
 use watch::{Key, Watcher};
