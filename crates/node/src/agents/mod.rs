@@ -21,7 +21,7 @@ host! {
         sync::{Arc, Mutex, OnceLock, atomic::AtomicBool},
         time::Duration,
     };
-    use tokio::sync::watch;
+    use tokio::{sync::watch, time::Instant};
 
     pub mod claude;
     mod claude_direct;
