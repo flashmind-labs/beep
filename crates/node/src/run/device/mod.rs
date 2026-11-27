@@ -452,14 +452,15 @@ fn listed(reply: Reply) -> Reply {
     reply
 }
 
-#[cfg_attr(all(test, not(target_os = "macos")), allow(dead_code))]
 enum Controls {
     Android(Box<android::Controls>),
     Phone(Box<phone::Controls>),
     #[cfg(any(target_os = "macos", all(test, unix)))]
+    #[cfg_attr(all(test, not(target_os = "macos")), allow(dead_code))]
     Ios(Box<ios::Controls>),
     /// An iPhone, which takes no input.
     #[cfg(any(target_os = "macos", all(test, unix)))]
+    #[cfg_attr(all(test, not(target_os = "macos")), allow(dead_code))]
     Iphone,
 }
 

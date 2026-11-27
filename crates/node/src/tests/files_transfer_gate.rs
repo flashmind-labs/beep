@@ -43,6 +43,7 @@ async fn the_gate_asks_sync_before_the_grants() {
         .expect("the node joins");
     let shared = TempDir::new().expect("a temp folder");
     std::fs::create_dir(shared.path().join("proj")).expect("a project folder");
+    std::fs::write(shared.path().join("proj").join("a.txt"), "synced bytes").expect("a file");
     let state = TempDir::new().expect("a temp folder");
     let membership = Membership::default();
     membership.set(mesh.clone());
@@ -71,6 +72,8 @@ async fn the_gate_asks_sync_before_the_grants() {
         .await;
     assert!(refused.is_empty(), "{refused:?}");
 
+    syncs.rescan("proj").await.expect("the project scans");
+
     let grants = Grants::new();
     let member = node.id();
     let stranger = SecretKey::generate().public();
@@ -78,6 +81,12 @@ async fn the_gate_asks_sync_before_the_grants() {
     assert!(connect(&grants, &syncs, 1, Some(member)).is_ok());
     assert!(connect(&grants, &syncs, 2, Some(stranger)).is_err());
     assert!(connect(&grants, &syncs, 3, None).is_err());
+
+    // With no grant, it gets the project's blobs and only raw.
+    let held = Hash::new(b"synced bytes");
+    assert!(get(&grants, &syncs, 1, &GetRequest::blob(held)).is_ok());
+    assert!(get(&grants, &syncs, 1, &GetRequest::all(held)).is_err());
+    assert!(get(&grants, &syncs, 1, &GetRequest::blob(Hash::new(b"other"))).is_err());
 
     // A removed device is refused even with an open offer for it, and one
     // already connected loses its requests.

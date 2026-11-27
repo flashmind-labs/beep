@@ -5,9 +5,11 @@ use crate::link::Offers;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     agent::{SessionsReply, SessionsRequest},
-    events::{self, CallReply, Operation, Topic},
+    events::{
+        self, CallReply, FORGE_REACH_TOPIC, MOVE_PROGRESS_TOPIC, Operation, Query, Read,
+        SessionsDelta, Snapshot, TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC, Topic, Value,
+    },
 };
-
 use std::{
     collections::{BTreeMap, HashSet},
     path::PathBuf,
@@ -20,10 +22,6 @@ use tokio::{
 use beep_proto::{node::device::Device, watched};
 use tokio::sync::watch;
 use crate::events::{ChangeKind, Touched};
-use beep_proto::node::events::{
-    FORGE_REACH_TOPIC, MOVE_PROGRESS_TOPIC, Query, Read, Snapshot, SessionsDelta, TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC,
-    Value,
-};
 use beep_proto::node::process::TaskId;
 use beep_proto::node::subscriptions::Reply;
 

@@ -31,7 +31,7 @@ fn connect(
         return Err(AbortReason::Permission);
     }
 
-    let synced = peer.is_some_and(|peer| syncs.may_connect(&peer));
+    let synced = peer.is_some_and(|peer| syncs.is_peer(&peer));
 
     grants.connect(connection, peer, synced)
 }
@@ -50,15 +50,11 @@ fn get(
         return Err(AbortReason::Permission);
     }
 
-    let synced = request.ranges.is_blob()
-        && peer.is_some_and(|peer| syncs.may_get(&peer, &request.hash));
-
-    grants.get(connection, request, synced)
+    grants.get(connection, request, |peer| syncs.may_get(peer, &request.hash))
 }
 
 /// The events the blobs protocol sends, answered from `grants` and what
-/// `syncs` says of the peer by a task
-/// the handle owns. Requests that could reach other blobs (`get_many`,
+/// `syncs` says of the peer by a task the handle owns. Requests that could reach other blobs (`get_many`,
 /// `observe`) and writes (`push`) are refused.
 pub(super) fn events(grants: Arc<Grants>, syncs: Syncs) -> (EventSender, AbortOnDropHandle<()>) {
     let mask = EventMask {

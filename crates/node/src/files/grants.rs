@@ -83,7 +83,6 @@ impl Grants {
         }
     }
 
-
     /// Lets `peer` in on `connection` when it is `synced`, a peer of a synced
     /// project, or holds a grant.
     pub(crate) fn connect(
@@ -114,13 +113,14 @@ impl Grants {
 
     /// Whether the peer on `connection` may make `request`: a root it was
     /// granted, and for a file only the blob itself, or, when `synced`, a
-    /// blob of a project the peer syncs. A granted root comes with where
+    /// blob of a project the peer syncs, which `synced` says of the
+    /// peer and is asked only when no grant matches. A granted root comes with where
     /// its bytes sent go.
     pub(crate) fn get(
         &self,
         connection: u64,
         request: &GetRequest,
-        synced: bool,
+        synced: impl FnOnce(&EndpointId) -> bool,
     ) -> Result<Option<watch::Sender<u64>>, AbortReason> {
         let inner = lock(&self.inner);
         let peer = inner
@@ -135,7 +135,7 @@ impl Grants {
         });
         match granted {
             Some(grant) => Ok(Some(grant.sent.clone())),
-            None if synced && request.ranges.is_blob() => Ok(None),
+            None if request.ranges.is_blob() && synced(peer) => Ok(None),
             None => Err(AbortReason::Permission),
         }
     }

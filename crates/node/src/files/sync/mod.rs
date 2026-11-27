@@ -280,11 +280,6 @@ impl Syncs {
         Ok(syncs)
     }
 
-    /// Whether `peer` is a peer of a synced project, so may connect.
-    pub(crate) fn may_connect(&self, peer: &EndpointId) -> bool {
-        self.inner.may_connect(peer)
-    }
-
     /// Whether `peer` may fetch the blob `hash` of a synced project.
     pub(crate) fn may_get(&self, peer: &EndpointId, hash: &Hash) -> bool {
         self.inner.may_get(peer, hash)
@@ -1102,7 +1097,7 @@ impl Syncs {
             .cloned()
     }
 
-    fn is_peer(&self, peer: &EndpointId) -> bool {
+    pub(crate) fn is_peer(&self, peer: &EndpointId) -> bool {
         self.inner.may_connect(peer)
     }
 

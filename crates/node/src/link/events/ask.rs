@@ -1,4 +1,5 @@
-//! One request answered on an in-memory link.
+//! `execute`, the call dispatcher, and `ask`, which answers one request on an
+//! in-memory link.
 
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
