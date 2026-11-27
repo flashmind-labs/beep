@@ -13,6 +13,8 @@ import { agentKind } from "../../stores/agents/agent-kind.ts";
 import { SWITCHES, continuePicks, logStale, resumePicks, sessionPicks, setNote } from "./open-state.ts";
 import { resendPrompt, steerAgent } from "./messages.ts";
 import { perfLayer, perfOpen } from "../../ui/perf.ts";
+import { sessionProject } from "../project/sessionproject.ts";
+import { projectHarnesses, readProjectHarnesses } from "../project/project-harnesses.tsx";
 
 /// The model pill, which the picker opens from.
 const modelPill = createRef<HTMLButtonElement>();
@@ -23,10 +25,16 @@ let retryIn: string | null = null;
 export const canSwitchModel = (s: AgentRow) => SWITCHES.has(s.agent) && !isNativeSession(s.id)
   && (s.status === "ended" ? !s.external || canTakeOver(s.agent) : !s.external);
 
+/// The harnesses session `s`'s project allows, with its own; null for every one.
+function allowedFor(s: AgentRow) {
+  const allowed = projectHarnesses(sessionProject(s)?.name ?? null);
+  return allowed && [...new Set([s.agent, ...allowed])];
+}
+
 /// The harnesses session `s` can go on with: every one its machine offers
-/// while it can be continued, else its own.
+/// and its project allows while it can be continued, else its own.
 function harnessesFor(s: AgentRow) {
-  return canContinueElsewhere(s) ? [...new Set([s.agent, ...harnessesOn(AG.hosts, s.machine_id, null)])] : [s.agent];
+  return canContinueElsewhere(s) ? [...new Set([s.agent, ...harnessesOn(AG.hosts, s.machine_id, allowedFor(s))])] : [s.agent];
 }
 
 /// Whether the picker has another harness to offer for `s`.
@@ -58,6 +66,9 @@ export function toggleModelPicker() {
   AG.modelOpen = true;
   // The machines' harnesses may not be read yet: the picker lists them once they are.
   if (!AG.hosts) void ensureAgentHosts().then(() => { if (AG.hosts && AG.modelOpen) { drawModelPicker(); drawModelPill(); } });
+  // So are the harnesses its project allows.
+  const project = AG.page ? sessionProject(AG.page.session)?.name : null;
+  if (project) void readProjectHarnesses(project).then(() => { if (AG.modelOpen) { drawModelPicker(); drawModelPill(); } });
   const opened = perfOpen("picker");
   drawModelPicker();
   drawModelPill();
@@ -112,7 +123,7 @@ function drawModelPicker() {
     picked,
     offered,
     everywhere: offered,
-    allowed: null,
+    allowed: allowedFor(s),
     machine: { id: s.machine_id, name: s.machine_name },
     noMachine: "",
     steps: null,

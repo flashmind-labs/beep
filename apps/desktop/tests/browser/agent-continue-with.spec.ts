@@ -67,3 +67,21 @@ test("an attached file uploads to the chat's folder and goes with the continued 
   const uploads = await page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_tree_upload").map(c => c.args));
   expect(uploads).toMatchObject([{ machineId: "build-box", root: "/srv/project", path: "notes.txt", size: 13 }]);
 });
+
+test("the picker offers only the harnesses the chat's project allows", async ({ page }) => {
+  const idle = { ...earlier, status: "idle" };
+  const home = {
+    machines: [], running: [], coming_up: null, updates: null, needs_you: [],
+    projects: [{ name: "example/app", url: "https://example.test/example/app", machine_id: "build-box", machine_name: "build-box", folder: "/srv/project", cloned: true }],
+  };
+  await openDesktop(page, false, {
+    agent_sessions: [idle], agent_view: view(idle), agent_models: models, center_home: home,
+    agent_hosts: [{ ...host, agents: ["claude", "codex", "agy"] }], project_harnesses: ["claude", "codex"],
+  });
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), idle);
+  await page.locator("#agmodelb").click();
+  await expect(page.locator('[data-agh="codex"]')).toBeVisible();
+  await expect(page.locator('[data-agh="agy"]')).toHaveCount(0);
+  const asked = await page.evaluate(() => window.__navigation.calls().filter(c => c.command === "project_harnesses").map(c => c.args));
+  expect(asked).toContainEqual({ project: "example/app" });
+});
