@@ -4,7 +4,8 @@
 //! same at the base as in the checkout, so the changes under review cannot
 //! rewrite their own reviewer.
 
-use super::super::{custom_agents, work_folder::git};
+use super::super::work_folder::git;
+use crate::custom_agents;
 use beep_proto::{CustomAgent, CustomAgentScope};
 use std::path::Path;
 

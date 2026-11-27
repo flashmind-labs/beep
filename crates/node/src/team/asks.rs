@@ -16,6 +16,8 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+pub(crate) use crate::agents::family::notes::Delivery;
+
 /// The longest ask or answer, in characters.
 pub(crate) const MAX_TEXT: usize = 4000;
 /// What a device that holds no ask by an answer's id says: the sender
@@ -66,17 +68,6 @@ impl AskLimit {
             sent.pop_back();
         }
     }
-}
-
-/// What a text handed to a session is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum Delivery {
-    /// A teammate's agent asks: a message, which counts against the
-    /// session's messages from agents.
-    Ask,
-    /// The answer to the session's own ask: a note.
-    Reply,
 }
 
 /// `Tool::TeamAsk` from a session's node to its mesh's gateway: the ask as

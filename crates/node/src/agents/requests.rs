@@ -3,9 +3,9 @@
 use beep_proto::SessionId;
 use super::{
     Agents, AlertHub, MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP,
-    custom_agents, harnesses, media_file, reach, spend::Reports, work_folder, worktrees,
+    harnesses, media_file, reach, spend::Reports, work_folder, worktrees,
 };
-use crate::files::transfer::Transfers;
+use crate::{custom_agents, files::transfer::Transfers};
 use anyhow::{Context, Result};
 use beep_mesh::machine::thumb::{Picture, thumb_of};
 use beep_proto::media_mime;

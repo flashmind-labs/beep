@@ -21,7 +21,7 @@ use super::{Agents, Command, Live, Session};
 use crate::agents::live::Mark;
 use crate::agents::child_view::{ChildView, full_id};
 use super::peer::NoteFailed;
-use crate::{agents::tags, membership::Membership, team::asks::Delivery};
+use crate::{agents::tags, membership::Membership};
 use beep_proto::node::agent::{Status, StopReason};
 use beep_proto::watched;
 use iroh::EndpointId;
@@ -36,6 +36,17 @@ use tokio::{
     sync::{Notify, watch},
     time::sleep,
 };
+
+/// What a text handed to a session is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Delivery {
+    /// A teammate's agent asks: a message, which counts against the
+    /// session's messages from agents.
+    Ask,
+    /// The answer to the session's own ask: a note.
+    Reply,
+}
 
 /// What a child came to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, strum::AsRefStr)]

@@ -3,7 +3,7 @@
 //! other node keeps a plain copy per revision of the skills it installs, taken from a machine that
 //! has them. Also listing a repository's skills. Every function here blocks.
 
-use crate::agents::{custom_agents::parse::skill_description, skill_disk};
+use crate::{agents::skill_disk, custom_agents::parse::skill_description};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{mesh_state::LibrarySkill, skill_library::library_name, skills::SkillFile};
 use serde_bytes::ByteBuf;

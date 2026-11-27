@@ -381,5 +381,5 @@ fn strip_jsonc(text: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "../../tests/agents_custom_agents_parse.rs"]
+#[path = "../tests/custom_agents_parse.rs"]
 mod tests;

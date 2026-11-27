@@ -46,7 +46,6 @@ host! {
     pub(crate) mod checkouts;
     mod compaction;
     mod conversation;
-    pub(crate) mod custom_agents;
     mod delete;
     pub(crate) mod family;
     mod flsh_config;

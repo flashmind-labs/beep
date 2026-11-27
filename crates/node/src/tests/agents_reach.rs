@@ -185,7 +185,7 @@ fn custom_agents_are_listed_only_in_a_work_folder() {
         sessions: Vec::new(),
     };
     let real = check(&reach, project.path(), Access::Work).unwrap();
-    let agents = super::super::custom_agents::list(&real, None).unwrap();
+    let agents = crate::custom_agents::list(&real, None).unwrap();
     assert_eq!(agents.len(), 1);
     assert_eq!(agents[0].name, "reviewer");
 

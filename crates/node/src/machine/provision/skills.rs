@@ -3,7 +3,7 @@
 //! that folder's skills for the sessions Beep starts, and tells them to use
 //! the `report` skill for their final response when it is installed.
 
-use crate::agents::custom_agents::parse;
+use crate::custom_agents::parse;
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use std::{

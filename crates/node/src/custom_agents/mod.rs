@@ -458,5 +458,5 @@ fn cap(mut prompt: String) -> (String, bool) {
 }
 
 #[cfg(test)]
-#[path = "../../tests/agents_custom_agents.rs"]
+#[path = "../tests/custom_agents.rs"]
 mod tests;

@@ -32,7 +32,7 @@ use tokio::sync::{
 use tokio_util::task::AbortOnDropHandle;
 
 mod changes;
-mod notes;
+pub(crate) mod notes;
 pub(crate) mod peer;
 mod orphans;
 mod remote;
@@ -385,7 +385,7 @@ impl Agents {
                 .account
                 .filter(|_| AgentAccount::from_str(&kind.name).is_ok()),
             persona: start.persona.as_ref().map(Into::<Persona>::into),
-            instructions: start.persona.as_ref().map(super::custom_agents::persona_brief),
+            instructions: start.persona.as_ref().map(crate::custom_agents::persona_brief),
             ..Begin::default()
         };
         let elsewhere = self.live_elsewhere(&root).await;

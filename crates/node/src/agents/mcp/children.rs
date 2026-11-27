@@ -617,7 +617,7 @@ async fn find_persona(at: String, name: String, harness: String) -> Result<Custo
 
     tokio::task::spawn_blocking(move || {
         let folder = crate::machine::env::locate::folder(Some(&at)).map_err(|e| format!("{e:#}"))?;
-        crate::agents::custom_agents::persona(&folder, home.as_deref(), &name, &harness)
+        crate::custom_agents::persona(&folder, home.as_deref(), &name, &harness)
     })
     .await
     .map_err(|e| format!("The custom agents were not read: {e}"))?
