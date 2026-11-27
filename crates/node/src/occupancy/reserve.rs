@@ -50,9 +50,11 @@ impl Occupancy {
     async fn sessions_in(&self, folder: &Path) -> Result<Vec<ExternalSession>> {
         let seen = self.sighted().await?;
         let seen = self.with_present(seen.seen.as_ref().clone());
-        // `folder` is a real path; a session may have started through a symlink.
-        let seen = spawn_blocking(move || found::with_real_cwds(seen)).await?;
-        let picked = found::in_folders(seen, std::slice::from_ref(&folder.to_owned()), MAX_IN_FOLDERS);
+        let folders = vec![folder.to_owned()];
+        let picked = {
+            let folders = folders.clone();
+            spawn_blocking(move || found::in_folders(seen, &folders, MAX_IN_FOLDERS)).await?
+        };
         let (claude, others): (Vec<_>, Vec<_>) = picked
             .into_iter()
             .partition(|seen| seen.agent == Agent::Claude);
@@ -72,11 +74,12 @@ impl Occupancy {
         sessions.extend(others?);
 
         self.presence().merge(&mut sessions);
-        sessions.retain(|session| {
-            let cwd = Path::new(&session.cwd);
-            let real = crate::fs::paths::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned());
-            found::within(&real, folder)
-        });
+        let sessions = spawn_blocking(move || {
+            let mut under = found::Under::new(&folders);
+            sessions.retain(|session| under.has(Path::new(&session.cwd)));
+            sessions
+        })
+        .await?;
 
         Ok(sessions)
     }

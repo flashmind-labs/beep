@@ -215,8 +215,12 @@ impl Agents {
     ) -> Result<Vec<ExternalSession>> {
         let limit = clamp_limit(limit, DEFAULT_IN_FOLDERS, MAX_IN_FOLDERS);
         let folders = asked_folders(folders).await?;
-        let picked = found::in_folders(self.sightings().await?, &folders, limit);
-        let mut sessions = self.describe_history(picked, &folders).await?;
+        let seen = self.sightings().await?;
+        let picked = {
+            let folders = folders.clone();
+            spawn_blocking(move || found::in_folders(seen, &folders, limit)).await?
+        };
+        let mut sessions = self.describe_history(picked, folders).await?;
         sessions.truncate(limit);
 
         Ok(sessions)
@@ -232,13 +236,17 @@ impl Agents {
     ) -> Result<SessionPage> {
         let limit = clamp_limit(limit, DEFAULT_IN_FOLDERS, MAX_IN_FOLDERS);
         let folders = asked_folders(folders).await?;
-        let (picked, next) =
-            found::history_page(self.sightings().await?, &folders, limit, before.as_ref());
+        let seen = self.sightings().await?;
+        let (picked, next) = {
+            let folders = folders.clone();
+            spawn_blocking(move || found::history_page(seen, &folders, limit, before.as_ref()))
+                .await?
+        };
         let selected: HashSet<_> = picked
             .iter()
             .map(|seen| (seen.agent.to_string(), seen.id.clone()))
             .collect();
-        let mut sessions = self.describe_history(picked, &folders).await?;
+        let mut sessions = self.describe_history(picked, folders).await?;
         sessions.retain(|session| selected.contains(&(session.agent.clone(), session.id.clone())));
         for session in &mut sessions {
             session.last_prompt.clear();
@@ -250,7 +258,7 @@ impl Agents {
     async fn describe_history(
         &self,
         picked: Vec<found::Seen>,
-        folders: &[PathBuf],
+        folders: Vec<PathBuf>,
     ) -> Result<Vec<ExternalSession>> {
         let (claude, others): (Vec<found::Seen>, Vec<found::Seen>) = picked
             .into_iter()
@@ -270,11 +278,12 @@ impl Agents {
         let mut sessions = claude?;
         sessions.extend(others.context("reading the sessions' titles")?);
         self.occupancy.presence().merge(&mut sessions);
-        sessions.retain(|session| {
-            folders
-                .iter()
-                .any(|folder| found::within(Path::new(&session.cwd), folder))
-        });
+        let mut sessions = spawn_blocking(move || {
+            let mut under = found::Under::new(&folders);
+            sessions.retain(|session| under.has(Path::new(&session.cwd)));
+            sessions
+        })
+        .await?;
 
         for session in &mut sessions {
             if session.taken_over.is_none() {

@@ -110,3 +110,35 @@ async fn a_project_reached_through_a_symlink_lists_a_worktree_session_at_its_rea
 
     assert_eq!(listed.len(), 1, "{listed:?}");
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_project_asked_by_its_real_path_lists_a_session_recorded_through_the_link() {
+    let (codex, data) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let real = std::fs::canonicalize(data.path()).unwrap().join("proj");
+    std::fs::create_dir_all(real.join("src")).unwrap();
+    let link = data.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let sessions = codex.path().join("sessions/2026/11/01");
+    std::fs::create_dir_all(&sessions).unwrap();
+    std::fs::write(
+        sessions.join("rollout-one.jsonl"),
+        format!(
+            "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"one\",\"cwd\":{},\"source\":\"cli\"}}}}\n",
+            serde_json::to_string(&link.join("src").to_string_lossy()).unwrap()
+        ),
+    )
+    .unwrap();
+    let occupancy = crate::occupancy::Occupancy::over(
+        crate::logs::claude::Store::default(),
+        crate::logs::found::Stores::at(Some(codex.path()), None, None),
+    );
+    let agents = Agents::new(Vec::new(), occupancy);
+
+    let listed = agents
+        .sessions_in(vec![real.to_string_lossy().into_owned()], 10)
+        .await
+        .unwrap();
+
+    assert_eq!(listed.len(), 1, "{listed:?}");
+}

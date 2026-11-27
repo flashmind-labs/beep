@@ -160,3 +160,20 @@ async fn a_folder_is_refused_for_a_session_that_started_through_a_symlink() {
 
     assert!(refusal(refused).contains("external session is running"));
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_session_in_a_symlink_that_leaves_the_folder_still_refuses_it() {
+    let (codex, data) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let root = std::fs::canonicalize(data.path()).unwrap();
+    let (repo, elsewhere) = (root.join("repo"), root.join("elsewhere"));
+    std::fs::create_dir_all(&repo).unwrap();
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, repo.join("vendor")).unwrap();
+    fresh_codex_session(codex.path(), &repo.join("vendor"));
+    let occupancy = Occupancy::over(Store::default(), Stores::at(Some(codex.path()), None, None));
+
+    let refused = occupancy.reserve(&repo).await.err().unwrap();
+
+    assert!(refusal(refused).contains("external session is running"));
+}

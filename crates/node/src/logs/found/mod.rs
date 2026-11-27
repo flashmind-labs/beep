@@ -546,21 +546,32 @@ pub(crate) fn with_real(folders: Vec<PathBuf>) -> Vec<PathBuf> {
     out
 }
 
-/// `seen` with each `cwd` resolved to its real path, as `folder` of a hold is,
-/// so a session started through a symlink matches. Each distinct `cwd` is
-/// resolved once; one that no longer resolves stays as recorded.
-pub(crate) fn with_real_cwds(seen: Vec<Seen>) -> Vec<Seen> {
-    let mut real: HashMap<PathBuf, PathBuf> = HashMap::new();
+/// Which session folders lie in `folders`: as recorded, or, only when that
+/// misses, with their links resolved, so a match is never lost to a symlink on
+/// either side. Each distinct folder is resolved once. Reads the disk: run it
+/// off the async workers.
+pub(crate) struct Under<'a> {
+    folders: &'a [PathBuf],
+    resolved: HashMap<PathBuf, PathBuf>,
+}
 
-    seen.into_iter()
-        .map(|mut one| {
-            let resolved = real.entry(one.cwd.clone()).or_insert_with(|| {
-                crate::fs::paths::canonicalize(&one.cwd).unwrap_or_else(|_| one.cwd.clone())
-            });
-            one.cwd = resolved.clone();
-            one
-        })
-        .collect()
+impl<'a> Under<'a> {
+    pub(crate) fn new(folders: &'a [PathBuf]) -> Self {
+        Self { folders, resolved: HashMap::new() }
+    }
+
+    pub(crate) fn has(&mut self, cwd: &Path) -> bool {
+        let folders = self.folders;
+        if folders.iter().any(|folder| within(cwd, folder)) {
+            return true;
+        }
+
+        let real = self.resolved.entry(cwd.to_owned()).or_insert_with(|| {
+            crate::fs::paths::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned())
+        });
+
+        folders.iter().any(|folder| within(real, folder))
+    }
 }
 
 /// Whether `cwd` is `folder` or inside it.
@@ -571,7 +582,8 @@ pub(crate) fn within(cwd: &Path, folder: &Path) -> bool {
 /// The sessions of `seen` in any of `folders`, newest first, at most
 /// `limit`.
 pub(crate) fn in_folders(mut seen: Vec<Seen>, folders: &[PathBuf], limit: usize) -> Vec<Seen> {
-    seen.retain(|one| folders.iter().any(|folder| within(&one.cwd, folder)));
+    let mut under = Under::new(folders);
+    seen.retain(|one| under.has(&one.cwd));
     seen.sort_by_key(|one| Reverse(one.last_activity));
     seen.truncate(limit);
     seen
@@ -592,8 +604,9 @@ pub(crate) fn history_page(
     fn key(seen: &Seen) -> (Reverse<u64>, &str, &SessionId) {
         (Reverse(seen.last_activity), seen.agent.as_ref(), &seen.id)
     }
+    let mut under = Under::new(folders);
     seen.retain(|one| {
-        folders.iter().any(|folder| within(&one.cwd, folder))
+        under.has(&one.cwd)
             && before.is_none_or(|before| {
                 key(one)
                     > (
