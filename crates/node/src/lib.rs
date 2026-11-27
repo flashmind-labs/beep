@@ -10,14 +10,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// Marks the items inside as the node's host half: they need the `host`
-/// feature, which the phone app leaves out.
-macro_rules! host {
-    ($($item:item)*) => {
-        $(#[cfg(feature = "host")] $item)*
-    };
-}
-
 pub mod agents;
 pub mod events;
 pub mod files;
@@ -25,27 +17,44 @@ pub mod link;
 mod protocol;
 pub mod tags;
 
-host! {
-    pub mod actor;
-    pub mod machine;
-    pub mod peer_stream;
-    mod membership;
-    pub mod status;
-    mod known;
-    pub mod occupancy;
-    mod process;
-    mod fs;
-    pub(crate) mod calls;
-    mod logs;
-    pub(crate) mod socket;
-    mod text;
-    mod run;
-    mod team;
-    pub(crate) mod watchdog;
-    mod custom_agents;
-    pub mod tools;
-    pub mod upkeep;
-}
+#[cfg(feature = "host")]
+pub mod actor;
+#[cfg(feature = "host")]
+pub mod machine;
+#[cfg(feature = "host")]
+pub mod peer_stream;
+#[cfg(feature = "host")]
+mod membership;
+#[cfg(feature = "host")]
+pub mod status;
+#[cfg(feature = "host")]
+mod known;
+#[cfg(feature = "host")]
+pub mod occupancy;
+#[cfg(feature = "host")]
+mod process;
+#[cfg(feature = "host")]
+mod fs;
+#[cfg(feature = "host")]
+pub(crate) mod calls;
+#[cfg(feature = "host")]
+mod logs;
+#[cfg(feature = "host")]
+pub(crate) mod socket;
+#[cfg(feature = "host")]
+mod text;
+#[cfg(feature = "host")]
+mod run;
+#[cfg(feature = "host")]
+mod team;
+#[cfg(feature = "host")]
+pub(crate) mod watchdog;
+#[cfg(feature = "host")]
+mod custom_agents;
+#[cfg(feature = "host")]
+pub mod tools;
+#[cfg(feature = "host")]
+pub mod upkeep;
 
 /// Kills every background task and terminal still running, at once. For
 /// a host about to exit, such as the Mac app: a process exit drops nothing,
