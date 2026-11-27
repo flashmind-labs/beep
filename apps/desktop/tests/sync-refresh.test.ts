@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { makeFileSync, mergeSyncRows, type SyncDetail, type SyncRow } from "../src/project/filesync.ts";
+import { makeFileSync, mergeSyncRows, type SyncDetail, type SyncRow } from "../src/parts/project/filesync.ts";
 
 type Deps = Parameters<typeof makeFileSync>[0];
 

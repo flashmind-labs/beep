@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { seed, type Seeded } from "../src/center/cached.ts";
-import type { HomeView } from "../src/center/home-state.ts";
+import { seed, type Seeded } from "../src/stores/center/cached.ts";
+import type { HomeView } from "../src/stores/center/home-state.ts";
 
 function empty(): Seeded {
   return { home: null, top: [], groups: undefined, sync: [] };

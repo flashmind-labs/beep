@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { childRow, nest, parentRow, splitEnded } from "../src/agents/nesting-state.ts";
-import { waitingSessions } from "../src/bar/waiting-state.ts";
-import { sessionKey } from "../src/agents/conversation-state.ts";
-import { subagent } from "../src/agents/agentlog.ts";
-import type { AgentSession } from "../src/agents/agents-state.ts";
+import { childRow, nest, parentRow, splitEnded } from "../src/stores/agents/nesting-state.ts";
+import { waitingSessions } from "../src/stores/bar/waiting-state.ts";
+import { sessionKey } from "../src/stores/agents/conversation-state.ts";
+import { subagent } from "../src/stores/agents/agentlog.ts";
+import type { AgentSession } from "../src/stores/agents/agents-state.ts";
 
 let at = 0;
 const row = (id: string, over: Partial<AgentSession> = {}): AgentSession => ({

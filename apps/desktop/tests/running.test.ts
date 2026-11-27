@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { containerRow, runningRow, runningTrees, shownCommand, type RunningProcess } from "../src/agentpane/running-state.ts";
+import { containerRow, runningRow, runningTrees, shownCommand, type RunningProcess } from "../src/stores/agentpane/running-state.ts";
 
 const process: RunningProcess = {
   pid: 42, command: "npm run dev", started_at: new Date(2026, 0, 2, 9, 4).getTime() / 1000,

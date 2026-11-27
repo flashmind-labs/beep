@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { WindowHistory } from "../src/center/window-router.ts";
-import type { Location } from "../src/center/state.ts";
+import { WindowHistory } from "../src/stores/center/window-router.ts";
+import type { Location } from "../src/stores/center/state.ts";
 
 const home: Location = { view: "home", arg: null };
 const project: Location = { view: "projects", arg: { project: "example/project", tile: "running" } };

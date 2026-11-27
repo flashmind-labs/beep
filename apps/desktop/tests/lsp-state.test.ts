@@ -6,7 +6,7 @@ import {
   parseLspResult,
   resolveVimSync,
   wordSpanAt,
-} from "../src/agentpane/lsp-state.ts";
+} from "../src/stores/agentpane/lsp-state.ts";
 import { primaryModifier } from "../src/ui/platform.ts";
 
 describe("primaryModifier", () => {

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { selectFile, selectionRoots, fileNameError, canPasteFiles, type FileSelection } from "../src/agentpane/file-actions-state.ts";
+import { selectFile, selectionRoots, fileNameError, canPasteFiles, type FileSelection } from "../src/stores/agentpane/file-actions-state.ts";
 const paths = ["src", "src/a", "src/b", "other"];
 const empty = (): FileSelection => ({ picked: null, anchor: null, selected: new Set() });
 test("selection toggles and extends from a stable anchor in visible order", () => {

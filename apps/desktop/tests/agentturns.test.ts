@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { beepCall, beepLine, commandOf, diffBlocks, keptSteps, liveThought, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, progressSummary, toolKind, toolRuns, turnSections, withoutDiffs } from "../src/agents/agentturns.ts";
+import { beepCall, beepLine, commandOf, diffBlocks, keptSteps, liveThought, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, summary, progressSummary, toolKind, toolRuns, turnSections, withoutDiffs } from "../src/parts/session/agentturns.ts";
 
 const u = (text: string) => ({ kind: "user", text });
 const a = (text: string) => ({ kind: "agent", text });

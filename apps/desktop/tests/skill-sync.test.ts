@@ -2,7 +2,7 @@ import { answers, calls } from "./dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { invoke } from "../src/ui/tauri.ts";
-import { createSyncSetting } from "../src/settings/skill-sync.ts";
+import { createSyncSetting } from "../src/stores/settings/skill-sync.ts";
 
 test("skill sync waits for a save and keeps saved state when a write fails", async () => {
   answers.skill_sync_get = true;

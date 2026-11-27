@@ -1,15 +1,15 @@
 import { answers, calls, callbacks, nativeEvent } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attach, dropTerm, paneTerm, termStatus } from "../src/agentpane/terminal.ts";
-import { closePaneTabs } from "../src/agentpane/media.ts";
-import { openTabs, paneModel } from "../src/agentpane/media-layout.ts";
-import type { MediaTab } from "../src/agentpane/pane-state.ts";
-import { closeTab, stopTerminalTab } from "../src/agentpane/pane-tabs.ts";
-import { ALL } from "../src/terminals/terminal-list.ts";
-import { makeTerminals, LOST_MS, type Screen, type TermMessage, type TerminalRow } from "../src/terminals/terminal-state.ts";
+import { attach, dropTerm, paneTerm, termStatus } from "../src/parts/session/terminal.ts";
+import { closePaneTabs } from "../src/parts/session/media.ts";
+import { openTabs, paneModel } from "../src/parts/session/media-layout.ts";
+import type { MediaTab } from "../src/stores/agentpane/pane-state.ts";
+import { closeTab, stopTerminalTab } from "../src/parts/session/pane-tabs.ts";
+import { ALL } from "../src/stores/terminals/terminal-list.ts";
+import { makeTerminals, LOST_MS, type Screen, type TermMessage, type TerminalRow } from "../src/stores/terminals/terminal-state.ts";
 import { indexedChannel } from "../src/ui/tauri.ts";
-import { RETRY_MS } from "../src/agents/reconnect-state.ts";
+import { RETRY_MS } from "../src/stores/agents/reconnect-state.ts";
 
 const setTabs = (tabs: MediaTab[]) => paneModel.setState({ tabs });
 const addTabs = (...tabs: MediaTab[]) => paneModel.setState(s => ({ tabs: [...s.tabs, ...tabs] }));

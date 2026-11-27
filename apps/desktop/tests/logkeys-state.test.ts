@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { allOpen, commandRows, pageDirection, thoughtRows } from "../src/agents/logkeys-state.ts";
+import { allOpen, commandRows, pageDirection, thoughtRows } from "../src/parts/session/logkeys-state.ts";
 
 const log = [
   { kind: "user", text: "go" },

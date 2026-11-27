@@ -1,11 +1,11 @@
 import { answers, bar, calls } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { editorsFor, type EditorRow } from "../src/project/editors.ts";
-import { drawEditors } from "../src/agents/session-head.tsx";
-import "../src/bar/bar-app.tsx";
-import { DraftHead } from "../src/agents/session-frame.tsx";
-import { draftMessage, showSessionFrame, shownMessage } from "../src/agents/session-frame-state.ts";
+import { editorsFor, type EditorRow } from "../src/parts/project/editors.ts";
+import { drawEditors } from "../src/parts/session/session-head.tsx";
+import "../src/shell/bar/bar-app.tsx";
+import { DraftHead } from "../src/parts/session/session-frame.tsx";
+import { draftMessage, showSessionFrame, shownMessage } from "../src/stores/agents/session-frame-state.ts";
 import { createElement } from "react";
 import { createStore } from "zustand/vanilla";
 

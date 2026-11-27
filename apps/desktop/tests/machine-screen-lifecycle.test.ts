@@ -1,11 +1,11 @@
 import { answers, bar, calls } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MACHINES } from "../src/machines/machine-store.ts";
-import { machinesIn, machinesOut, renderMachines } from "../src/machines/machines.tsx";
-import { setView } from "../src/bar/core.ts";
-import "../src/bar/bar-app.tsx";
-import { openBarPage } from "../src/bar/bar-page.ts";
+import { MACHINES } from "../src/stores/machines/machine-store.ts";
+import { machinesIn, machinesOut, renderMachines } from "../src/screens/machines/machines.tsx";
+import { setView } from "../src/stores/bar/core.ts";
+import "../src/shell/bar/bar-app.tsx";
+import { openBarPage } from "../src/stores/bar/bar-page.ts";
 import { flushSync } from "react-dom";
 
 const settle = () => new Promise<void>(resolve => setImmediate(resolve));

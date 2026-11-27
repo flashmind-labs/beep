@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { escUp, type EscAt } from "../src/center/escup-state.ts";
+import { escUp, type EscAt } from "../src/stores/center/escup-state.ts";
 
 const at = (over: Partial<EscAt>): EscAt => ({ page: "projects", picked: "acme/widget", tile: false, alone: false, ...over });
 

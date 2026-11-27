@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { branchSessions } from "../src/review/branchsession-state.ts";
+import { branchSessions } from "../src/stores/review/branchsession-state.ts";
 
 const s = (id: string, cwd: string, last_activity: number, machine_id = "m1") => ({ id, cwd, last_activity, machine_id });
 

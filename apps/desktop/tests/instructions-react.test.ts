@@ -25,7 +25,7 @@ test("instructions keep editing and focus while saving and preserve later change
   }, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { act, fireEvent, screen, waitFor, cleanup } = await import("@testing-library/react");
   const { invoke } = await import("../src/ui/tauri.ts");
-  const { instructionsPage } = await import("../src/settings/instructions.tsx");
+  const { instructionsPage } = await import("../src/screens/settings/instructions.tsx");
   const view = instructionsPage({ invoke, ago: () => "recent", openSettings() {} });
   const host = dom.window.document.getElementById("host");
   assert.ok(host);
@@ -33,7 +33,7 @@ test("instructions keep editing and focus while saving and preserve later change
     await act(async () => { await view.mount(host, null); });
     await waitFor(() => assert.ok(screen.getByLabelText("Your instructions")));
     const input = screen.getByLabelText("Your instructions") as HTMLTextAreaElement;
-    const { SUGGESTIONS } = await import("../src/settings/instructions-state.ts");
+    const { SUGGESTIONS } = await import("../src/stores/settings/instructions-state.ts");
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     assert.equal(input.value, `first\n\n${SUGGESTIONS[0].text}\n`);
     assert.ok((screen.getByRole("button", { name: "Added" }) as HTMLButtonElement).disabled);

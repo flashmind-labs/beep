@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { FeedbackControl, FeedbackNote, type FeedbackState } from "../src/review/feedback-view.tsx";
+import { FeedbackControl, FeedbackNote, type FeedbackState } from "../src/parts/review/feedback-view.tsx";
 
 test("feedback control keeps focus and its picker across updates", async () => {
   const dom = new JSDOM("<!doctype html><div id='root'></div>", { url: "https://app.test" });

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PageTiming, pageName } from "../src/center/page-timing.ts";
+import { PageTiming, pageName } from "../src/stores/center/page-timing.ts";
 
 test("only the visible, current navigation is recorded after two frames", () => {
   let now = 0, visible = true;

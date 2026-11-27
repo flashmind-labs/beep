@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { MeshEvent } from "../src/ui/mesh-events.ts";
 import { TopicValues } from "../src/ui/topic-values-state.ts";
-import { parseProcesses } from "../src/agentpane/running-state.ts";
+import { parseProcesses } from "../src/stores/agentpane/running-state.ts";
 
 const settle = () => new Promise<void>(resolve => setImmediate(resolve));
 type Reader = { onEvent: { onmessage(event: MeshEvent): void } };

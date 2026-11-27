@@ -4,8 +4,8 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ModelControls } from "../src/agentpane/model-controls.tsx";
-import type { Animation } from "../src/agentpane/model3d.ts";
+import { ModelControls } from "../src/parts/session/model-controls.tsx";
+import type { Animation } from "../src/stores/agentpane/model3d.ts";
 
 test("model animation controls preserve focus while playback advances and clean up", () => {
   const dom = new JSDOM("<body><div id='root'></div></body>");

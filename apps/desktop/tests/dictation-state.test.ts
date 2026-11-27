@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { activeModel, activeProvider, addedWords, anchorOf, applyTranscript, createDictationSettings, dictationNote, IDLE, isBareOptionDown, keysFrom, nextTurn, parseEvent, parseSettings, pausePlayingMedia, pcmChunks, providerOf, reanchorDraft, Resampler, resumePausedMedia, spliceTranscript, startDraft, MAX_CHUNK_BYTES, type DownloadChannel, type PlayableMedia } from "../src/chat/dictation-state.ts";
+import { activeModel, activeProvider, addedWords, anchorOf, applyTranscript, createDictationSettings, dictationNote, IDLE, isBareOptionDown, keysFrom, nextTurn, parseEvent, parseSettings, pausePlayingMedia, pcmChunks, providerOf, reanchorDraft, Resampler, resumePausedMedia, spliceTranscript, startDraft, MAX_CHUNK_BYTES, type DownloadChannel, type PlayableMedia } from "../src/stores/chat/dictation-state.ts";
 
 test("only live local and cloud models resolve to a provider; legacy OpenRouter settings reset to Automatic", () => {
   assert.equal(providerOf("local:parakeet-unified"), "local");

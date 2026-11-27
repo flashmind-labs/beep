@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { createElement } from "react";
-import { AgentAccountsView, type AgentAccountActions } from "../src/settings/agentaccounts-view.tsx";
-import type { AgentAccountsState } from "../src/settings/agentaccounts.ts";
+import { AgentAccountsView, type AgentAccountActions } from "../src/screens/settings/agentaccounts-view.tsx";
+import type { AgentAccountsState } from "../src/stores/settings/agentaccounts.ts";
 
 test("the phone offers a pasted Claude Code token, not a local sign-in", async () => {
   const dom = new JSDOM("<!doctype html><body></body>", { url: "https://app.test" });

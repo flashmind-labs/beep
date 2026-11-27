@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type MacControl, machineDisk, machineMemory, machineNow, machineProjects, projectsSummary, machinesReach, thisMacRow } from "../src/machines/machine-state.ts";
-import { byRecent, remotePath, runningKey, runningLine, runningWhen, sameSession } from "../src/agents/running-state.ts";
+import { type MacControl, machineDisk, machineMemory, machineNow, machineProjects, projectsSummary, machinesReach, thisMacRow } from "../src/parts/machines/machine-state.ts";
+import { byRecent, remotePath, runningKey, runningLine, runningWhen, sameSession } from "../src/stores/agents/running-state.ts";
 
 test("a machine's synced projects: only its own, the detail while it agrees, what needs a look first", () => {
   const row = (project: string, machine_id: string, status: string) => ({ project, machine_id, status, files: 90, pending: 10, error: null });
@@ -119,7 +119,7 @@ test("the open session is the same only on its machine and agent", () => {
 });
 
 test("telemetry replaces only its machine stats and preserves samples newer than a replay", async () => {
-  const { applyTelemetry } = await import("../src/center/home-state.ts");
+  const { applyTelemetry } = await import("../src/stores/center/home-state.ts");
   const sample = (id: string, sampled_at: number, load: number) => ({ id, sampled_at, disks: [], memory_used_mb: 100, memory_total_mb: 200, load });
   const machine = (id: string, sampled_at: number) => ({ id, name: id, online: true, seen_at: 0, version: "", env: null, apps: [], gpus: [], capabilities: [], agents: 0, stats: sample(id, sampled_at, 1), connecting: false });
   const home = { machines: [machine("machine-a", 10), machine("machine-b", 30)], running: [], needs_you: [], coming_up: [], updates: [], projects: [] };
@@ -133,7 +133,7 @@ test("telemetry replaces only its machine stats and preserves samples newer than
 });
 
 test("Home's cards follow the machine list for names and removal", async () => {
-  const { withListedMachines } = await import("../src/center/home-state.ts");
+  const { withListedMachines } = await import("../src/stores/center/home-state.ts");
   const card = (id: string, name: string) => ({ id, name, online: true, seen_at: 0, version: "", env: null, apps: [], gpus: [], capabilities: [], agents: 3, stats: null, connecting: false });
   const home = { machines: [card("a", "Alpha"), card("b", "Beta")], running: [], needs_you: [], projects: [] };
   const none = new Set<string>();
@@ -153,7 +153,7 @@ test("Home's cards follow the machine list for names and removal", async () => {
 });
 
 test("a machine only Home's push names keeps its card, before and after the list has it", async () => {
-  const { withListedMachines } = await import("../src/center/home-state.ts");
+  const { withListedMachines } = await import("../src/stores/center/home-state.ts");
   const card = (id: string, name: string) => ({ id, name, online: true, seen_at: 0, version: "", env: null, apps: [], gpus: [], capabilities: [], agents: 0, stats: null, connecting: false });
   const home = { machines: [card("a", "Alpha"), card("b", "Beta")], running: [], needs_you: [], projects: [] };
   const none = new Set<string>();

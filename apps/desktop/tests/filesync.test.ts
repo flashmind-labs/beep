@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { conflictList, conflictPrompt, fileSyncTile, machineMeta, originalOf, stateChip, stateNote, syncSummary, waitingList } from "../src/project/filesync.ts";
-import type { MachineDetail, SyncDetail } from "../src/project/filesync.ts";
+import { conflictList, conflictPrompt, fileSyncTile, machineMeta, originalOf, stateChip, stateNote, syncSummary, waitingList } from "../src/parts/project/filesync.ts";
+import type { MachineDetail, SyncDetail } from "../src/parts/project/filesync.ts";
 
 function machine(over: Partial<MachineDetail> = {}): MachineDetail {
   return {
@@ -114,7 +114,7 @@ test("a Windows folder shows without its prefix", () => {
 });
 
 test("a sync detail pushed during the initial read is not undone by its answer", async () => {
-  const { makeFileSync } = await import("../src/project/filesync.ts");
+  const { makeFileSync } = await import("../src/parts/project/filesync.ts");
   let finish!: (value: SyncDetail) => void;
   const initial = new Promise<SyncDetail>(done => { finish = done; });
   let reads = 0;

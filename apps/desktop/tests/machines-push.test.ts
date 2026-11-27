@@ -1,7 +1,7 @@
 import { calls, nativeEvent } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MACHINES, REMOVED, removeListed } from "../src/machines/machine-store.ts";
+import { MACHINES, REMOVED, removeListed } from "../src/stores/machines/machine-store.ts";
 import type { MeshEvent } from "../src/ui/mesh-events.ts";
 
 const settle = () => new Promise<void>(resolve => setImmediate(resolve));

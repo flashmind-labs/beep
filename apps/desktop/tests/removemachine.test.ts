@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LAST_MACHINE, removeBlock, workingIn } from "../src/project/removemachine-state.ts";
-import type { RunningAgent } from "../src/agents/running-state.ts";
+import { LAST_MACHINE, removeBlock, workingIn } from "../src/stores/project/removemachine-state.ts";
+import type { RunningAgent } from "../src/stores/agents/running-state.ts";
 
 const here = { kind: "here" as const }, none = { kind: "none" as const };
 const box = { name: "build-box" };

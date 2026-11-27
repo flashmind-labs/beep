@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   apiKeys, draft, editFor, ghChoices, unsavedProviders, githubAccounts, sameServer, teaHas, teaOffers, type CliLogins, type Credential,
-} from "../src/settings/credentials.ts";
+} from "../src/stores/settings/credentials.ts";
 
 const list: Credential[] = [
   { id: "g", kind: "github", last4: "4f2a", account: "you", env_var: "GH_TOKEN", created_at: 0 },

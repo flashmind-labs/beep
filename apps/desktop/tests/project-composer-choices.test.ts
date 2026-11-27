@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { act, createElement } from "react";
-import { ComposerChoices, type ComposerChoicesState } from "../src/project/composer-choices.tsx";
+import { ComposerChoices, type ComposerChoicesState } from "../src/parts/project/composer-choices.tsx";
 
 test("branch edits survive updates while focused and reconcile after blur", async () => {
   const dom = new JSDOM("<!doctype html><div id='root'></div>", { url: "https://app.test" });

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
-import { SETTING_ROWS } from "../../src/settings/settings-nav.ts";
+import { SETTING_ROWS } from "../../src/stores/settings/settings-nav.ts";
 
 test("Settings navigation survives refresh, supports subpages and cleans up", async ({ page }) => {
   await openDesktop(page, false, { settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false }, list_machines: [], list_credentials: [], list_github_accounts: [] });

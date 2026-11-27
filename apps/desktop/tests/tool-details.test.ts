@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { AgentToolCall } from "../src/agents/agents-state.ts";
-import { commandText, isCommandCall, resultText } from "../src/agents/tool-details-state.ts";
-import { toolDetails } from "../src/agents/tool-details.ts";
+import type { AgentToolCall } from "../src/stores/agents/agents-state.ts";
+import { commandText, isCommandCall, resultText } from "../src/stores/agents/tool-details-state.ts";
+import { toolDetails } from "../src/parts/session/tool-details.ts";
 
 const call = (changes: Partial<AgentToolCall> = {}): AgentToolCall => ({
   name: "Bash", input: '{"command":"sleep 45","description":"Timer to recheck the build"}', input_truncated: false,

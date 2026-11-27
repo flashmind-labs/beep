@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { browseStart, copyLine, offers, shortName } from "../src/project/addmachine-state.ts";
-import { whereRows } from "../src/project/projects-state.ts";
-import type { MachineDetail, SyncDetail } from "../src/project/filesync.ts";
+import { browseStart, copyLine, offers, shortName } from "../src/parts/project/addmachine-state.ts";
+import { whereRows } from "../src/stores/project/projects-state.ts";
+import type { MachineDetail, SyncDetail } from "../src/parts/project/filesync.ts";
 
 const folder = (path: string, over = {}) => ({ path, parent: "/srv", exists: true, folders: [], more: 0, empty: false, origin: null, repos: [], ...over });
 

@@ -1,11 +1,11 @@
 import { routerWindowGlobals } from "./start-react-env.ts";
 import { answers, calls } from "./dom-env.ts";
 import { JSDOM } from "jsdom";
-import { MACHINES } from "../src/machines/machine-store.ts";
+import { MACHINES } from "../src/stores/machines/machine-store.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { invoke } from "../src/ui/tauri.ts";
-import type { HarnessView } from "../src/settings/providers-state.ts";
+import type { HarnessView } from "../src/stores/settings/providers-state.ts";
 
 // Exercise Router-backed views as client code in jsdom.
 process.env.NODE_ENV = "test";
@@ -33,7 +33,7 @@ test("machine selection preserves shared drafts and each save writes only its sc
   answers.agent_models = null;
   const root = document.createElement("div");
   document.body.append(root);
-  const { providersPage } = await import("../src/settings/providers.tsx");
+  const { providersPage } = await import("../src/screens/settings/providers.tsx");
   const { fireEvent } = await import("@testing-library/react");
   void providersPage({ invoke, redrawTop: () => {}, openSettings: () => {}, follow: () => {} }).mount(root, { settings: true, agent: "claude" });
   await settle();
@@ -83,7 +83,7 @@ test("shared compaction stays editable when no machine is online", async () => {
   Object.assign(MACHINES, { list: null });
   const root = document.createElement("div");
   document.body.replaceChildren(root);
-  const { providersPage } = await import("../src/settings/providers.tsx");
+  const { providersPage } = await import("../src/screens/settings/providers.tsx");
   void providersPage({ invoke, redrawTop: () => {}, openSettings: () => {}, follow: () => {} }).mount(root, { settings: true, agent: "claude" });
   await settle();
   const threshold = root.querySelector<HTMLInputElement>('[aria-label="Auto-compact threshold"]');

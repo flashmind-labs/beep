@@ -1,8 +1,8 @@
 import { answers, calls } from "./steer-env.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { moveStore, refreshMoves, stateOf, takeProgress, takePushedSessions } from "../src/agents/move-store.ts";
-import type { MoveProgress, MoveRecord } from "../src/agents/move-state.ts";
+import { moveStore, refreshMoves, stateOf, takeProgress, takePushedSessions } from "../src/stores/agents/move-store.ts";
+import type { MoveProgress, MoveRecord } from "../src/stores/agents/move-state.ts";
 
 const record = (session: string): MoveRecord => ({
   session, agent: "codex", from: "source", to: "target", project: "example", at: Date.now() - 600_000,

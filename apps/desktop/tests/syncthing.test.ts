@@ -1,7 +1,7 @@
 import { answers, calls } from "./dom-env.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { syncthingImportChoice, type SyncthingFiles } from "../src/project/syncthing.ts";
+import { syncthingImportChoice, type SyncthingFiles } from "../src/screens/project/syncthing.ts";
 
 test("import preserves existing Syncthing rules and ignores stale folder lookups", async () => {
   const choice = syncthingImportChoice();

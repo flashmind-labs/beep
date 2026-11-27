@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { nextMatch, searchPattern, textMatches } from "../src/chat/find-state.ts";
+import { nextMatch, searchPattern, textMatches } from "../src/stores/chat/find-state.ts";
 
 test("find is literal and case insensitive", () => {
   assert.deepEqual(textMatches("A.b a.B axb", "a.b"), [{ start: 0, end: 3 }, { start: 4, end: 7 }]);

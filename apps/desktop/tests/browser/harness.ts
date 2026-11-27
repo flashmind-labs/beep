@@ -2,16 +2,16 @@ import { build } from "esbuild";
 import { readFile } from "node:fs/promises";
 import { extname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Tree } from "../../src/agentpane/worktree-state.ts";
+import type { Tree } from "../../src/stores/agentpane/worktree-state.ts";
 import { expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import type { HomeView } from "../../src/center/home-state.ts";
-import type { AgentUsage } from "../../src/agents/agents-state.ts";
-import type { RunningAgent } from "../../src/agents/running-state.ts";
-import type { ProjectRow } from "../../src/project/projects-state.ts";
-import type { RunningContainer, RunningProcess } from "../../src/agentpane/running-state.ts";
+import type { HomeView } from "../../src/stores/center/home-state.ts";
+import type { AgentUsage } from "../../src/stores/agents/agents-state.ts";
+import type { RunningAgent } from "../../src/stores/agents/running-state.ts";
+import type { ProjectRow } from "../../src/stores/project/projects-state.ts";
+import type { RunningContainer, RunningProcess } from "../../src/stores/agentpane/running-state.ts";
 import type { MeshEvent } from "../../src/ui/mesh-events.ts";
-import type { CenterTarget } from "../../src/project/projectwindow.ts";
+import type { CenterTarget } from "../../src/stores/project/projectwindow.ts";
 
 /// Bundles isolated component fixtures with the app's asset loaders.
 export async function bundleFixture(entry: string, production = false): Promise<string> {

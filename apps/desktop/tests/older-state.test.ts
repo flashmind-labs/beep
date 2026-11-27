@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { OLDER_PAGE, answersBefore, joinRuns, newestRead, olderBefore, readsOlder, viewRead, olderNote, takeOlder } from "../src/agents/older-state.ts";
-import { onlyNotes, splitTurns } from "../src/agents/agentturns.ts";
+import { OLDER_PAGE, answersBefore, joinRuns, newestRead, olderBefore, readsOlder, viewRead, olderNote, takeOlder } from "../src/stores/agents/older-state.ts";
+import { onlyNotes, splitTurns } from "../src/parts/session/agentturns.ts";
 
 const at = (from: number, to: number, kind = "agent") => Array.from({ length: to - from }, (_, i) => ({ kind, text: `e${from + i}` }));
 const run = (earlier: number, to: number, kind = "agent") => ({ earlier, entries: at(earlier, to, kind) });

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { gitignoreSuggestions, ignoredSelection } from "../src/project/ignored-sync-state.ts";
+import { gitignoreSuggestions, ignoredSelection } from "../src/stores/project/ignored-sync-state.ts";
 
 test("ignored sync requires an explicit folder and keeps the selection when disabled", () => {
   assert.deepEqual(ignoredSelection(false, ""), { enabled:false, folders:[] });

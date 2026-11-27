@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { TranscriptCache, transcriptKey, type TranscriptUpdate } from "../src/agents/transcript-cache-state.ts";
-import { AgentFeed } from "../src/agents/agentfeed-state.ts";
-import type { Run } from "../src/agents/older-state.ts";
+import { TranscriptCache, transcriptKey, type TranscriptUpdate } from "../src/stores/agents/transcript-cache-state.ts";
+import { AgentFeed } from "../src/stores/agents/agentfeed-state.ts";
+import type { Run } from "../src/stores/agents/older-state.ts";
 
 function update(kind: "snapshot" | "delta", earlier: number, texts: string[], start = 0, resumed = false): TranscriptUpdate<Run> {
   return {

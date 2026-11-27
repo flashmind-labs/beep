@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readSignIn, signInOffer, stillRunning, type SignInView } from "../src/machines/signin-state.ts";
+import { readSignIn, signInOffer, stillRunning, type SignInView } from "../src/stores/machines/signin-state.ts";
 
 test("another machine offers Sign in for the agents it signs in itself", () => {
   for (const tool of ["claude", "codex", "opencode", "agy"]) assert.deepEqual(signInOffer(tool, "build-box", true, false), { button: true });

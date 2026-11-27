@@ -1,7 +1,7 @@
 import { answers, calls } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { onPlaces, placeOf, takePlaces, takeSessionPlaces } from "../src/agents/place.ts";
+import { onPlaces, placeOf, takePlaces, takeSessionPlaces } from "../src/stores/agents/place.ts";
 
 const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
-import { keepProjectPick, lastProjectPick } from "../src/agents/agentmodels.ts";
+import { keepProjectPick, lastProjectPick } from "../src/stores/agents/agentmodels.ts";
 
 const dom = new JSDOM("", { url: "https://app.test" });
 Object.defineProperty(globalThis, "localStorage", { value: dom.window.localStorage, configurable: true });

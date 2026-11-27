@@ -1,6 +1,6 @@
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
-import { clockWarning, loadClocks, takeClocks } from "../src/machines/clock.ts";
+import { clockWarning, loadClocks, takeClocks } from "../src/stores/machines/clock.ts";
 
 type Invoke = Parameters<typeof loadClocks>[0];
 

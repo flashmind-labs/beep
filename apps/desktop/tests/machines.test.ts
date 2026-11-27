@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bareVersion, machineTag, newestNode, nodeBehind } from "../src/machines/machines-state.ts";
+import { bareVersion, machineTag, newestNode, nodeBehind } from "../src/stores/machines/machines-state.ts";
 
 test("versions are bare, without the tool's name or a leading v", () => {
   assert.equal(bareVersion("claude", "2.1.312 (Claude Code)"), "2.1.312");
@@ -24,7 +24,7 @@ test("a node behind the newest is marked", () => {
 });
 
 test("a tool updated this session keeps its version and loses its button", async () => {
-  const { shownVersion, updateOffered, updatedNotes } = await import("../src/machines/machines-state.ts");
+  const { shownVersion, updateOffered, updatedNotes } = await import("../src/stores/machines/machines-state.ts");
   const installed = new Map([["m1 flsh", "0.2.6"]]);
   const stale = [{ name: "flsh", version: "flsh 0.2.5" }];
   assert.equal(shownVersion(installed, "m1 flsh", "flsh", "flsh 0.2.5"), "0.2.6");

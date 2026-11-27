@@ -1,8 +1,8 @@
 import { answers, calls } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bindPromptStash } from "../src/chat/stash.tsx";
-import { hasStashMessage, stashFile, type StashMessage } from "../src/chat/stash-state.ts";
+import { bindPromptStash } from "../src/parts/session/stash.tsx";
+import { hasStashMessage, stashFile, type StashMessage } from "../src/stores/chat/stash-state.ts";
 
 const draft = (): StashMessage => ({ text: "Unsent draft", images: [], paths: ["src/login.ts"], files: [{ name: "sample.bin", mime: "application/octet-stream", size: 3, data: "AAH/" }] });
 const settle = () => new Promise(resolve => setImmediate(resolve));

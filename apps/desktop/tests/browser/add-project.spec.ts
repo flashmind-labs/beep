@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
-import type { FoundRow } from "../../src/project/projects-state.ts";
+import type { FoundRow } from "../../src/stores/project/projects-state.ts";
 
 const found: FoundRow[] = ["example/app", "example/library"].map(name => ({
   name, remote: `https://example.test/${name}`,

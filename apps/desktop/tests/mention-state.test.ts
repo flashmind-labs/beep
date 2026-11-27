@@ -1,7 +1,7 @@
 // Run as `node --import ./tests/ts.mjs --test tests/*.test.ts`.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type AgentCommand, commandText, filePaths, filterCommands, filterFiles, indexFiles, menuKey, picked, triggerAt } from "../src/agents/mention-state.ts";
+import { type AgentCommand, commandText, filePaths, filterCommands, filterFiles, indexFiles, menuKey, picked, triggerAt } from "../src/stores/agents/mention-state.ts";
 
 const end = (text: string) => triggerAt(text, text.length);
 const keys = { shift: false, alt: false, ctrl: false, meta: false, composing: false };

@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import {
   type Listing, type TreeEntry, atEdge, codeFile, failedListing, highlight, languageOf, mentionText, mergeTree, treeRows, transferSpeed, unreadFolders, uploadParts,
   withMentions,
-} from "../src/agentpane/files-state.ts";
-import { linkedPath } from "../src/agentpane/media-state.ts";
+} from "../src/stores/agentpane/files-state.ts";
+import { linkedPath } from "../src/stores/agentpane/media-state.ts";
 
 const file = (name: string, o: Partial<TreeEntry> = {}): TreeEntry => ({ name, folder: false, size: 1, ignored: false, change: null, ...o });
 const dir = (name: string, o: Partial<TreeEntry> = {}): TreeEntry => file(name, { folder: true, size: 0, ...o });

@@ -19,7 +19,7 @@ test("a late invitation from a closed sheet cannot replace the new ticket", asyn
     return null;
   }, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { act, fireEvent, screen, waitFor, cleanup } = await import("@testing-library/react");
-  const { openAddMachine, closeAddMachine } = await import("../src/machines/addmachine.tsx");
+  const { openAddMachine, closeAddMachine } = await import("../src/screens/machines/addmachine.tsx");
   let closed = 0;
   try {
     act(() => { openAddMachine({ onClose: () => { closed++; } }); });

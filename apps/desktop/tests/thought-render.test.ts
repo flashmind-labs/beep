@@ -1,9 +1,9 @@
 import { bar } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AG, type AgentPage } from "../src/agents/agents-state.ts";
-import { toggleThoughts } from "../src/agents/logkeys.ts";
-import { drawAgentBody, turnsOf } from "../src/agents/logview.tsx";
+import { AG, type AgentPage } from "../src/stores/agents/agents-state.ts";
+import { toggleThoughts } from "../src/parts/session/logkeys.ts";
+import { drawAgentBody, turnsOf } from "../src/parts/session/logview.tsx";
 import { showSessionBody } from "./session-frame-env.ts";
 
 test("grouped live thoughts stay folded beside progress and preserve the reader's choice", () => {

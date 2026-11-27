@@ -18,7 +18,7 @@ test("Try again is usable after the issue fails to open a second time", async ()
     return null;
   }, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { act, fireEvent, screen, waitFor, cleanup } = await import("@testing-library/react");
-  const { openReport } = await import("../src/report/report.tsx");
+  const { openReport } = await import("../src/screens/report/report.tsx");
 
   try {
     act(() => { openReport(dom.window.document.body); });

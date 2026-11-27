@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { overviewGroups, projectActivity, projectSortTime, parseProjectSort, searchOverview } from "../src/project/overview-state.ts";
+import { overviewGroups, projectActivity, projectSortTime, parseProjectSort, searchOverview } from "../src/stores/project/overview-state.ts";
 
 const row = (name: string, folder: string, url: string | null = null) => ({ name, url, machines: [{ id: "m", name: "build-box", folder }] });
 const rows = [

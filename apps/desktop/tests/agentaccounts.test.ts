@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { codexTaskRunning, tokenDraft } from "../src/settings/agentaccounts.ts";
+import { codexTaskRunning, tokenDraft } from "../src/stores/settings/agentaccounts.ts";
 
 test("a pasted token is checked before it is sent", () => {
   assert.deepEqual(tokenDraft("claude", " sk-ant-oat01-abc \n"), { agent: "claude", secret: "sk-ant-oat01-abc" });

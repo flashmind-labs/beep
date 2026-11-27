@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type DiffFile, type ReviewComment, placeComments, reviewText } from "../src/review/diff-state.ts";
+import { type DiffFile, type ReviewComment, placeComments, reviewText } from "../src/stores/review/diff-state.ts";
 
 const file = (path: string, o: Partial<DiffFile> = {}): DiffFile => ({
   path, old_path: null, status: "modified", additions: 1, deletions: 1, left_out: null,

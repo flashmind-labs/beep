@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 Object.assign(globalThis, { HTMLInputElement: window.HTMLInputElement });
-const { frameOf } = await import("../src/center/home-frame-state.ts");
+const { frameOf } = await import("../src/stores/center/home-frame-state.ts");
 
 test("a frame is an inert copy without the pane, media and typed drafts", () => {
   const win = document.createElement("div");

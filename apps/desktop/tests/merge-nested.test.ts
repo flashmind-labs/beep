@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mergeProjects } from "../src/project/projects-state.ts";
+import { mergeProjects } from "../src/stores/project/projects-state.ts";
 
 test("a session in a nested project folder counts for the deepest project", () => {
   const at = (name: string, folder: string) => ({ name, url: "", machine_id: "m1", machine_name: "build-box", folder });

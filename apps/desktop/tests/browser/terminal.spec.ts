@@ -15,7 +15,7 @@ const NATIVE = `window.__TAURI__ = { core: { invoke: async (command, args) => { 
 
 /// The screen bundled as a page script, with hooks for the test.
 const ENTRY = `
-import { makeScreen } from "./src/terminals/termview.ts";
+import { makeScreen } from "./src/parts/terminals/termview.ts";
 const typed = [];
 const replies = [];
 const screen = makeScreen();

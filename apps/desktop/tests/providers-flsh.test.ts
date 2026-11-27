@@ -2,7 +2,7 @@ import { routerWindowGlobals } from "./start-react-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
-import { EMPTY } from "../src/settings/flsh-state.ts";
+import { EMPTY } from "../src/stores/settings/flsh-state.ts";
 
 // Exercise Router-backed views as client code in jsdom.
 process.env.NODE_ENV = "test";
@@ -24,7 +24,7 @@ test("flsh input survives provider machine updates without remounting", async ()
   }, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { act, fireEvent, screen, waitFor, cleanup } = await import("@testing-library/react");
   const { invoke } = await import("../src/ui/tauri.ts");
-  const { providersPage } = await import("../src/settings/providers.tsx");
+  const { providersPage } = await import("../src/screens/settings/providers.tsx");
   const view = providersPage({ invoke, openSettings() {}, redrawTop() {}, follow() {} });
   const host = dom.window.document.getElementById("host");
   assert.ok(host);

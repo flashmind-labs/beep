@@ -1,4 +1,4 @@
-import type { ViewName } from "../center/state.ts";
+import type { ViewName } from "../stores/center/state.ts";
 import { commandKey, WINDOWS } from "./platform.ts";
 
 type WindowCommand =

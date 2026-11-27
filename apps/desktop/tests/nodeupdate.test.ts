@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { nodeBehind, offeredNode, updatedTo } from "../src/machines/machines-state.ts";
+import { nodeBehind, offeredNode, updatedTo } from "../src/stores/machines/machines-state.ts";
 
 test("a restarting node is back once online on the new version or newer", () => {
   assert.ok(!updatedTo({ online: false, version: "0.1.24" }, "0.1.24"));

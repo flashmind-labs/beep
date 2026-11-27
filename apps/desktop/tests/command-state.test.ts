@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cachedCommandHtml, heredocLang, segments } from "../src/agents/command-state.ts";
+import { cachedCommandHtml, heredocLang, segments } from "../src/stores/agents/command-state.ts";
 
 test("a heredoc body takes the language of the interpreter that reads it", () => {
   assert.equal(heredocLang("python3 - "), "Python");

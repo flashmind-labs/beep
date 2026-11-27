@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { changedIn, touches, touchesRepo } from "../src/agentpane/touched.ts";
+import { changedIn, touches, touchesRepo } from "../src/stores/agentpane/touched.ts";
 
 test("the changed paths come from the views native code sends or from the node's listing", () => {
   assert.deepEqual(changedIn({ views: [], changed: ["a.txt"] }), ["a.txt"]);

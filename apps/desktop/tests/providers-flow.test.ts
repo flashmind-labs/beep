@@ -30,7 +30,7 @@ test("provider save retains edits made while the command is in flight", async ()
   }, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { act, fireEvent, screen, waitFor, cleanup } = await import("@testing-library/react");
   const { invoke } = await import("../src/ui/tauri.ts");
-  const { providersPage } = await import("../src/settings/providers.tsx");
+  const { providersPage } = await import("../src/screens/settings/providers.tsx");
   const view = providersPage({ invoke, openSettings() {}, redrawTop() {}, follow() {} });
   const host = dom.window.document.getElementById("host");
   assert.ok(host);

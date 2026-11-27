@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDesktop, projectName, pushHome } from "./harness.ts";
-import type { CenterTarget } from "../../src/project/projectwindow.ts";
+import type { CenterTarget } from "../../src/stores/project/projectwindow.ts";
 
 const pageErrors = new WeakMap<Page, string[]>();
 test.beforeEach(async ({ page }) => {

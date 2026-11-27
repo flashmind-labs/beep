@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createAssetCache, parseAssetRef, type AssetBackend } from "../src/plugins/assets.ts";
-import { createSpriteDriver, createSpriteScript, type SpriteHost, type SpriteMotion } from "../src/plugins/sprite.ts";
+import { createAssetCache, parseAssetRef, type AssetBackend } from "../src/stores/plugins/assets.ts";
+import { createSpriteDriver, createSpriteScript, type SpriteHost, type SpriteMotion } from "../src/stores/plugins/sprite.ts";
 
 const ref = (digit: string) => ({ hash: digit.repeat(64), mime: "image/png" });
 

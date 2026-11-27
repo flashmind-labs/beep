@@ -1,8 +1,8 @@
 import { answers, calls } from "./chat-dom-env.ts";
 import test, { afterEach, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { fileLinkMenu } from "../src/agents/filelinks.ts";
-import type { FileRef } from "../src/agentpane/media-state.ts";
+import { fileLinkMenu } from "../src/parts/session/filelinks.ts";
+import type { FileRef } from "../src/stores/agentpane/media-state.ts";
 import { closeMenu } from "../src/ui/menu.tsx";
 
 const folder = { machineId: "build-box-id", root: "/srv/project" };

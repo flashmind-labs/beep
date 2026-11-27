@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { picTile, retryIn } from "../src/agents/pic-state.ts";
+import { picTile, retryIn } from "../src/parts/session/pic-state.ts";
 
 const name = "image-0123456789abcdef";
 

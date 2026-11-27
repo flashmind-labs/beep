@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { localProjectId } from "../src/project/localid.ts";
+import { localProjectId } from "../src/stores/project/localid.ts";
 
 // A version 5 UUID is the first 16 bytes of the SHA-1 of the namespace and the name.
 function reference(name: string) {

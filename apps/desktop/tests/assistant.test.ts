@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { AgentSession } from "../src/agents/agents-state.ts";
-import { assistantHost, assistantRows, isAssistant, resolveAssistant } from "../src/agents/assistant-state.ts";
+import type { AgentSession } from "../src/stores/agents/agents-state.ts";
+import { assistantHost, assistantRows, isAssistant, resolveAssistant } from "../src/stores/agents/assistant-state.ts";
 
 const HOME = "/home/user";
 

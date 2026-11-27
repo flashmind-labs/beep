@@ -1,9 +1,9 @@
 import { answers, bar, calls } from "./dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AG, type AgentPage } from "../src/agents/agents-state.ts";
-import { setView } from "../src/bar/core.ts";
-import { loadOlder } from "../src/agents/older.ts";
+import { AG, type AgentPage } from "../src/stores/agents/agents-state.ts";
+import { setView } from "../src/stores/bar/core.ts";
+import { loadOlder } from "../src/parts/session/older.ts";
 
 function page(earlier: number, count: number): AgentPage {
   return {

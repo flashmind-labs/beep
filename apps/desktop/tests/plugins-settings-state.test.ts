@@ -4,7 +4,7 @@ import {
   IDLE, UNEXPECTED, consentAction, consentTitle, consentVersions, flowStep, isNewPermission, openStage, parseFailure, parsePreview,
   parseStaged, parseUpdateCheck, permissionLabel, permissionMeaning, repositoryName, rowOffers, runLine, sourceLabel, sourceSentence,
   updateLine, type Flow, type PluginPreview, type StagedPlugin,
-} from "../src/settings/plugins-settings-state.ts";
+} from "../src/stores/settings/plugins-settings-state.ts";
 import { parseRows, parseSource, pluginSkins, type PluginRow } from "../src/ui/plugin-rows.ts";
 
 const git = { kind: "git", url: "https://github.com/owner/repo.git", ref: null, subfolder: null, commit: "4f0915a8b3c2d1e0f9a8b7c6d5e4f30211223344" };

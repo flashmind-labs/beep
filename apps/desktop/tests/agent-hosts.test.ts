@@ -1,7 +1,7 @@
 import { answers, calls } from "./chat-dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AG, ensureAgentHosts, type AgentHost } from "../src/agents/agents-state.ts";
+import { AG, ensureAgentHosts, type AgentHost } from "../src/stores/agents/agents-state.ts";
 
 const host: AgentHost = {
   machine_id: "box", machine_name: "Build box", agents: ["codex"], workspace: "/srv/project",

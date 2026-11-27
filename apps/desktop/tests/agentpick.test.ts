@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { AgentModels } from "../src/agents/agentmodels.ts";
-import { harnessFor, keepEffort, knownWorktrees, makesBranch, modelRows, railOf, startPlace } from "../src/agents/agentpick.ts";
+import type { AgentModels } from "../src/stores/agents/agentmodels.ts";
+import { harnessFor, keepEffort, knownWorktrees, makesBranch, modelRows, railOf, startPlace } from "../src/stores/agents/agentpick.ts";
 
 const ORDER = ["claude", "codex", "agy", "opencode", "pi", "flsh"];
 
@@ -72,7 +72,7 @@ test("a model matches when every word of the query is in it, in any order", () =
 });
 
 test("the pill resolves the default model when the machine reports it", async () => {
-  const { modelLabel } = await import("../src/agents/agentpick.ts");
+  const { modelLabel } = await import("../src/stores/agents/agentpick.ts");
   const list: AgentModels = { pick: "listed", current: "sol", models: [{ id: "sol", name: "6.1 Sol", description: null, provider: null }] };
   assert.equal(modelLabel(list, ""), "6.1 Sol");
   assert.equal(modelLabel({ pick: "listed", current: "default", models: [{ id: "default", name: "Default", description: "Opus 4.6 · Most capable", provider: null }] }, ""), "Opus 4.6");
@@ -80,7 +80,7 @@ test("the pill resolves the default model when the machine reports it", async ()
 });
 
 test("model titles resolve to IDs while labels stay readable", async () => {
-  const { modelId, modelLabel } = await import("../src/agents/agentpick.ts");
+  const { modelId, modelLabel } = await import("../src/stores/agents/agentpick.ts");
   const list: AgentModels = { pick: "listed", current: "model-sol", models: [
     { id: "model-sol", name: "Sol", description: null, provider: null },
   ] };
@@ -94,7 +94,7 @@ test("model titles resolve to IDs while labels stay readable", async () => {
 });
 
 test("a name under several providers shows its provider and resolves with it", async () => {
-  const { modelId } = await import("../src/agents/agentpick.ts");
+  const { modelId } = await import("../src/stores/agents/agentpick.ts");
   const list: AgentModels = { pick: "listed", current: "", models: [
     { id: "openrouter:deepseek/deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash", description: null, provider: "openrouter" },
     { id: "mistral:deepseek-v4-1-flash", name: "DeepSeek V4.1 Flash", description: null, provider: "mistral" },
@@ -121,7 +121,7 @@ test("lookup failures differ from a harness with a fixed model", () => {
 });
 
 test("a search names a model, a thinking level and a harness, subscription harnesses first", async () => {
-  const { modelSearch, searchedHarnesses, searchRows } = await import("../src/agents/agentpick.ts");
+  const { modelSearch, searchedHarnesses, searchRows } = await import("../src/stores/agents/agentpick.ts");
   const offered = ["pi", "claude", "codex"];
   const claude: AgentModels = { pick: "listed", current: "default", models: [
     { id: "default", name: "Default", description: "Opus 5.5 · Most capable", provider: null },

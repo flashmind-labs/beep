@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attachOf, heldMessage, outboxNote, stopPending } from "../src/agents/agentqueue.ts";
+import { attachOf, heldMessage, outboxNote, stopPending } from "../src/stores/agents/agentqueue.ts";
 
 test("a stop clears when its turn ends between reads and a steer starts another", () => {
   const stop = { id: "session", turns: 3 };

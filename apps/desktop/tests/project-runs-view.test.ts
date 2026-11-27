@@ -2,10 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { act, createElement } from "react";
-import { RunsView, type RunsViewProps } from "../src/project/runs-view.tsx";
-import type { RunRow, RunDetail } from "../src/project/runs.tsx";
+import { RunsView, type RunsViewProps } from "../src/parts/project/runs-view.tsx";
+import type { RunRow, RunDetail } from "../src/parts/project/runs.tsx";
 
-import type { PickButton } from "../src/review/feedback-view.tsx";
+import type { PickButton } from "../src/parts/review/feedback-view.tsx";
 const button: PickButton = { snapshot: () => ({ open: false, picker: null }), subscribe: () => () => {}, setBox() {}, setButton() {}, setSlot() {}, click() {}, why: () => "" };
 
 test("run log updates retain the row, focus and scroll", async () => {

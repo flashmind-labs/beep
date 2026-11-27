@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type WorkPlace, placeSub } from "../src/agents/place-state.ts";
-import { type Tree, reportedRoot } from "../src/agentpane/worktree-state.ts";
+import { type WorkPlace, placeSub } from "../src/stores/agents/place-state.ts";
+import { type Tree, reportedRoot } from "../src/stores/agentpane/worktree-state.ts";
 
 const place = (over: Partial<WorkPlace>): WorkPlace => ({
   folder: "/srv/app/.worktrees/fix", main: "/srv/app", linked: true, branch: "fix", origin: "https://example.com/org/app.git", ...over,

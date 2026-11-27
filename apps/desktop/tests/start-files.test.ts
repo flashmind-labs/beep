@@ -1,8 +1,8 @@
 import { answers, calls } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { UPLOAD_PART } from "../src/agentpane/files-state.ts";
-import { StartFiles } from "../src/agents/start-files.ts";
+import { UPLOAD_PART } from "../src/stores/agentpane/files-state.ts";
+import { StartFiles } from "../src/stores/agents/start-files.ts";
 
 globalThis.FileReader = class {
   result = "";

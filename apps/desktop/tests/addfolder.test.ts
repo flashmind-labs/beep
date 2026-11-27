@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { folderOffers, noOffer, startOn } from "../src/addproject/addfolder-state.ts";
-import { emptyText, unreadText } from "../src/addproject/addproject-state.ts";
-import type { MachineFolder } from "../src/project/projects-state.ts";
+import { folderOffers, noOffer, startOn } from "../src/stores/addproject/addfolder-state.ts";
+import { emptyText, unreadText } from "../src/stores/addproject/addproject-state.ts";
+import type { MachineFolder } from "../src/stores/project/projects-state.ts";
 
 const folder = (origin: string | null): MachineFolder =>
   ({ path: "/srv/acme/api", parent: "/srv/acme", exists: true, folders: [], more: 0, empty: false, origin, repos: [] });

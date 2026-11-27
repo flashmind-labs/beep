@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { MoveStatus, type MoveView } from "../src/agents/move-view.tsx";
+import { MoveStatus, type MoveView } from "../src/parts/session/move-view.tsx";
 
 test("move progress preserves its cancel button and focus across updates", async () => {
   const dom = new JSDOM("<!doctype html><div id='root'></div>", { url: "https://app.test" });

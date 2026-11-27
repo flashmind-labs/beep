@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cellAt, fitGrid, routeKey, wheelAction, withSymbols } from "../src/terminals/screen-state.ts";
+import { cellAt, fitGrid, routeKey, wheelAction, withSymbols } from "../src/stores/terminals/screen-state.ts";
 
 const CELL = { width: 16, height: 32 };
 

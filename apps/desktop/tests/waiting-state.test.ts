@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { waitedFor, waitLine } from "../src/agents/waiting-state.ts";
+import { waitedFor, waitLine } from "../src/stores/agents/waiting-state.ts";
 
 test("waitLine is null with nothing running", () => {
   assert.equal(waitLine([]), null);

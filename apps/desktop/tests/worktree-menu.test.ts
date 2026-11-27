@@ -2,7 +2,7 @@ import { answers, calls } from "./dom-env.ts";
 import { JSDOM } from "jsdom";
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { Tree, Entry } from "../src/agentpane/worktree-state.ts";
+import type { Tree, Entry } from "../src/stores/agentpane/worktree-state.ts";
 
 const dom = new JSDOM('<body><div id="bar" data-mode="bar"></div></body>');
 Object.assign(dom.window, { __TAURI__: window.__TAURI__ });
@@ -10,9 +10,9 @@ Object.assign(globalThis, { document: dom.window.document, window: dom.window, E
 const { createElement } = await import("react");
 const { flushSync } = await import("react-dom");
 const { createRoot } = await import("react-dom/client");
-const { WorktreeMenu } = await import("../src/agentpane/worktree-view.tsx");
-const { takePlaces } = await import("../src/agents/place.ts");
-const { startWorktrees, worktreeMenu, followAgent, paneRoot, takeWorktrees } = await import("../src/agentpane/worktree.ts");
+const { WorktreeMenu } = await import("../src/parts/session/worktree-view.tsx");
+const { takePlaces } = await import("../src/stores/agents/place.ts");
+const { startWorktrees, worktreeMenu, followAgent, paneRoot, takeWorktrees } = await import("../src/stores/agentpane/worktree.ts");
 const main: Tree = {path: "/srv/app", branch: "main", head: "abc1234", own: true, created: false};
 const fix: Tree = {path: "/srv/app/.worktrees/fix", branch: "fix-login", head: "abc1234", own: false, created: true};
 const tool = (text: string): Entry => ({kind: "tool", text});

@@ -1,24 +1,24 @@
 import { answers, bar, calls, emit } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { setView } from "../src/bar/core.ts";
-import { AG, type AgentModes, type AgentPage, type AgentTask, type OpenAgent } from "../src/agents/agents-state.ts";
-import { drawAgentBody } from "../src/agents/logview.tsx";
-import { disposeLogShell } from "../src/agents/log-shell.tsx";
-import { answerAgentQuestion, answerFirst, drawQueue, editQueued, steerMessage } from "../src/agents/messages.ts";
-import { disposeQueue } from "../src/agents/composer-ui.tsx";
-import { questionKey } from "../src/agents/open-state.ts";
-import { pollAgent } from "../src/agents/session-follow.ts";
-import { forgetAgentFollows } from "../src/agents/session-follow.ts";
-import { askUpload, MN } from "../src/agents/mentions.ts";
-import { drawTasks } from "../src/agents/tasks.tsx";
-import { transcriptKey, transcripts } from "../src/agents/transcript-cache-state.ts";
-import { drawAgentAttached } from "../src/agents/attachments-view.tsx";
+import { setView } from "../src/stores/bar/core.ts";
+import { AG, type AgentModes, type AgentPage, type AgentTask, type OpenAgent } from "../src/stores/agents/agents-state.ts";
+import { drawAgentBody } from "../src/parts/session/logview.tsx";
+import { disposeLogShell } from "../src/parts/session/log-shell.tsx";
+import { answerAgentQuestion, answerFirst, drawQueue, editQueued, steerMessage } from "../src/parts/session/messages.ts";
+import { disposeQueue } from "../src/parts/session/composer-ui.tsx";
+import { questionKey } from "../src/parts/session/open-state.ts";
+import { pollAgent } from "../src/parts/session/session-follow.ts";
+import { forgetAgentFollows } from "../src/parts/session/session-follow.ts";
+import { askUpload, MN } from "../src/stores/agents/mentions.ts";
+import { drawTasks } from "../src/parts/session/tasks.tsx";
+import { transcriptKey, transcripts } from "../src/stores/agents/transcript-cache-state.ts";
+import { drawAgentAttached } from "../src/parts/session/attachments-view.tsx";
 import { createElement } from "react";
-import { FieldControl, showAgentControl } from "../src/agents/composer-ui.tsx";
+import { FieldControl, showAgentControl } from "../src/parts/session/composer-ui.tsx";
 import { flushSync } from "react-dom";
 import { createDocumentView } from "../src/ui/document-root.tsx";
-import { AgentPlan } from "../src/agents/mode-view.tsx";
+import { AgentPlan } from "../src/parts/session/mode-view.tsx";
 import { showSessionBody } from "./session-frame-env.ts";
 
 function setup() {
@@ -396,7 +396,7 @@ test("suggestion updates preserve queued controls and focus", async t => {
   const { input } = setup();
   window.HTMLElement.prototype.scrollIntoView = () => {};
   Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
-  const { bindMentionMenu } = await import("../src/agents/mentionmenu.ts");
+  const { bindMentionMenu } = await import("../src/parts/session/mentionmenu.ts");
   answers.agent_commands = [{ name: "review", description: "Review work", hint: "" }, { name: "run", description: "Run checks", hint: "" }];
   t.after(() => { disposeQueue(); delete answers.agent_commands; });
   AG.page!.queued_messages = ["Queued"];
@@ -417,7 +417,7 @@ test("mode and plan controls share the queue owner without losing focus", async 
   field.insertAdjacentHTML("beforebegin", '<div id="agplan"></div>');
   page.session.question = { id: 7, text: "Approve?", detail: null, options: [{ id: "yes", name: "Approve", allow: true }, { id: "no", name: "Reject", allow: false }] };
   setModes({ current: "plan", modes: [{ id: "plan", name: "Plan" }, { id: "edit", name: "Edit" }], plan: "<p>Plan text</p>" });
-  const { drawModes } = await import("../src/agents/modepill.tsx");
+  const { drawModes } = await import("../src/parts/session/modepill.tsx");
   t.after(() => { disposeQueue(); setModes(null); });
   drawModes();
   const mode = bar.querySelector<HTMLButtonElement>("#agmodeb"), approve = bar.querySelector<HTMLButtonElement>('[data-agopt="0"]');
@@ -435,7 +435,7 @@ test("mode and plan controls share the queue owner without losing focus", async 
 
 test("mode pill hides only in each harness's own full-access mode", async t => {
   const { page } = setup();
-  const { drawModes } = await import("../src/agents/modepill.tsx");
+  const { drawModes } = await import("../src/parts/session/modepill.tsx");
   t.after(() => { disposeQueue(); setModes(null); });
 
   page.session.agent = "agy";

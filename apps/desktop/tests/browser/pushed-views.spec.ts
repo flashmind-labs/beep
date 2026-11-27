@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import type { HarnessView } from "../../src/settings/providers-state.ts";
+import type { HarnessView } from "../../src/stores/settings/providers-state.ts";
 import { openDesktop, projectName } from "./harness.ts";
 
 const checkout = (id: string, name: string) => ({ id, name, online: true, folder: "/srv/project", checking: false, checked_at: 1 });

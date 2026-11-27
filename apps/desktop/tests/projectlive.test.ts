@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { followedProject, makeProjectLive } from "../src/project/projectlive.ts";
+import { followedProject, makeProjectLive } from "../src/stores/project/projectlive.ts";
 function setup() {
   const calls: [string, unknown][] = [];
   const reads: [string, boolean, boolean][] = [];

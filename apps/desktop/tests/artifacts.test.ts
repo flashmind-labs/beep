@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { artifactVersion, collectArtifacts, goneArtifacts, goneMessage, madeFiles, madeGroup, readPlace, relativeTo, toolArtifacts } from "../src/agentpane/artifacts-state.ts";
+import { artifactVersion, collectArtifacts, goneArtifacts, goneMessage, madeFiles, madeGroup, readPlace, relativeTo, toolArtifacts } from "../src/stores/agentpane/artifacts-state.ts";
 
 const CWD = "/srv/project";
 const LINK = "https://claude.ai/code/artifact/0000-placeholder";

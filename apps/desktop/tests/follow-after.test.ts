@@ -1,9 +1,9 @@
 import { calls } from "./dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { feed } from "../src/agents/session-follow.ts";
-import { transcripts, transcriptKey } from "../src/agents/transcript-cache-state.ts";
-import type { AgentPage } from "../src/agents/agents-state.ts";
+import { feed } from "../src/parts/session/session-follow.ts";
+import { transcripts, transcriptKey } from "../src/stores/agents/transcript-cache-state.ts";
+import type { AgentPage } from "../src/stores/agents/agents-state.ts";
 
 const page = { session: { machine_id: "m1", machine_name: "build-box", id: "s1", agent: "codex", cwd: "/srv/project", status: "idle", external: false, question: null }, entries: [], earlier: 0, plan: [], error: null, queued: 0, turns: 0, usage: null } as AgentPage;
 const follows = () => calls.filter(c => c.cmd === "agent_follow").map(c => c.args as { after: unknown });

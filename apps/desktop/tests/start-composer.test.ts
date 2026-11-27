@@ -2,7 +2,7 @@ import "./dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
-import { FolderChoice, NewAgentNotes } from "../src/agents/start-composer-view.tsx";
+import { FolderChoice, NewAgentNotes } from "../src/parts/session/start-composer-view.tsx";
 import { startDom } from "./start-react-env.ts";
 
 const actions = { submit() {}, harness() {} };
@@ -11,7 +11,7 @@ const openMachines = () => {}, openAgents = () => {};
 test("machine availability notes update without replacing the composer", async () => {
   const env = startDom();
   try {
-    const { makeStartComposer } = await import("../src/agents/start-composer.tsx");
+    const { makeStartComposer } = await import("../src/parts/session/start-composer.tsx");
     const c = makeStartComposer({ place: () => null, actions }); env.dom.window.document.body.append(c.form);
     c.input.value = "Keep this draft"; c.input.focus();
     c.update({ notes: createElement(NewAgentNotes, { waiting: true, none: false, noMachine: false, openAgents, openMachines }) });
@@ -29,7 +29,7 @@ test("machine availability notes update without replacing the composer", async (
 test("new agent choices retain controls across updates", async () => {
   const env = startDom();
   try {
-    const { makeStartComposer } = await import("../src/agents/start-composer.tsx");
+    const { makeStartComposer } = await import("../src/parts/session/start-composer.tsx");
     const c = makeStartComposer({ place: () => null, actions }); env.dom.window.document.body.append(c.form);
     const choices = (machine: string) => ({ machine, folder: createElement(FolderChoice, { checkout: false, label: "Home", detail: "~/work" }) });
     c.update({ choiceContents: choices("First") });
@@ -45,7 +45,7 @@ test("new agent choices retain controls across updates", async () => {
 
 test("start composers consume Enter once and preserve Shift+Enter and composition", async () => {
   const env = startDom();
-  const { makeStartComposer } = await import("../src/agents/start-composer.tsx");
+  const { makeStartComposer } = await import("../src/parts/session/start-composer.tsx");
   const composer = makeStartComposer({ place: () => null, actions });
   env.dom.window.document.body.append(composer.form);
   let submitted = 0;
@@ -82,7 +82,7 @@ test("start composers consume Enter once and preserve Shift+Enter and compositio
 
 test("project choices keep one owner across busy and layout changes", async () => {
   const env = startDom();
-  const { makeStartComposer } = await import("../src/agents/start-composer.tsx");
+  const { makeStartComposer } = await import("../src/parts/session/start-composer.tsx");
   const composer = makeStartComposer({ place: () => null, presentation: "compact", externalChoices: true, actions });
   env.dom.window.document.body.append(composer.form);
   try {

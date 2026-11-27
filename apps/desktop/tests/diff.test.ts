@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   type DiffFile, type DiffView, allFolded, baseTitle, changedLabel, compactFolders, diffRows, diffSpans, filesInTreeOrder, filterHits, lineMatches,
   splitHeight, splitRows, withLoaded,
-} from "../src/review/diff-state.ts";
+} from "../src/stores/review/diff-state.ts";
 import { colourFor } from "../src/ui/syntax.ts";
 
 const file = (path: string, o: Partial<DiffFile> = {}): DiffFile => ({
@@ -121,7 +121,7 @@ test("the fold toggle offers expand only when every shown file is folded", () =>
 });
 
 test("expanded context keeps line numbers and review placement", async () => {
-  const { contextFile, placeComments } = await import("../src/review/diff-state.ts");
+  const { contextFile, placeComments } = await import("../src/stores/review/diff-state.ts");
   const full = file("sample.ts", { hunks: [{ old_start: 1, new_start: 1, old_lines: 30, new_lines: 30, section: "", lines: Array.from({ length: 30 }, (_, i) => ({ k: " " as const, t: String(i + 1) })) }] });
   const original = file("sample.ts", { hunks: [{ ...full.hunks[0], old_start: 14, new_start: 14, old_lines: 3, new_lines: 3, lines: full.hunks[0].lines.slice(13, 16) }] });
   const expanded = contextFile(original, full, [{ above: 10, below: 0 }]);
@@ -133,7 +133,7 @@ test("expanded context keeps line numbers and review placement", async () => {
 });
 
 test("a gap between two hunks expands from either side alone and collapses", async () => {
-  const { contextFile, diffRows, editExtents } = await import("../src/review/diff-state.ts");
+  const { contextFile, diffRows, editExtents } = await import("../src/stores/review/diff-state.ts");
   const lines = Array.from({ length: 100 }, (_, i) => ({ k: " " as const, t: String(i + 1) }));
   const hunk = (start: number, count: number) => ({ old_start: start, new_start: start, old_lines: count, new_lines: count, section: "", lines: lines.slice(start - 1, start - 1 + count) });
   const full = file("sample.ts", { hunks: [hunk(1, 100)] });

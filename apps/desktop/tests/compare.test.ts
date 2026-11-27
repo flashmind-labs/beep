@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { compareFiles, compareView, lineDiff } from "../src/project/compare.ts";
+import { compareFiles, compareView, lineDiff } from "../src/stores/project/compare.ts";
 
 test("compare lists the lines that differ with their numbers", () => {
   const hunks = lineDiff("a\nb\nc\nd\n", "a\nB\nc\nd\ne\n")!;

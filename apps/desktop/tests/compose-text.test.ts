@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { composeMessage, fenceAfterBlankLine, fenceSpans, imagePath, pillAt, pillLabel, pillsIn, Pastes, quoteAppend, snapCaret, snapSelection } from "../src/chat/compose-text.ts";
+import { composeMessage, fenceAfterBlankLine, fenceSpans, imagePath, pillAt, pillLabel, pillsIn, Pastes, quoteAppend, snapCaret, snapSelection } from "../src/stores/chat/compose-text.ts";
 
 // The fence cases are flsh's own (flashmind-tui repl/input.rs), same
 // inputs and outputs.

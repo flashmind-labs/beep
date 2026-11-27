@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { JSDOM } from "jsdom";
-import { isHtmlFile } from "../src/agentpane/html-preview-state.ts";
+import { isHtmlFile } from "../src/stores/agentpane/html-preview-state.ts";
 
 const dom = new JSDOM("<body></body>");
 Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, Node: dom.window.Node });
@@ -15,23 +15,23 @@ const calls: unknown[] = [];
 let answer: () => Promise<unknown> = async () => ({ kind: "html", src: "beepview://localhost/test/" });
 Object.assign(globalThis, { previewState: state, previewInvoke: async (cmd: string, args: unknown) => { if (cmd === "editor_settings_get") return { vim: null }; calls.push({ cmd, args }); return answer(); } });
 const stubs = new Map(Object.entries({
-  "agentpane/pane-tabs.ts": "export const touchTab = t => globalThis.previewDraw(t); export const noteTab = () => {}; export const discardSheet = () => {}; export const closeTab = () => {}; export const leavePane = () => {};",
-  "agentpane/media-layout.ts": "export const openTabs = () => globalThis.previewState.tabs;",
-  "agentpane/pane-memory.ts": "export const rememberPane = () => {}; export const rememberTerminal = () => {};",
-  "agentpane/pane-state.ts": "export const P = globalThis.previewState; export const redraw = () => {}; export const refollow = () => {}; export const newFileEdit = base => ({ base, view: null, state: null, generation: 0, dirty: false, saving: false, conflict: false, at: null });",
-  "agentpane/pane-open.ts": "export const openLocation = () => {};",
-  "agentpane/terminal.ts": "export const attach = () => {}; export const detachTerm = () => {}; export const killTerm = () => {}; export const dropTerm = () => {}; export const followTerm = () => {}; export const forgetTerm = () => {}; export const openTerm = () => {};",
+  "parts/session/pane-tabs.ts": "export const touchTab = t => globalThis.previewDraw(t); export const noteTab = () => {}; export const discardSheet = () => {}; export const closeTab = () => {}; export const leavePane = () => {};",
+  "parts/session/media-layout.ts": "export const openTabs = () => globalThis.previewState.tabs;",
+  "parts/session/pane-memory.ts": "export const rememberPane = () => {}; export const rememberTerminal = () => {};",
+  "stores/agentpane/pane-state.ts": "export const P = globalThis.previewState; export const redraw = () => {}; export const refollow = () => {}; export const newFileEdit = base => ({ base, view: null, state: null, generation: 0, dirty: false, saving: false, conflict: false, at: null });",
+  "parts/session/pane-open.ts": "export const openLocation = () => {};",
+  "parts/session/terminal.ts": "export const attach = () => {}; export const detachTerm = () => {}; export const killTerm = () => {}; export const dropTerm = () => {}; export const followTerm = () => {}; export const forgetTerm = () => {}; export const openTerm = () => {};",
   "ui/tauri.ts": "export const invoke = globalThis.previewInvoke; export const listen = async () => () => {};",
-  "chat/media.tsx": "export const fileSize = () => ''; export const openViewer = () => {};",
+  "parts/session/media.tsx": "export const fileSize = () => ''; export const openViewer = () => {};",
   "ui/active.ts": "export const paneShown = () => true;",
   "ui/menu.tsx": "export const confirmSheet = () => {}; export const openMenu = () => {};",
-  "agents/mentions.ts": "export const addMention = () => {};",
+  "stores/agents/mentions.ts": "export const addMention = () => {};",
 }).map(([path, source]) => [new URL(`../src/${path}`, import.meta.url).href, source]));
 const hook = registerHooks({ load(url, context, next) {
   const source = stubs.get(url);
   return source === undefined ? next(url, context) : { format: "module", source, shortCircuit: true };
 } });
-const { TextView } = await import("../src/agentpane/text-view.tsx");
+const { TextView } = await import("../src/parts/session/text-view.tsx");
 hook.deregister();
 const tick = () => new Promise(r => setImmediate(r));
 const roots = new Map<unknown, { root: ReturnType<typeof createRoot>; rev: number }>();

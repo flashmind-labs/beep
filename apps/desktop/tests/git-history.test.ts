@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { appendCommits, dayGroups, diffPaths, selectionKey, type GitCommit } from "../src/review/history-state.ts";
+import { appendCommits, dayGroups, diffPaths, selectionKey, type GitCommit } from "../src/stores/review/history-state.ts";
 const commit = (id: string, committed_at = 1): GitCommit => ({ id, parents: [], subject: id, author: "Test", committed_at });
 
 test("history pagination preserves order and removes overlapping commits", () => {

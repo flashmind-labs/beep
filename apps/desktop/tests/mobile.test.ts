@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mobileLayout } from "../src/ui/platform.ts";
-import { activeTab, backTo, fullScreen, type MobileAt } from "../src/center/mobile-state.ts";
+import { activeTab, backTo, fullScreen, type MobileAt } from "../src/shell/center/mobile-state.ts";
 
 const at = (over: Partial<MobileAt>): MobileAt => ({ page: "home", paneView: null, homeTab: "overview", picked: null, tile: false, terminal: false, ...over });
 

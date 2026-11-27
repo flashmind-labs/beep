@@ -1,17 +1,17 @@
 import { answers, bar, calls } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AG, type AgentPage, type AgentRow } from "../src/agents/agents-state.ts";
-import { setView } from "../src/bar/core.ts";
-import { sendAgentMessage, steerMessage, resumeEndedSession } from "../src/agents/messages.ts";
-import { stopAllWork } from "../src/agents/sessionmenu.ts";
-import { MN, activateMentions, resetMentions, currentMentions } from "../src/agents/mentions.ts";
-import { disposeQueue } from "../src/agents/composer-ui.tsx";
-import { staysInline } from "../src/agents/images.tsx";
-import { disposeLogShell } from "../src/agents/log-shell.tsx";
+import { AG, type AgentPage, type AgentRow } from "../src/stores/agents/agents-state.ts";
+import { setView } from "../src/stores/bar/core.ts";
+import { sendAgentMessage, steerMessage, resumeEndedSession } from "../src/parts/session/messages.ts";
+import { stopAllWork } from "../src/parts/session/sessionmenu.ts";
+import { MN, activateMentions, resetMentions, currentMentions } from "../src/stores/agents/mentions.ts";
+import { disposeQueue } from "../src/parts/session/composer-ui.tsx";
+import { staysInline } from "../src/parts/session/images.tsx";
+import { disposeLogShell } from "../src/parts/session/log-shell.tsx";
 import { showSessionBody } from "./session-frame-env.ts";
-import { conversationKey } from "../src/agents/conversation-state.ts";
-import type { Attached } from "../src/agents/agentqueue.ts";
+import { conversationKey } from "../src/stores/agents/conversation-state.ts";
+import type { Attached } from "../src/stores/agents/agentqueue.ts";
 
 const png = { name: "shot.png", mime: "image/png", size: 8, data: "iVBORw0KGgo=", url: "data:image/png;base64,iVBORw0KGgo=", original: null };
 Object.assign(globalThis, { getSelection: () => null, getComputedStyle: () => ({ rowGap: "0" }) });

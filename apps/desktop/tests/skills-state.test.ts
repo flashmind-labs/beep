@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { coverage, foundWhere, placeText, problemLines, placePicks, projectLines, skillPlace, toggleSkill, urlText, whereChip, type SkillLibrary } from "../src/settings/skills-state.ts";
+import { coverage, foundWhere, placeText, problemLines, placePicks, projectLines, skillPlace, toggleSkill, urlText, whereChip, type SkillLibrary } from "../src/stores/settings/skills-state.ts";
 
 const skills = [{ name: "crawl", description: "Crawl a site" }, { name: "map", description: "List URLs" }, { name: "scrape", description: "Scrape a page" }];
 const library = (part: Partial<SkillLibrary> = {}): SkillLibrary => ({ name: "firecrawl", url: "https://git.example.com/tools/firecrawl.git", revision: "a3f91c2d00", skills, global: "None", projects: {}, chats: {}, ...part });

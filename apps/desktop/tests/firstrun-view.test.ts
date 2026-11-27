@@ -12,7 +12,7 @@ async function page() {
   }
   const testing = await import("@testing-library/react");
   // Loaded once the page exists, as React DOM reads it when it loads.
-  const { FirstRunScreen } = await import("../src/center/firstrun-view.tsx");
+  const { FirstRunScreen } = await import("../src/screens/center/firstrun-view.tsx");
   const close = () => {
     testing.cleanup();
     dom.window.close();

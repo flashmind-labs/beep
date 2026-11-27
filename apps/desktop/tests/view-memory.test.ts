@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
-import { forgetView, readView, viewKey, writeView } from "../src/agentpane/view-memory.ts";
+import { forgetView, readView, viewKey, writeView } from "../src/stores/agentpane/view-memory.ts";
 
 test("project views survive reconstruction and closing removes only that session", () => {
   const dom = new JSDOM("", { url: "https://example.test" });

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canCreate, folderTail, landedLines, pickHost, projectFolders, startForm, toggleMachine, validName } from "../src/addproject/newproject-state.ts";
-import type { Forge } from "../src/addproject/newproject-state.ts";
+import { canCreate, folderTail, landedLines, pickHost, projectFolders, startForm, toggleMachine, validName } from "../src/stores/addproject/newproject-state.ts";
+import type { Forge } from "../src/stores/addproject/newproject-state.ts";
 
 const forges: Forge[] = [
   { host: "git.example.com", github: false, owners: [], error: "git.example.com did not answer in time." },

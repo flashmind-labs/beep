@@ -1,10 +1,10 @@
 import { answers, bar, calls } from "./chat-dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AG, type AgentHost } from "../src/agents/agents-state.ts";
-import { keepProjectAccount } from "../src/agents/agentmodels.ts";
-import { renderAgentNew, startAgent } from "../src/agents/agentnew.tsx";
-import "../src/bar/bar-app.tsx";
+import { AG, type AgentHost } from "../src/stores/agents/agents-state.ts";
+import { keepProjectAccount } from "../src/stores/agents/agentmodels.ts";
+import { renderAgentNew, startAgent } from "../src/parts/session/agentnew.tsx";
+import "../src/shell/bar/bar-app.tsx";
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
 const starts = () => calls.filter(call => call.cmd === "agent_begin");

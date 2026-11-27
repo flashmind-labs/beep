@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { homeForDisplay, type HomeView } from "../src/center/home-state.ts";
-import { seed, type Seeded } from "../src/center/cached.ts";
+import { homeForDisplay, type HomeView } from "../src/stores/center/home-state.ts";
+import { seed, type Seeded } from "../src/stores/center/cached.ts";
 
 test("startup shows Home before any machine answers", () => {
   const state: Seeded = { home: null, top: [], groups: undefined, sync: [] };

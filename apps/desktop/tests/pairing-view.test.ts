@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { createElement } from "react";
-import type { PairingCommands } from "../src/center/pairing-view.tsx";
+import type { PairingCommands } from "../src/screens/center/pairing-view.tsx";
 
 test("pairing handles permissions, scan cancellation and a pasted retry", async () => {
   const dom = new JSDOM("<!doctype html><div id='root'></div>", { url: "https://app.test" });
@@ -12,7 +12,7 @@ test("pairing handles permissions, scan cancellation and a pasted retry", async 
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
   }
   const { render, fireEvent, waitFor, cleanup } = await import("@testing-library/react");
-  const { PairingScreen } = await import("../src/center/pairing-view.tsx");
+  const { PairingScreen } = await import("../src/screens/center/pairing-view.tsx");
   let permission = "error", cancelled = false, paired = "", complete = 0, attempts = 0;
   let rejectScan: (error: Error) => void = () => {};
   const commands: PairingCommands = {

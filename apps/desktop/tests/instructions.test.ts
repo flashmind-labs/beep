@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mineLayer } from "../src/settings/instructions-state.ts";
+import { mineLayer } from "../src/stores/settings/instructions-state.ts";
 
 test("saved instructions describe session delivery", () => {
   assert.equal(mineLayer({ version: 3 }), "Version 3, supplied when Beep starts or resumes a session");

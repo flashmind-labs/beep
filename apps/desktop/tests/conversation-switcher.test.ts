@@ -2,9 +2,9 @@ import { answers, calls } from "./dom-env.ts";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import assert from "node:assert/strict";
-import { ConversationHistory, conversationKey, conversationState, firstConversation, groupConversations, isConversationKey, nextConversation, retitle } from "../src/agents/conversation-state.ts";
-import { initConversationSwitcher } from "../src/agents/conversation-switcher.tsx";
-import type { AgentRow } from "../src/agents/agents-state.ts";
+import { ConversationHistory, conversationKey, conversationState, firstConversation, groupConversations, isConversationKey, nextConversation, retitle } from "../src/stores/agents/conversation-state.ts";
+import { initConversationSwitcher } from "../src/parts/session/conversation-switcher.tsx";
+import type { AgentRow } from "../src/stores/agents/agents-state.ts";
 
 const session = (id: string, extra: Partial<AgentRow> = {}): AgentRow => ({ machine_id: "machine", machine_name: "build-box", agent: "codex", id, title: id, cwd: "/srv/project", status: "idle", external: false, last_activity: 1, ...extra });
 

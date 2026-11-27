@@ -3,9 +3,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { flushSync } from "react-dom";
-import { createLog, disposeLog, fillLog, setUnits } from "../src/agents/logwindow.tsx";
-import { TranscriptLog } from "../src/agents/log-shell-view.tsx";
-import type { ActivityRow } from "../src/agents/activity-view.tsx";
+import { createLog, disposeLog, fillLog, setUnits } from "../src/parts/session/logwindow.tsx";
+import { TranscriptLog } from "../src/parts/session/log-shell-view.tsx";
+import type { ActivityRow } from "../src/parts/session/activity-view.tsx";
 import { createDocumentView } from "../src/ui/document-root.tsx";
 import type { ChatBody } from "../src/ui/turn.ts";
 

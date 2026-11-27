@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { modelDraft, modelProblem, modelRules } from "../src/settings/model-context-state.ts";
+import { modelDraft, modelProblem, modelRules } from "../src/stores/settings/model-context-state.ts";
 
 test("model thresholds accept percentages, tokens and off; clearing inherits", () => {
   const draft = [

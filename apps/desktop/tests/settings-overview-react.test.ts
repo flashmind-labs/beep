@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { AgentsOverview, InstructionsOverview, MachinesOverview } from "../src/settings/overview-view.tsx";
+import { AgentsOverview, InstructionsOverview, MachinesOverview } from "../src/screens/settings/overview-view.tsx";
 
 const noop = () => {};
 test("bar overview keeps its loading, empty and navigation states", () => {

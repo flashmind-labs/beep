@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredQuestions, exitCode, imageLines, linkCodeFiles, linkCodeSessions, linkImagePaths, markWarnings, parseTool, sentFiles, subagent, tailLines } from "../src/agents/agentlog.ts";
-import { findLinkedSession, linkedSession, parseSessionRef, sessionHref } from "../src/agents/nesting-state.ts";
+import { answeredQuestions, exitCode, imageLines, linkCodeFiles, linkCodeSessions, linkImagePaths, markWarnings, parseTool, sentFiles, subagent, tailLines } from "../src/stores/agents/agentlog.ts";
+import { findLinkedSession, linkedSession, parseSessionRef, sessionHref } from "../src/stores/agents/nesting-state.ts";
 
 test("image lines come out of an entry's text anywhere, in order", () => {
   const a = "image-0123456789abcdef", b = "image-fedcba9876543210";

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { nextSessionIntro } from "../src/agents/session-intro.ts";
+import { nextSessionIntro } from "../src/stores/agents/session-intro.ts";
 
 test("welcome sentences exhaust the deck before repeating and differ across cycles", () => {
   let previous = "";

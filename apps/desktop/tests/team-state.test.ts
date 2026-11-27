@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { askWorkPrompt, cardLane, claim, filterCards, heldText, needKind, onlineCount, ownedIssues, replyPrompt, teamView, teammates, type TeamRecord } from "../src/project/team-state.ts";
+import { askWorkPrompt, cardLane, claim, filterCards, heldText, needKind, onlineCount, ownedIssues, replyPrompt, teamView, teammates, type TeamRecord } from "../src/stores/project/team-state.ts";
 
 const record: TeamRecord = {
   repo: "github.com/org/web", me: "dana", pickup: true, pickup_limit: null, asks: true, removed: [],

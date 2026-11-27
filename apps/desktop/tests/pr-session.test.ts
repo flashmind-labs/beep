@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { AgentSession } from "../src/agents/agents-state.ts";
+import type { AgentSession } from "../src/stores/agents/agents-state.ts";
 
 Object.assign(globalThis, {
   window: {
@@ -14,7 +14,7 @@ Object.assign(globalThis, {
   document: { addEventListener: () => {}, visibilityState: "visible" },
 });
 
-const { createPrSessionLookup } = await import("../src/project/pr-session.ts");
+const { createPrSessionLookup } = await import("../src/stores/project/pr-session.ts");
 
 const session = (id: string): AgentSession => ({
   id, agent: "claude", machine_id: "m1", machine_name: "build-box",

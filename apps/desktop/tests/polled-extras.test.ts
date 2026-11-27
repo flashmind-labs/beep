@@ -1,8 +1,8 @@
 import "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { forgetUnfollowedExtras } from "../src/agents/session-follow.ts";
-import { transcriptKey, transcripts } from "../src/agents/transcript-cache-state.ts";
+import { forgetUnfollowedExtras } from "../src/parts/session/session-follow.ts";
+import { transcriptKey, transcripts } from "../src/stores/agents/transcript-cache-state.ts";
 
 test("the modes and tasks of a session read by polling go when it leaves the screen", () => {
   const o = { machine_id: "m1", agent: "codex", session: "polled" };

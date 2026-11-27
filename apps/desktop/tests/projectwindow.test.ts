@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { route, type WindowScope } from "../src/project/projectwindow.ts";
+import { route, type WindowScope } from "../src/stores/project/projectwindow.ts";
 
 const scope: WindowScope = {
   kind: "project",

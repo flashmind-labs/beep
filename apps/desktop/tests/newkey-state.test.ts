@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isNewKey, newTermLike } from "../src/terminals/newkey-state.ts";
+import { isNewKey, newTermLike } from "../src/stores/terminals/newkey-state.ts";
 
 const term = (machine_id: string, cwd: string, focused = false) => ({ machine_id, machine_name: machine_id, cwd, project: "", focused });
 

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assetRefs, publishTurn, sessionTurn, clipBytes, connectPluginSlots, connectPluginTopics, connectPluginVisibility, connectPlugins, createInstanceBook, followPlugin, indexPlacements, instanceFits, instanceId, meshTopics, parsePlacements, parseWanted, placementsFor, pluginsStore, publishUi, sendPluginEvent, startDraft, typeInto } from "../src/plugins/plugins-state.ts";
-import type { InputDraft, InstanceBatch, SlotInstance, WantedTopic } from "../src/plugins/plugins-state.ts";
+import { assetRefs, publishTurn, sessionTurn, clipBytes, connectPluginSlots, connectPluginTopics, connectPluginVisibility, connectPlugins, createInstanceBook, followPlugin, indexPlacements, instanceFits, instanceId, meshTopics, parsePlacements, parseWanted, placementsFor, pluginsStore, publishUi, sendPluginEvent, startDraft, typeInto } from "../src/stores/plugins/plugins-state.ts";
+import type { InputDraft, InstanceBatch, SlotInstance, WantedTopic } from "../src/stores/plugins/plugins-state.ts";
 
 const ref = (digit: string, mime = "image/png") => ({ hash: digit.repeat(64), mime });
 const image = { kind: "image", asset: ref("a"), width: 60, height: 48, pixelated: true };

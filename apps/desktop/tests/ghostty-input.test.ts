@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { loadGhostty, Terminal, type Ghostty } from "../src/terminals/ghostty.ts";
-import { keyOf, TerminalInput, unshifted, type KeyInput, type MouseInput, type PointerAt } from "../src/terminals/ghostty-input.ts";
-import { GhosttyKey } from "../src/terminals/ghostty-abi.ts";
+import { loadGhostty, Terminal, type Ghostty } from "../src/stores/terminals/ghostty.ts";
+import { keyOf, TerminalInput, unshifted, type KeyInput, type MouseInput, type PointerAt } from "../src/stores/terminals/ghostty-input.ts";
+import { GhosttyKey } from "../src/stores/terminals/ghostty-abi.ts";
 
 const WASM = new URL("../ghostty/ghostty-vt.wasm", import.meta.url);
 const CELL = { width: 8, height: 16 };

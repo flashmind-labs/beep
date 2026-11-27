@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { stepAt, type PlanStep } from "../src/agents/plan-state.ts";
+import { stepAt, type PlanStep } from "../src/stores/agents/plan-state.ts";
 
 const step = (started_at: number | null, ended_at: number | null): PlanStep => ({ content: "", status: "", started_at, ended_at });
 

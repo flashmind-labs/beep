@@ -1,8 +1,8 @@
 import { answers } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ensureMachines, MACHINES, machinesChanged, REMOVED, removeListed, renameListed, takeTraffic } from "../src/machines/machine-store.ts";
-import type { Machine } from "../src/machines/machines.tsx";
+import { ensureMachines, MACHINES, machinesChanged, REMOVED, removeListed, renameListed, takeTraffic } from "../src/stores/machines/machine-store.ts";
+import type { Machine } from "../src/screens/machines/machines.tsx";
 
 const held = (): Machine[] | null => MACHINES.list;
 const named = (name: string) => ({ id: "m1", name }) as unknown as Machine;

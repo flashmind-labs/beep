@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PageCache, SWITCH_MS } from "../src/ui/pagecache.ts";
-import { makeThreads, type KeptThreads, type ThreadDeps } from "../src/project/threads.ts";
+import { makeThreads, type KeptThreads, type ThreadDeps } from "../src/parts/project/threads.ts";
 
 /// A read the test answers when it likes.
 function deferred<T>() {

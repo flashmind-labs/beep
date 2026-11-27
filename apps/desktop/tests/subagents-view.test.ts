@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { SubagentsView, type SubagentRow } from "../src/agentpane/subagents-view.tsx";
+import { SubagentsView, type SubagentRow } from "../src/parts/session/subagents-view.tsx";
 
 test("subagent updates keep focused rows and their actions", () => {
   const dom = new JSDOM("<body><div id='root'></div></body>");

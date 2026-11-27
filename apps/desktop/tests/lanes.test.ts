@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { byLane, endedToday, laneOf, travelled } from "../src/center/lanes-state.ts";
+import { byLane, endedToday, laneOf, travelled } from "../src/stores/center/lanes-state.ts";
 
 test("a session's status picks its lane", () => {
   assert.equal(laneOf("asking"), "needs");

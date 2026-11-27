@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sessionOffers } from "../src/agents/sessionmenu-state.ts";
+import { sessionOffers } from "../src/stores/agents/sessionmenu-state.ts";
 
 test("a running session can be stopped and closed", () => {
   assert.deepEqual(sessionOffers({ status: "working", external: false, agent: "claude" }), { stop: true, close: true, resume: false, delete: false });

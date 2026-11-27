@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { relayLine, trafficRows, trafficSummary } from "../src/machines/traffic-state.ts";
+import { relayLine, trafficRows, trafficSummary } from "../src/stores/machines/traffic-state.ts";
 
 const machine = {
   id: "m",

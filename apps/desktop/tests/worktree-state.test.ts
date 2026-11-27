@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type Tree, type Entry, follow, followSteps, removedCheckout, reviewHeading, rootOf, treeAt, matchesTree } from "../src/agentpane/worktree-state.ts";
-import { homeShort } from "../src/project/projects-state.ts";
+import { type Tree, type Entry, follow, followSteps, removedCheckout, reviewHeading, rootOf, treeAt, matchesTree } from "../src/stores/agentpane/worktree-state.ts";
+import { homeShort } from "../src/stores/project/projects-state.ts";
 
 const tree = (path: string, branch: string | null, own = false): Tree => ({ path, branch, head: "abc1234", own, created: false });
 const main = tree("/srv/app", "main", true);

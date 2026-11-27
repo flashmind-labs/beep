@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { createElement, type ComponentProps } from "react";
-import type { Machine } from "../src/machines/machines.tsx";
+import type { Machine } from "../src/screens/machines/machines.tsx";
 
 test("machine detail preserves a draft and log position on updates and routes its actions", async () => {
   const dom = new JSDOM("<!doctype html><div id='root'></div>", { url: "https://app.test" });
@@ -12,7 +12,7 @@ test("machine detail preserves a draft and log position on updates and routes it
     Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
   }
   const { render, fireEvent, cleanup } = await import("@testing-library/react");
-  const { MachineDetail } = await import("../src/machines/detail-view.tsx");
+  const { MachineDetail } = await import("../src/screens/machines/detail-view.tsx");
   const machine: Machine = { id: "one", name: "build-box", online: true, can_host: true, seen_at: 0, version: "1.0", env: { os: "linux", os_version: "Linux", arch: "x86_64", hostname: "host", cpus: 2, memory_mb: 1024, home: "/path/to/work", tools: [{ name: "codex", version: "1.0" }], logins: [{ tool: "codex", signed_in: false, account: null }], avds: [], gpus: [{ vendor: "NVIDIA", model: "NVIDIA GeForce RTX 4090", vram_mb: 24564, driver: "580.0" }], wsl: [] } };
   let saved = "", tool = "", node = 0, removed = 0, cancelled = 0, renamed = 0;
   const noOp = () => {};

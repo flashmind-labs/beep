@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import type { HarnessView } from "../../src/settings/providers-state.ts";
+import type { HarnessView } from "../../src/stores/settings/providers-state.ts";
 import { openDesktop } from "./harness.ts";
 
 const harness: HarnessView = {

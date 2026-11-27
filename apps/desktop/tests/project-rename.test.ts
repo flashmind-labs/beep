@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mergeProjects, projectName, sideProjects } from "../src/project/projects-state.ts";
-import { overviewGroups, searchOverview } from "../src/project/overview-state.ts";
+import { mergeProjects, projectName, sideProjects } from "../src/stores/project/projects-state.ts";
+import { overviewGroups, searchOverview } from "../src/stores/project/overview-state.ts";
 
 test("renamed projects keep identity, pins and checkout associations while labels and searches update", () => {
   const imported = [{ name: "team/old", display_name: "team/new", url: "https://github.com/team/new", machine_id: "build-box", machine_name: "build-box", folder: "/srv/project" }];

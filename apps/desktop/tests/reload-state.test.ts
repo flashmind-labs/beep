@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { Tree } from "../src/agentpane/files-state.ts";
-import { followedAt, folderStamp, hashedStamp, listedSize, nextStamp, splitPath, textStamp } from "../src/agentpane/reload-state.ts";
+import type { Tree } from "../src/stores/agentpane/files-state.ts";
+import { followedAt, folderStamp, hashedStamp, listedSize, nextStamp, splitPath, textStamp } from "../src/stores/agentpane/reload-state.ts";
 
 const entry = (name: string, size: number, folder = false) => ({ name, folder, size, ignored: false, change: null });
 const tree = (folders: Tree["folders"]): Tree => ({ folders, truncated: false });

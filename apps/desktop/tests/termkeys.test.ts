@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { wordKeyBytes } from "../src/terminals/keys-state.ts";
+import { wordKeyBytes } from "../src/stores/terminals/keys-state.ts";
 
 const k = (key: string, m: Partial<Record<"metaKey" | "ctrlKey" | "altKey" | "shiftKey", boolean>> = {}) =>
   wordKeyBytes({ key, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...m });

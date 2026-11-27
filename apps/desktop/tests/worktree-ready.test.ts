@@ -1,8 +1,8 @@
 import { answers } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { followAgent, paneRoot, startWorktrees, worktreesReady } from "../src/agentpane/worktree.ts";
-import type { Tree } from "../src/agentpane/worktree-state.ts";
+import { followAgent, paneRoot, startWorktrees, worktreesReady } from "../src/stores/agentpane/worktree.ts";
+import type { Tree } from "../src/stores/agentpane/worktree-state.ts";
 
 test("initial file reads wait for a removed worktree to resolve to the main checkout", async () => {
   let reply: (trees: Tree[]) => void = () => {};

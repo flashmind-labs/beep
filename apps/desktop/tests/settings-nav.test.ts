@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { FIRST_PAGE, fitPath, navEntries, openSub, pageGroup, parsePath, parseSub, pathKey, recallPath, rememberPath, searchEntries, selectPage, type SettingsPage, type SettingsSub } from "../src/settings/settings-nav.ts";
+import { FIRST_PAGE, fitPath, navEntries, openSub, pageGroup, parsePath, parseSub, pathKey, recallPath, rememberPath, searchEntries, selectPage, type SettingsPage, type SettingsSub } from "../src/stores/settings/settings-nav.ts";
 
 const ALL: SettingsPage[] = ["general", "appearance", "mac", "machines", "agents", "creds", "instr"];
 

@@ -1,17 +1,17 @@
 import { answers, bar, calls } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AG, type AgentPage, type AgentRow } from "../src/agents/agents-state.ts";
-import { setView } from "../src/bar/core.ts";
-import { drawMove } from "../src/agents/move.ts";
-import { moveStore } from "../src/agents/move-store.ts";
-import { drawAgentFrame } from "../src/agents/session.tsx";
-import { forgetAgentFollows } from "../src/agents/session-follow.ts";
-import { imageLines } from "../src/agents/agentlog.ts";
-import { disposeQueue } from "../src/agents/composer-ui.tsx";
+import { AG, type AgentPage, type AgentRow } from "../src/stores/agents/agents-state.ts";
+import { setView } from "../src/stores/bar/core.ts";
+import { drawMove } from "../src/parts/session/move.ts";
+import { moveStore } from "../src/stores/agents/move-store.ts";
+import { drawAgentFrame } from "../src/parts/session/session.tsx";
+import { forgetAgentFollows } from "../src/parts/session/session-follow.ts";
+import { imageLines } from "../src/stores/agents/agentlog.ts";
+import { disposeQueue } from "../src/parts/session/composer-ui.tsx";
 import type { ChatBody } from "../src/ui/turn.ts";
-import { fillLog } from "../src/agents/logwindow.tsx";
-import "../src/bar/bar-app.tsx";
+import { fillLog } from "../src/parts/session/logwindow.tsx";
+import "../src/shell/bar/bar-app.tsx";
 
 Object.assign(globalThis, { getSelection: () => null, getComputedStyle: () => ({ rowGap: "0" }) });
 const settle = () => new Promise<void>(resolve => setImmediate(resolve));

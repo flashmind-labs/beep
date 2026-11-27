@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { draftCwd, draftEsc } from "../src/agents/draft-state.ts";
+import { draftCwd, draftEsc } from "../src/stores/agents/draft-state.ts";
 
 test("a terminal of the empty view starts in the picked worktree, else the checkout", () => {
   assert.equal(draftCwd("/srv/project", "current"), "/srv/project");

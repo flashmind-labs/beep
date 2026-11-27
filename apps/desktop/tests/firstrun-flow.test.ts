@@ -12,7 +12,7 @@ test("first run remembers Start and closes the screen when another machine is li
   let machines = ["local"];
   Object.defineProperty(dom.window, "__TAURI__", { value: { core: { invoke: async (cmd: string) => cmd === "list_machines" ? machines : cmd === "build_capabilities" ? { local_host: true, metrics_recording: true, autostart: true, image_clipboard: true, desktop_control: true } : null, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { act, fireEvent, screen, cleanup, waitFor } = await import("@testing-library/react");
-  const { firstRun } = await import("../src/center/firstrun.tsx");
+  const { firstRun } = await import("../src/screens/center/firstrun.tsx");
   try {
     await act(async () => { await firstRun(); });
     const start = screen.getByRole("button", { name: /^Start/ });
@@ -24,7 +24,7 @@ test("first run remembers Start and closes the screen when another machine is li
     // Linked, with the mesh still opening: the screen never shows.
     dom.window.localStorage.clear();
     machines = [];
-    const store = await import("../src/machines/machine-store.ts");
+    const store = await import("../src/stores/machines/machine-store.ts");
     store.MACHINES.list = null;
     const linked = act(async () => { await firstRun(); });
     await new Promise(done => setTimeout(done, 150));

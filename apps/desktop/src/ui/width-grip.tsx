@@ -1,6 +1,6 @@
 // A resizable column's width: dragged on its grip, moved with the arrow keys
 // there, reset by a double-click, and kept between launches.
-import { readWindowPreference, writeWindowPreference } from "../ui/window-layout.ts";
+import { readWindowPreference, writeWindowPreference } from "./window-layout.ts";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { dragHandle } from "./drag.ts";
 

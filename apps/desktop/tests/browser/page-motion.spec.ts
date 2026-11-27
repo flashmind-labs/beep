@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDesktop, projectName } from "./harness.ts";
-import type { CenterTarget } from "../../src/project/projectwindow.ts";
+import type { CenterTarget } from "../../src/stores/project/projectwindow.ts";
 
 /// Runs `step` and returns where the page animation it started begins: "fade" when it fades in place.
 function motionOf(page: Page, step: CenterTarget | "back"): Promise<string | null> {

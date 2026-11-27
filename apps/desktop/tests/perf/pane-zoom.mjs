@@ -5,10 +5,10 @@ import { buildSync } from "esbuild";
 import { playwright, stubInit } from "./stub.mjs";
 
 const code = buildSync({
-  stdin: { contents: `export { setView } from "./src/bar/core.ts";
-    export { paneFrame, startPane, leavePane } from "./src/agentpane/media.ts";
-    export { showChanges } from "./src/agentpane/changes.ts";
-    export { draw } from "./src/agentpane/media-draw.ts";`, resolveDir: process.cwd() },
+  stdin: { contents: `export { setView } from "./src/stores/bar/core.ts";
+    export { paneFrame, startPane, leavePane } from "./src/parts/session/media.ts";
+    export { showChanges } from "./src/parts/session/changes.ts";
+    export { draw } from "./src/parts/session/media-draw.ts";`, resolveDir: process.cwd() },
   bundle: true, write: false, format: "iife", globalName: "zoomCheck",
 }).outputFiles[0].text;
 const files = Array.from({ length: 100 }, (_, i) => ({

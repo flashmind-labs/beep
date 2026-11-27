@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { splice, readTermMessage, describeMessage, lazyScreen, type Screen } from "../src/terminals/terminal-state.ts";
+import { splice, readTermMessage, describeMessage, lazyScreen, type Screen } from "../src/stores/terminals/terminal-state.ts";
 
 test("output already on the screen is skipped, and a gap is noted", () => {
   // Fresh: everything from the start.

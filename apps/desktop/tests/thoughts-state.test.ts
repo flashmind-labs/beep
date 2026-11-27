@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { groupThoughts, mergedThought } from "../src/agents/thoughts-state.ts";
+import { groupThoughts, mergedThought } from "../src/stores/agents/thoughts-state.ts";
 
 const thought = (text: string, ms: number | null = null, html?: string) => ({ kind: "thought", text, ms, html });
 

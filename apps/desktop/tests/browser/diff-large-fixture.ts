@@ -1,9 +1,9 @@
 // A synthetic branch diff shaped like a large real one: about 600 files and
 // 40k changed lines, most files small, a few past the fold limit. Paths and
 // text are made up.
-import { diffView } from "../../src/review/diff.tsx";
-import { windowDiffOwner } from "../../src/review/diff-owner.ts";
-import type { DiffFile, DiffLine, DiffView } from "../../src/review/diff-state.ts";
+import { diffView } from "../../src/parts/review/diff.tsx";
+import { windowDiffOwner } from "../../src/parts/review/diff-owner.ts";
+import type { DiffFile, DiffLine, DiffView } from "../../src/stores/review/diff-state.ts";
 
 function random(seed: number) {
   let state = seed >>> 0;

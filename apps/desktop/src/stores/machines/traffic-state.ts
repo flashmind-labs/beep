@@ -1,0 +1,58 @@
+import { bytes } from "../../ui/format.ts";
+// A machine's traffic (ListMachineTraffic): lifetime bytes by key, such as
+// `alpn.beep-sync/3.tx`, read into what the Machines screens show.
+
+export interface MachineTraffic {
+  id: string;
+  counters: { key: string; bytes: number }[];
+}
+
+interface TrafficRow {
+  label: string;
+  sent: number;
+  received: number;
+}
+
+/// iroh-blobs' ALPN carries sync's file contents along with sent files.
+const LABELS: Record<string, string> = {
+  "beep-node": "Link",
+  "beep-sync": "File sync",
+  "/iroh-bytes/4": "Transfers",
+};
+
+/// One row per protocol, whatever its version (`beep-node/1` and `/2` share a
+/// row), the ones without a name by their ALPN last.
+export function trafficRows(t: MachineTraffic | undefined): TrafficRow[] {
+  const by = new Map<string, TrafficRow>();
+
+  for (const { key, bytes: n } of t?.counters ?? []) {
+    const m = /^alpn\.(.+)\.(tx|rx)$/.exec(key);
+    if (!m) continue;
+    const name = m[1].replace(/^(beep-[a-z]+)\/\d+$/, "$1");
+    let row = by.get(name);
+    if (!row) by.set(name, row = { label: LABELS[name] ?? name, sent: 0, received: 0 });
+    if (m[2] === "tx") row.sent += n; else row.received += n;
+  }
+
+  const order = Object.values(LABELS);
+  const rank = (r: TrafficRow) => (order.indexOf(r.label) + order.length + 1) % (order.length + 1);
+  return [...by.values()].sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label));
+}
+
+/// "1.2 GB sent, 300 MB received" through a relay; null when none was.
+export function relayLine(t: MachineTraffic | undefined) {
+  const of = (key: string) => t?.counters.find(c => c.key === key)?.bytes ?? 0;
+  const sent = of("endpoint.relay.tx"), received = of("endpoint.relay.rx");
+  return sent || received ? `${bytes(sent)} sent, ${bytes(received)} received` : null;
+}
+
+/// The Machines table's cell: sent / received, with each protocol's bytes for
+/// its tooltip. Null until the machine has reported.
+export function trafficSummary(rows: TrafficRow[]) {
+  if (!rows.length) return null;
+  const sum = (of: (r: TrafficRow) => number) => rows.reduce((n, r) => n + of(r), 0);
+  return {
+    each: rows.map(r => `${r.label} ${bytes(r.sent + r.received)}`).join(" · "),
+    both: `${bytes(sum(r => r.sent))} / ${bytes(sum(r => r.received))}`,
+  };
+}

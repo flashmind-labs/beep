@@ -11,20 +11,20 @@ const responses = {
 // `openScreen` only signals: the bar's bundle must carry the follower that opens what it asks for.
 test("the bar bundle follows the screen requests its views make", async () => {
   const built = await build({
-    entryPoints: ["src/bar/app.ts"], bundle: true, write: false, metafile: true, outdir: "out", splitting: true,
+    entryPoints: ["src/shell/bar/app.ts"], bundle: true, write: false, metafile: true, outdir: "out", splitting: true,
     format: "esm", loader: { ".svg": "text" }, logLevel: "silent",
   });
   const inputs = Object.keys(built.metafile.inputs);
 
-  expect(inputs).toContain("src/center/nav.ts");
-  expect(inputs).toContain("src/center/screens.ts");
-  expect(inputs).not.toContain("src/center/center.ts");
+  expect(inputs).toContain("src/parts/center/nav.ts");
+  expect(inputs).toContain("src/shell/center/screens.ts");
+  expect(inputs).not.toContain("src/shell/center/center.ts");
 });
 
 test("a settings request made in the bar opens the sheet, and a second one moves it to its section", async ({ page }) => {
   // The bar's own bundle, with `openScreen` of the same module instance handed to the page.
   const built = await build({
-    stdin: { contents: 'import "./src/bar/app.ts"; import { openScreen } from "./src/center/nav.ts"; Object.assign(window, { openScreen });', resolveDir: ".", loader: "ts" },
+    stdin: { contents: 'import "./src/shell/bar/app.ts"; import { openScreen } from "./src/parts/center/nav.ts"; Object.assign(window, { openScreen });', resolveDir: ".", loader: "ts" },
     bundle: true, write: false, format: "esm", loader: { ".svg": "text" }, logLevel: "silent",
   });
   const script = built.outputFiles?.[0]?.text ?? "";

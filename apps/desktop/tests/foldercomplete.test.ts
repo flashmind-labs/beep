@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { crumbs, isOpen, matching, menuKey, menuOf, splitTyped, suggest } from "../src/addproject/foldercomplete.ts";
+import { crumbs, isOpen, matching, menuKey, menuOf, splitTyped, suggest } from "../src/stores/addproject/foldercomplete.ts";
 
 test("crumbs walk down from Home or the root", () => {
   assert.deepEqual(crumbs("/home/me/code/app", "/home/me"), [

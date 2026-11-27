@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { arrange, openedIn, pickedInOrder, planStarts, startLabel } from "../src/project/openlist-state.ts";
+import { arrange, openedIn, pickedInOrder, planStarts, startLabel } from "../src/stores/project/openlist-state.ts";
 
 // Wednesday 2026-11-04, 10:00 local.
 const now = new Date(2026, 10, 4, 10).getTime();

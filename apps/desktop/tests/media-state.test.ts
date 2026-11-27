@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_LAYOUT, KEPT_TABS, SIDE_BY_SIDE_MIN, ZOOM_MAX, MEDIA_EXTENSIONS, mediaKind, baseName, isCloseKey, leavesTerminal, moveTab, pinchStep, readLayout, resolvePath, splitTabs, tabDock, withFolded, zoomAt, type Touches } from "../src/agentpane/media-state.ts";
+import { DEFAULT_LAYOUT, KEPT_TABS, SIDE_BY_SIDE_MIN, ZOOM_MAX, MEDIA_EXTENSIONS, mediaKind, baseName, isCloseKey, leavesTerminal, moveTab, pinchStep, readLayout, resolvePath, splitTabs, tabDock, withFolded, zoomAt, type Touches } from "../src/stores/agentpane/media-state.ts";
 
 test("a relative path is the session folder's", () => {
   assert.equal(resolvePath("/srv/project", "out/a.glb"), "/srv/project/out/a.glb");

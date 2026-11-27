@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { START, answerLabel, canSend, debugPrompt, issueHint, next, sizeLabel, type Draft, type ReportState } from "../src/report/report-state.ts";
+import { START, answerLabel, canSend, debugPrompt, issueHint, next, sizeLabel, type Draft, type ReportState } from "../src/stores/report/report-state.ts";
 
 test("the debug prompt carries what the user saw, when they said", () => {
   const typed = debugPrompt("  The sync stalls after a move ");

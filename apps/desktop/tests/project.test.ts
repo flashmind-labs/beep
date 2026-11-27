@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { newChatTarget } from "../src/project/agent.ts";
+import { newChatTarget } from "../src/stores/project/agent.ts";
 
 test("a new agent starts in the project on screen or of the shown session, else the start form", () => {
   const projects = [

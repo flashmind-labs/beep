@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { buildSync } from "esbuild";
 import { playwright } from "./stub.mjs";
 
-const code = buildSync({ entryPoints: [new URL("../../src/agents/logwindow.tsx", import.meta.url).pathname], bundle: true, write: false, format: "iife", globalName: "logWindow" }).outputFiles[0].text;
+const code = buildSync({ entryPoints: [new URL("../../src/parts/session/logwindow.tsx", import.meta.url).pathname], bundle: true, write: false, format: "iife", globalName: "logWindow" }).outputFiles[0].text;
 const browser = await playwright().chromium.launch({ executablePath: process.env.CHROMIUM_BIN || undefined });
 try {
   const page = await browser.newPage();

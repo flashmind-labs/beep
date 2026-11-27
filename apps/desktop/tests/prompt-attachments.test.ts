@@ -3,8 +3,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { attachmentPictures, promptAttachments } from "../src/agents/promptparts-state.ts";
-import { AgentPrompt } from "../src/agents/reply-view.tsx";
+import { attachmentPictures, promptAttachments } from "../src/stores/agents/promptparts-state.ts";
+import { AgentPrompt } from "../src/parts/session/reply-view.tsx";
 
 const shown = (html: string, files: string[]) => renderToStaticMarkup(createElement(AgentPrompt, { prompt: { kind: "prompt", row: "1", html, files, pictures: "" } }));
 

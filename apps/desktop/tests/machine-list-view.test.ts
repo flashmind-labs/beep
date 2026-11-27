@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { createElement } from "react";
-import type { Machine } from "../src/machines/machines.tsx";
+import type { Machine } from "../src/screens/machines/machines.tsx";
 
 test("machine list retains focused rows through live updates and routes actions", async () => {
   const dom = new JSDOM("<!doctype html><div id='bar' data-mode='window'></div>", { url: "https://app.test" });
@@ -13,7 +13,7 @@ test("machine list retains focused rows through live updates and routes actions"
   }
   Object.defineProperty(dom.window, "__TAURI__", { value: { core: { invoke: async () => null, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { render, fireEvent, cleanup } = await import("@testing-library/react");
-  const { MachineList } = await import("../src/machines/list-view.tsx");
+  const { MachineList } = await import("../src/screens/machines/list-view.tsx");
   let selected = "", added = 0, linked = 0, remove = "", retried = "";
   const noOp = () => {};
   const machine: Machine = { id: "one", name: "build-box", online: true, can_host: true, seen_at: 0, version: "1.0", env: null };

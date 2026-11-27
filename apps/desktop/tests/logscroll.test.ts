@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { followsAfterScroll, keptScrollTop, markPlace, logScroll, pinWait, returnScroll } from "../src/agents/logscroll.ts";
+import { followsAfterScroll, keptScrollTop, markPlace, logScroll, pinWait, returnScroll } from "../src/stores/agents/logscroll.ts";
 
 test("scrolling up from the end lets go at once, inside the slack too", () => {
   // The regression (#369): a move up of a few pixels still counted as at

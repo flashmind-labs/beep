@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { go, goTo } from "../src/center/nav.ts";
-import type { CenterView } from "../src/center/state.ts";
-import { mainTarget } from "../src/project/projectwindow.ts";
-import type { BackTo } from "../src/bar/core.ts";
+import type { go, goTo } from "../src/parts/center/nav.ts";
+import type { CenterView } from "../src/stores/center/state.ts";
+import { mainTarget } from "../src/stores/project/projectwindow.ts";
+import type { BackTo } from "../src/stores/bar/core.ts";
 
 // The compiler checks these contracts without loading the window's DOM modules.
 export function navigationContracts(navigate: typeof go, open: typeof goTo) {

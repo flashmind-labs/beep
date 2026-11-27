@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { clockLine, clockTitle } from "../src/machines/clock-state.ts";
+import { clockLine, clockTitle } from "../src/stores/machines/clock-state.ts";
 
 test("clockLine names the size and the side", () => {
   assert.equal(clockLine(-120_000), "Clock is 2 min behind");

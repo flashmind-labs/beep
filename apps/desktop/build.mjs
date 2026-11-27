@@ -30,8 +30,8 @@ const options = {
   absWorkingDir: import.meta.dirname,
   // One bundle per window, named for the HTML page that loads it.
   entryPoints: {
-    app: "src/bar/app.ts",
-    center: "src/center/center.ts",
+    app: "src/shell/bar/app.ts",
+    center: "src/shell/center/center.ts",
   },
   outdir: "dist",
   // Painted scenes kept as SVG files are bundled as their text.

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AgentFeed, BACKGROUND_FOLLOWS, IDLE_FOLLOW_MS } from "../src/agents/agentfeed-state.ts";
+import { AgentFeed, BACKGROUND_FOLLOWS, IDLE_FOLLOW_MS } from "../src/stores/agents/agentfeed-state.ts";
 
 function setup() {
   let now = 0;

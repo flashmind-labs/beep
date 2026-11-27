@@ -1,7 +1,7 @@
 import { answers, calls } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { placeOf } from "../src/agents/place.ts";
+import { placeOf } from "../src/stores/agents/place.ts";
 
 const settled = () => new Promise<void>(resolve => setImmediate(resolve));
 

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EMPTY, NEW_MODEL, flshChanged, flshDraft, flshInput, flshProblem, toggleQuantization, type FlshSettings } from "../src/settings/flsh-state.ts";
+import { EMPTY, NEW_MODEL, flshChanged, flshDraft, flshInput, flshProblem, toggleQuantization, type FlshSettings } from "../src/stores/settings/flsh-state.ts";
 
 const saved: FlshSettings = {
   zdr: true,

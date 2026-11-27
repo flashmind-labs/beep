@@ -6,7 +6,7 @@ const { createElement } = await import("react");
 const { flushSync } = await import("react-dom");
 const { createRoot } = await import("react-dom/client");
 const { fireEvent } = await import("@testing-library/react");
-const { SessionTitle } = await import("../src/agents/title-view.tsx");
+const { SessionTitle } = await import("../src/parts/session/title-view.tsx");
 const settle = () => new Promise<void>(resolve => setImmediate(resolve));
 
 test("a changed session title does not replace the draft in its editor", async () => {

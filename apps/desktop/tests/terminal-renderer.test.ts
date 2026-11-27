@@ -70,12 +70,12 @@ Object.assign(globalThis, {
 WebAssembly.compile = async () => ({}) as WebAssembly.Module;
 
 const stubs = new Map([
-  ["./ghostty-render.ts", ["GridRenderer"]],
-  ["./ghostty.ts", ["Terminal", "RenderState", "loadGhostty", "DESKTOP_LIMITS", "PHONE_LIMITS"]],
-  ["./ghostty-input.ts", ["TerminalInput"]],
+  ["../../stores/terminals/ghostty-render.ts", ["GridRenderer"]],
+  ["../../stores/terminals/ghostty.ts", ["Terminal", "RenderState", "loadGhostty", "DESKTOP_LIMITS", "PHONE_LIMITS"]],
+  ["../../stores/terminals/ghostty-input.ts", ["TerminalInput"]],
   ["./touchbar.ts", []],
-  ["../ui/tauri.ts", []],
-  ["../ui/skin.ts", ["skinChanged"]],
+  ["../../ui/tauri.ts", []],
+  ["../../ui/skin.ts", ["skinChanged"]],
 ]);
 const hooks = registerHooks({
   resolve(specifier, context, next) {
@@ -92,7 +92,7 @@ const hooks = registerHooks({
     return { format: "module", shortCircuit: true, source };
   },
 });
-const { makeScreen } = await import("../src/terminals/termview.ts");
+const { makeScreen } = await import("../src/parts/terminals/termview.ts");
 hooks.deregister();
 
 /// A screen whose engine has loaded.

@@ -17,7 +17,7 @@ test("an unpaired phone mounts pairing before window startup and closes after pa
     return null;
   }, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { act, fireEvent, screen, cleanup } = await import("@testing-library/react");
-  const { pairing } = await import("../src/center/pairing.tsx");
+  const { pairing } = await import("../src/screens/center/pairing.tsx");
   try {
     let finished: Promise<void> = Promise.resolve();
     await act(async () => { finished = pairing(); await Promise.resolve(); });

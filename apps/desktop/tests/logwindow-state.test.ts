@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { guess, shiftAbove, spacer, windowOf } from "../src/agents/logwindow-state.ts";
+import { guess, shiftAbove, spacer, windowOf } from "../src/stores/agents/logwindow-state.ts";
 
 test("a turn never measured is as tall as the mean of those measured and shown", () => {
   assert.equal(guess([100, 200, 0], 80), 150);

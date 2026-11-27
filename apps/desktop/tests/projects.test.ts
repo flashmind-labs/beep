@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { ProjectRow, SessionRow } from "../src/project/projects-state.ts";
-import { plainPath } from "../src/project/filesync.ts";
-import { START, folderHelp, folderUnder, goesInText, hasCustomFolder, projectUnder, next, looksLikeRepo, progressText, doneText, cleanError, typedFolder } from "../src/addproject/importproject-state.ts";
-import { foundFor, mergeProjects, projectRunning, projectPastSessions, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy, forgeLinks } from "../src/project/projects-state.ts";
-import { overviewGroups, overviewSub } from "../src/project/overview-state.ts";
-import type { RunningAgent } from "../src/agents/running-state.ts";
+import type { ProjectRow, SessionRow } from "../src/stores/project/projects-state.ts";
+import { plainPath } from "../src/parts/project/filesync.ts";
+import { START, folderHelp, folderUnder, goesInText, hasCustomFolder, projectUnder, next, looksLikeRepo, progressText, doneText, cleanError, typedFolder } from "../src/stores/addproject/importproject-state.ts";
+import { foundFor, mergeProjects, projectRunning, projectPastSessions, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy, forgeLinks } from "../src/stores/project/projects-state.ts";
+import { overviewGroups, overviewSub } from "../src/stores/project/overview-state.ts";
+import type { RunningAgent } from "../src/stores/agents/running-state.ts";
 
 const imported = [
   { name: "org/app", url: "https://github.com/org/app", machine_id: "m1", machine_name: "build-box", folder: "/srv/work/projects/org/app" },

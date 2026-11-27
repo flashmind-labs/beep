@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { addHosts, type BarTarget, barPlace, blockedHosts, barPrompt, barReadiness, nextBarMachine, sessionIn, targetCheckout, targetFolders, targetPlan, forgeOf, reviewPrompt, fixedTitle, reviewTitled, taskSession, taskTitle } from "../src/project/projectbar.ts";
+import { addHosts, type BarTarget, barPlace, blockedHosts, barPrompt, barReadiness, nextBarMachine, sessionIn, targetCheckout, targetFolders, targetPlan, forgeOf, reviewPrompt, fixedTitle, reviewTitled, taskSession, taskTitle } from "../src/stores/project/projectbar.ts";
 
 const HOSTS = [
   { machine_id: "m", machine_name: "mac-box", agents: ["claude"] },

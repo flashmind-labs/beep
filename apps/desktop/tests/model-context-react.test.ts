@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { createElement } from "react";
-import type { AgentModels } from "../src/agents/agentmodels.ts";
-import { modelContextPanel } from "../src/settings/model-context.ts";
+import type { AgentModels } from "../src/stores/agents/agentmodels.ts";
+import { modelContextPanel } from "../src/stores/settings/model-context.ts";
 
 test("model context keeps focus and drafts through updates and saves overrides", async () => {
   const dom = new JSDOM("<!doctype html><body></body>", { url: "https://app.test" });
@@ -24,7 +24,7 @@ test("model context keeps focus and drafts through updates and saves overrides",
   }, Channel: class {} }, event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) } } });
   const { invoke } = await import("../src/ui/tauri.ts");
   const { render, fireEvent, waitFor, cleanup } = await import("@testing-library/react");
-  const { ModelContextView } = await import("../src/settings/model-context-view.tsx");
+  const { ModelContextView } = await import("../src/screens/settings/model-context-view.tsx");
   const models = (machineId: string, agent: string) => invoke<AgentModels | null>("agent_models", { machineId, agent });
   const panel = modelContextPanel(invoke, models);
   try {

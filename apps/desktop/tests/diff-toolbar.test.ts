@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { DiffToolbar } from "../src/review/diff-toolbar.tsx";
+import { DiffToolbar } from "../src/parts/review/diff-toolbar.tsx";
 
 test("diff toolbar preserves review controls and sends the current draft", async () => {
   const dom = new JSDOM("<!doctype html><div id='root'></div>", { url: "https://app.test" });

@@ -18,7 +18,7 @@
 // review the changed files under `ui-baseline.spec.ts-snapshots/` with
 // `git diff`, and commit them with the change.
 
-import { EMPTY } from "../../src/settings/flsh-state.ts";
+import { EMPTY } from "../../src/stores/settings/flsh-state.ts";
 import { expect, test, type Page } from "@playwright/test";
 import { openDesktop, openStartForm, projectName } from "./harness.ts";
 import { audit, auditing } from "./ui-audit.ts";

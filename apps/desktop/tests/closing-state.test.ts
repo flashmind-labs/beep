@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Closings, MARK_MS } from "../src/agents/closing-state.ts";
+import { Closings, MARK_MS } from "../src/stores/agents/closing-state.ts";
 
 const s = { machine_id: "build-box", id: "a3f9c1" };
 

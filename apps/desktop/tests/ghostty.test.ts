@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import zlib from "node:zlib";
-import { Attr, Ghostty, loadGhostty, RenderState, RowCells, Terminal, type TerminalEffects } from "../src/terminals/ghostty.ts";
+import { Attr, Ghostty, loadGhostty, RenderState, RowCells, Terminal, type TerminalEffects } from "../src/stores/terminals/ghostty.ts";
 
 const WASM = new URL("../ghostty/ghostty-vt.wasm", import.meta.url);
 const SUM = new URL("../ghostty/ghostty-vt.wasm.sha256", import.meta.url);

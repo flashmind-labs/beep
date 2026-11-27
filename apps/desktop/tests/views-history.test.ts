@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { JSDOM } from "jsdom";
-import type { CenterView, ViewArg, ViewName } from "../src/center/state.ts";
-import { pa } from "../src/project/barstate.ts";
+import type { CenterView, ViewArg, ViewName } from "../src/stores/center/state.ts";
+import { pa } from "../src/stores/project/barstate.ts";
 
 // Load the real navigation with the window's DOM and services replaced.
 const dom = new JSDOM("<!doctype html><body><div class='cwin'></div></body>");
@@ -27,27 +27,27 @@ Object.assign(globalThis, {
 });
 const page = (exports: string) => `const v = globalThis.navigationTest.view; ${exports}`;
 const stubs = new Map(Object.entries({
-  "center/state.ts": "export const { state } = globalThis.navigationTest; export const $ = selector => document.querySelector(selector);",
+  "stores/center/state.ts": "export const { state } = globalThis.navigationTest; export const $ = selector => document.querySelector(selector);",
   "ui/tauri.ts": "export const invoke = async () => {}; export const recordTiming = () => {}; export const buildCapabilities = async () => ({ metrics_recording: false });",
   "ui/mesh-events.ts": "export const refreshTopicSubscriptions = () => {};",
   "ui/active.ts": "export const SLOW_MS = 2000; export const shownChanged = () => {}; export const pageShown = () => true;",
-  "center/sidebar.tsx": "export const drawSide = () => {};",
-  "project/addflow.ts": "export const openProjects = () => {};",
-  "center/screens.ts": "",
-  "project/projectops.ts": "export const projectWindowProps = () => ({ clicks: {}, menu: {} });",
-  "project/projectrows.ts": "export const projectRows = () => [];",
-  "project/projects-state.ts": "export const projectName = project => project.display_name ?? project.name;",
-  "project/agent.ts": "export const shortName = name => name;",
-  "settings/sheet.ts": page("export const openSettings = () => {}; export const instructionsView = v('instructions'); export const providersView = v('providers');"),
-  "center/pane.tsx": page("export const paneView = v('pane');"),
-  "center/home.tsx": page("export const homeView = v('home');"),
-  "project/page.tsx": page("export const projectsView = v('projects'); export const ProjectsPage = () => null;"),
-  "terminals/view.tsx": page("export const terminalsView = v('terminals'); export const TerminalsPage = () => null;"),
-  "bar/core.ts": "export const S = { view: null };",
-  "agents/sessions.ts": "export const sessions = []; export const loadSessions = async () => sessions; export const ensureSessions = loadSessions; export const sessionsRead = new Set();",
-  "center/mobile.tsx": "export const syncMobile = () => {}; export const canGoBack = () => false;",
+  "shell/center/sidebar.tsx": "export const drawSide = () => {};",
+  "parts/project/addflow.ts": "export const openProjects = () => {};",
+  "shell/center/screens.ts": "",
+  "parts/project/projectops.ts": "export const projectWindowProps = () => ({ clicks: {}, menu: {} });",
+  "stores/project/projectrows.ts": "export const projectRows = () => [];",
+  "stores/project/projects-state.ts": "export const projectName = project => project.display_name ?? project.name;",
+  "stores/project/agent.ts": "export const shortName = name => name;",
+  "shell/settings/sheet.ts": page("export const openSettings = () => {}; export const instructionsView = v('instructions'); export const providersView = v('providers');"),
+  "shell/center/pane.tsx": page("export const paneView = v('pane');"),
+  "screens/center/home.tsx": page("export const homeView = v('home');"),
+  "screens/project/page.tsx": page("export const projectsView = v('projects'); export const ProjectsPage = () => null;"),
+  "screens/terminals/view.tsx": page("export const terminalsView = v('terminals'); export const TerminalsPage = () => null;"),
+  "stores/bar/core.ts": "export const S = { view: null };",
+  "stores/agents/sessions.ts": "export const sessions = []; export const loadSessions = async () => sessions; export const ensureSessions = loadSessions; export const sessionsRead = new Set();",
+  "shell/center/mobile.tsx": "export const syncMobile = () => {}; export const canGoBack = () => false;",
   // The window's tree without the router.
-  "center/window-root.tsx": `import { createElement } from "react"; import { flushSync } from "react-dom"; import { createRoot } from "react-dom/client";
+  "parts/center/window-root.tsx": `import { createElement } from "react"; import { flushSync } from "react-dom"; import { createRoot } from "react-dom/client";
     import { CenterWindow, shell } from "./window-shell.tsx";
     const root = createRoot(document.querySelector(".cwin"));
     flushSync(() => root.render(createElement(CenterWindow)));
@@ -59,10 +59,10 @@ const hooks = registerHooks({
     return source === undefined ? next(url, context) : { format: "module", source, shortCircuit: true };
   },
 });
-await import("../src/center/views.tsx");
-const { go, goHistory } = await import("../src/center/nav.ts");
+await import("../src/shell/center/views.tsx");
+const { go, goHistory } = await import("../src/parts/center/nav.ts");
 // The router loads the project page on its first visit.
-await import("../src/project/page.tsx");
+await import("../src/screens/project/page.tsx");
 hooks.deregister();
 
 function projectMounted(page: CenterView<"projects">): Promise<void> {

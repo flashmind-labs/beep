@@ -3,9 +3,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { act } from "react";
-import type { AgentModels } from "../src/agents/agentmodels.ts";
-import { drawPicker, type PickerOpts } from "../src/agents/agentpicker.tsx";
-import { modelsOn, preloadModels, takeModels } from "../src/agents/model-store.ts";
+import type { AgentModels } from "../src/stores/agents/agentmodels.ts";
+import { drawPicker, type PickerOpts } from "../src/parts/session/agentpicker.tsx";
+import { modelsOn, preloadModels, takeModels } from "../src/stores/agents/model-store.ts";
 
 const list: AgentModels = { pick: "listed", current: "model-a", models: [{ id: "model-a", name: "Model A", description: null, provider: null }] };
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));

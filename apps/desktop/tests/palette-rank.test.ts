@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { rank, type Entry, type HitKind, type PaletteIndex } from "../src/center/palette-rank.ts";
+import { rank, type Entry, type HitKind, type PaletteIndex } from "../src/shell/center/palette-rank.ts";
 
 function entry(kind: HitKind, title: string, id = title, detail = ""): Entry {
   return { kind, id, title, detail, keys: [title.toLowerCase()] };

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   type DeviceInput, type DeviceMachine, buttonsFor, defaultPick, fitRect, rotatedSize, keyInput, maxSide, missingLine, pickValue, queueInput,
   keptPick, readAnnounced, readKeptDevice, readMachines, readPickValue, readPlatforms, readScreenMessage, touchPoint, commandName, deviceCall, followedDevice, targetPick,
-} from "../src/agentpane/device-state.ts";
+} from "../src/stores/agentpane/device-state.ts";
 
 const device = (id: string, state: "Off" | "Booting" | "On" = "Off") => ({ id, name: id, platform: "Android" as const, state, os: null, phone: false });
 const machines: DeviceMachine[] = [

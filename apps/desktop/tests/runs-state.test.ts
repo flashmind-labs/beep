@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   Bounded, DetailCache, POLL_MS, ahead, detailDue, detailKey, type ListedRun,
-} from "../src/project/runs-state.ts";
+} from "../src/stores/project/runs-state.ts";
 
 const NOW = 1_800_000_000_000;
 const run = (id: number, state: string, o: Partial<ListedRun> = {}): ListedRun => ({ id, host: "github.com", state, finished_at: state === "running" ? null : NOW - 1000, ...o });

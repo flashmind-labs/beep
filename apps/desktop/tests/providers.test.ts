@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { compactKind, compactOf, compactProblem, draftChanged, draftOf, envProblem, hasUpdate, joinArgs, settingsInput, splitArgs, toggledInput, updatable, versionLine, type HarnessView, type HarnessesView } from "../src/settings/providers-state.ts";
+import { compactKind, compactOf, compactProblem, draftChanged, draftOf, envProblem, hasUpdate, joinArgs, settingsInput, splitArgs, toggledInput, updatable, versionLine, type HarnessView, type HarnessesView } from "../src/stores/settings/providers-state.ts";
 import { isNewer } from "../src/ui/format.ts";
 
 const settings = { enabled: true, program: "", home: "", args: [], env: [] };

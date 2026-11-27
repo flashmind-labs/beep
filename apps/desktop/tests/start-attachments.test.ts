@@ -6,8 +6,8 @@ import { startDom } from "./start-react-env.ts";
 test("both start layouts accept file drops and protect pending files while starting", async () => {
   const env = startDom();
   try {
-    const { makeStartComposer } = await import("../src/agents/start-composer.tsx");
-    const { startAttachments } = await import("../src/agents/start-attachments.tsx");
+    const { makeStartComposer } = await import("../src/parts/session/start-composer.tsx");
+    const { startAttachments } = await import("../src/parts/session/start-attachments.tsx");
     for (const presentation of ["compact", "centered"] as const) {
       const c = makeStartComposer({ place: () => null, presentation, actions: { submit() {}, harness() {}, files: files => attachments.take(files) } }); env.dom.window.document.body.append(c.form);
       const errors: string[] = [];

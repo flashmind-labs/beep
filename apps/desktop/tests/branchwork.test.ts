@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { defaultPlaces, placeChoices, worktreesToAsk, outsideThreads } from "../src/review/branchwork.ts";
+import { defaultPlaces, placeChoices, worktreesToAsk, outsideThreads } from "../src/stores/review/branchwork.ts";
 
 const preview = {
   project: "tools-org/uploader",

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { OverviewCardView, overviewCardModel } from "../src/project/overview-card.tsx";
+import { OverviewCardView, overviewCardModel } from "../src/screens/project/overview-card.tsx";
 
 test("pin and activity updates are shown on the corresponding project cards", () => {
   const host = document.createElement("div"); document.body.append(host);
