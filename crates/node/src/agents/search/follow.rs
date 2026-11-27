@@ -283,7 +283,10 @@ async fn read_page(
     session: &SessionId,
     before: Option<u64>,
 ) -> anyhow::Result<(Vec<String>, Page)> {
-    let Some((entries, earlier)) = agents.read_transcript(session, PAGE, before, false).await?
+    let Some((entries, earlier)) = agents
+        .transcripts
+        .read_transcript(session, PAGE, before, false)
+        .await?
     else {
         anyhow::bail!("the session is gone");
     };

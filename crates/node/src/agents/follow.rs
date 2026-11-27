@@ -960,6 +960,7 @@ async fn snapshot(
     // Source readers already bound their retained transcript and memoize disk parsing.
     // Read enough to validate the cached window, including mutable tools before its tail.
     let (entries, earlier) = agents
+        .transcripts
         .transcript_window(
             &request.session,
             retained,

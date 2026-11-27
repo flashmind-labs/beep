@@ -2,9 +2,10 @@
 
 use super::{
     Agents, AlertHub, claude, harnesses,
-    limits::{MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP},
+    limits::{MAX_IMAGE, PLAN_EVERY, PLAN_REFRESH_GAP},
     media_file, reach,
     spend::Reports,
+    transcripts::Transcripts,
     work_folder, worktrees,
 };
 use crate::{custom_agents, files::transfer::Transfers};
@@ -47,7 +48,7 @@ pub(crate) async fn serve_transcripts(
             && session.as_ref().len() <= 512
             && (1..=50).contains(&last) =>
         {
-            agents.transcript_reply(&session, last, false, before).await
+            transcript_reply(&agents.transcripts, &session, last, false, before).await
         }
         _ => SessionsReply::Error {
             message: "Only bounded transcript reads are accepted.".into(),
@@ -56,46 +57,31 @@ pub(crate) async fn serve_transcripts(
     tx.send(&reply).await
 }
 
-impl Agents {
-    /// The answer to a transcript read: the last `last` entries of a
-    /// session this node runs, or else of a Claude Code session started
-    /// outside Beep, read from its file.
-    pub(crate) async fn transcript_reply(
-        &self,
-        session: &SessionId,
-        last: u32,
-        thoughts: bool,
-        before: Option<u64>,
-    ) -> SessionsReply {
-        let read = self.read_transcript(session, last, before, true).await;
+/// The answer to a transcript read: the last `last` entries of a session
+/// this node runs, or else of a Claude Code session started outside Beep,
+/// read from its file.
+pub(crate) async fn transcript_reply(
+    transcripts: &Transcripts,
+    session: &SessionId,
+    last: u32,
+    thoughts: bool,
+    before: Option<u64>,
+) -> SessionsReply {
+    let read = transcripts
+        .read_transcript(session, last, before, true)
+        .await;
 
-        match read {
-            Ok(Some((entries, earlier))) => SessionsReply::Transcript {
-                entries: shown_entries(entries, thoughts),
-                earlier: u32::try_from(earlier).unwrap_or(u32::MAX),
-            },
-            Ok(None) => SessionsReply::Error {
-                message: format!("there is no session {session}"),
-            },
-            Err(e) => SessionsReply::Error {
-                message: format!("could not read session {session}: {e:#}"),
-            },
-        }
-    }
-
-    /// The last `last` entries of a session before entry `before`, with how
-    /// many come earlier: `None` for a session this node does not have.
-    /// Search indexing reads without keeping the prompts' pictures.
-    pub(crate) async fn read_transcript(
-        &self,
-        session: &SessionId,
-        last: u32,
-        before: Option<u64>,
-        keep_pictures: bool,
-    ) -> anyhow::Result<Option<(Vec<agent::Entry>, u64)>> {
-        let last = usize::try_from(last.min(MAX_TRANSCRIPT)).unwrap_or(usize::MAX);
-        self.transcript_window(session, last, before, None, keep_pictures)
-            .await
+    match read {
+        Ok(Some((entries, earlier))) => SessionsReply::Transcript {
+            entries: shown_entries(entries, thoughts),
+            earlier: u32::try_from(earlier).unwrap_or(u32::MAX),
+        },
+        Ok(None) => SessionsReply::Error {
+            message: format!("there is no session {session}"),
+        },
+        Err(e) => SessionsReply::Error {
+            message: format!("could not read session {session}: {e:#}"),
+        },
     }
 }
 
@@ -191,11 +177,7 @@ pub async fn serve_sessions(
             last,
             thoughts,
             before,
-        } => {
-            agents
-                .transcript_reply(&session, last, thoughts, before)
-                .await
-        }
+        } => transcript_reply(&agents.transcripts, &session, last, thoughts, before).await,
         SessionsRequest::External {
             agent,
             limit,

@@ -123,9 +123,14 @@ async fn a_transcript_read_gives_thoughts_only_to_a_server_that_asks() {
     };
     assert_eq!(
         kinds(
-            agents
-                .transcript_reply(&SessionId::from(CLAUDE_ID), 10, true, None)
-                .await
+            transcript_reply(
+                &agents.transcripts,
+                &SessionId::from(CLAUDE_ID),
+                10,
+                true,
+                None
+            )
+            .await
         ),
         [
             (agent::EntryKind::User, "is 391 prime?".into(), None),
@@ -135,9 +140,14 @@ async fn a_transcript_read_gives_thoughts_only_to_a_server_that_asks() {
     );
     assert_eq!(
         kinds(
-            agents
-                .transcript_reply(&SessionId::from(CLAUDE_ID), 10, false, None)
-                .await
+            transcript_reply(
+                &agents.transcripts,
+                &SessionId::from(CLAUDE_ID),
+                10,
+                false,
+                None
+            )
+            .await
         )
         .len(),
         2
@@ -172,7 +182,7 @@ async fn a_transcript_read_gives_thoughts_only_to_a_server_that_asks() {
     .await
     .expect("the turn ends")
     .expect("the session is still there");
-    let read = kinds(agents.transcript_reply(&session.id, 10, true, None).await);
+    let read = kinds(transcript_reply(&agents.transcripts, &session.id, 10, true, None).await);
     let shown: Vec<(agent::EntryKind, &str)> = read
         .iter()
         .map(|(kind, text, _)| (*kind, text.as_str()))
@@ -189,13 +199,79 @@ async fn a_transcript_read_gives_thoughts_only_to_a_server_that_asks() {
         ]
     );
     assert!(read[1].2.is_some(), "a live thought says how long it took");
-    let without = kinds(agents.transcript_reply(&session.id, 10, false, None).await);
+    let without = kinds(transcript_reply(&agents.transcripts, &session.id, 10, false, None).await);
     assert!(
         without
             .iter()
             .all(|(kind, _, _)| *kind != agent::EntryKind::Thought)
     );
     session.close().await;
+}
+
+/// `Transcripts` built from the node's own `Sessions`, `Listings` and
+/// `Family` reads the live entries of a session this node runs.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_transcripts_owner_reads_a_live_session_without_agents() {
+    let root = tempfile::tempdir().expect("a temp folder");
+    let agents = agents_at(root.path());
+    let transcripts = crate::agents::transcripts::Transcripts::new(
+        agents.sessions.clone(),
+        agents.listings.clone(),
+        agents.family.clone(),
+    );
+    let kind = sh_agent("codex", THINKING_ADAPTER);
+    let begin = Begin {
+        prompt: Some("is 391 prime?".into()),
+        ..Begin::default()
+    };
+    let session = agents
+        .start(
+            &kind,
+            Some(root.path().to_str().expect("a UTF-8 path")),
+            begin,
+        )
+        .await
+        .expect("the session starts");
+    let mut live = session.live.clone();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        watched::wait_for(&mut live, |live| {
+            live.status() == Status::Idle
+                && live
+                    .transcript(10)
+                    .0
+                    .iter()
+                    .any(|entry| entry.text == "Not prime.")
+        }),
+    )
+    .await
+    .expect("the turn ends")
+    .expect("the session is still there");
+
+    let (entries, earlier) = transcripts
+        .transcript_window(&session.id, 10, None, None, true)
+        .await
+        .expect("the read")
+        .expect("a session this node runs");
+    assert_eq!(earlier, 0);
+    assert_eq!(
+        entries.last().map(|entry| entry.text.as_str()),
+        Some("Not prime.")
+    );
+
+    let SessionsReply::Transcript {
+        entries: wrapped, ..
+    } = transcript_reply(&transcripts, &session.id, 10, false, None).await
+    else {
+        panic!("a transcript");
+    };
+    assert!(
+        wrapped
+            .iter()
+            .all(|entry| entry.kind != agent::EntryKind::Thought)
+    );
+    agents.shutdown().await;
 }
 
 #[cfg(unix)]
@@ -1279,7 +1355,7 @@ done
         } else {
             "yes".to_owned()
         };
-        let (recent, earlier) = agents.live_transcript(&session, 2, None).await;
+        let (recent, earlier) = agents.transcripts.live_transcript(&session, 2, None).await;
         assert_eq!(
             recent
                 .iter()
@@ -1288,7 +1364,10 @@ done
             [expected.as_str(), "Recent answer"]
         );
         assert_eq!(earlier, if compacted { 4 } else { 2 });
-        let (older, start) = agents.live_transcript(&session, 20, Some(earlier)).await;
+        let (older, start) = agents
+            .transcripts
+            .live_transcript(&session, 20, Some(earlier))
+            .await;
         assert_eq!(start, 0);
         assert_eq!(older[0].text, "yes");
         assert_eq!(older[1].text, "Original answer");
@@ -1299,7 +1378,7 @@ done
             assert_eq!(older[3].text, "Intermediate reply");
             assert_eq!(recent[0].kind, EntryKind::Compacted);
         }
-        let (joined, start) = agents.live_transcript(&session, 20, None).await;
+        let (joined, start) = agents.transcripts.live_transcript(&session, 20, None).await;
         assert_eq!(start, 0);
         assert_eq!(joined.len(), older.len() + recent.len());
         assert_eq!(
@@ -1319,7 +1398,7 @@ done
         .await
         .unwrap()
         .unwrap();
-        let (updated, start) = agents.live_transcript(&session, 20, None).await;
+        let (updated, start) = agents.transcripts.live_transcript(&session, 20, None).await;
         assert_eq!(start, 0);
         assert_eq!(&updated[..joined.len()], joined);
         assert_eq!(updated.last().unwrap().text, "New answer");

@@ -61,9 +61,7 @@ fn agents(codex: &Path, pi: &Path) -> Agents {
 }
 
 async fn read(agents: &Agents, id: &str, last: u32) -> SessionsReply {
-    agents
-        .transcript_reply(&SessionId::from(id), last, true, None)
-        .await
+    transcript_reply(&agents.transcripts, &SessionId::from(id), last, true, None).await
 }
 
 #[tokio::test]
@@ -116,6 +114,44 @@ async fn a_codex_session_started_outside_beep_lists_then_reads() {
     assert_eq!(earlier, 4);
 }
 
+/// `Transcripts` built from the node's own `Sessions`, `Listings` and
+/// `Family` reads a found session's file, and its reply wraps the read.
+#[tokio::test]
+async fn a_transcripts_owner_reads_a_found_session_without_agents() {
+    let codex = tempfile::tempdir().expect("a temp folder");
+    let pi = tempfile::tempdir().expect("a temp folder");
+    let dir = codex.path().join("sessions/2026/11/02");
+    fs::create_dir_all(&dir).expect("folders");
+    fs::write(
+        dir.join(format!("rollout-2026-11-02T02-32-34-{CODEX_ID}.jsonl")),
+        codex_rollout(),
+    )
+    .expect("a rollout");
+    let agents = agents(codex.path(), pi.path());
+    let transcripts = crate::agents::transcripts::Transcripts::new(
+        agents.sessions.clone(),
+        agents.listings.clone(),
+        agents.family.clone(),
+    );
+    let id = SessionId::from(CODEX_ID);
+
+    let (entries, earlier) = transcripts
+        .transcript_window(&id, 50, None, None, true)
+        .await
+        .expect("the read")
+        .expect("the found session");
+    assert_eq!(entries.len(), 6);
+    assert_eq!(earlier, 0);
+
+    let SessionsReply::Transcript {
+        entries: wrapped, ..
+    } = transcript_reply(&transcripts, &id, 50, true, None).await
+    else {
+        panic!("a transcript");
+    };
+    assert_eq!(wrapped.len(), 6);
+}
+
 #[tokio::test]
 async fn pages_before_an_entry_cover_a_found_session_without_a_gap_or_a_repeat() {
     let codex = tempfile::tempdir().expect("a temp folder");
@@ -136,9 +172,14 @@ async fn pages_before_an_entry_cover_a_found_session_without_a_gap_or_a_repeat()
     let mut before = None;
 
     loop {
-        let SessionsReply::Transcript { entries, earlier } = agents
-            .transcript_reply(&SessionId::from(CODEX_ID), 4, true, before)
-            .await
+        let SessionsReply::Transcript { entries, earlier } = transcript_reply(
+            &agents.transcripts,
+            &SessionId::from(CODEX_ID),
+            4,
+            true,
+            before,
+        )
+        .await
         else {
             panic!("a transcript");
         };
@@ -266,9 +307,7 @@ async fn a_native_codex_conversation_reads_only_its_own_messages_and_outputs() {
     let SessionsReply::Transcript {
         entries: first,
         earlier,
-    } = agents
-        .transcript_reply(&SessionId::from(&id), 2, true, Some(2))
-        .await
+    } = transcript_reply(&agents.transcripts, &SessionId::from(&id), 2, true, Some(2)).await
     else {
         panic!("older entries")
     };

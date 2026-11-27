@@ -1,9 +1,9 @@
 //! Read-only transcript access for repair agents over the mesh.
 
 use super::Node;
-use crate::agents::TRANSCRIPT_PROTOCOL;
 use crate::agents::machine_list;
 use crate::agents::reply;
+use crate::agents::{TRANSCRIPT_PROTOCOL, transcript_reply};
 use anyhow::{Context, Result, bail};
 use beep_proto::SessionId;
 use beep_proto::node::{
@@ -88,10 +88,14 @@ async fn read(node: &Node, args: &Args) -> Result<SessionsReply> {
         }
     }
 
-    Ok(node
-        .agents
-        .transcript_reply(&args.session, args.last, false, args.before)
-        .await)
+    Ok(transcript_reply(
+        &node.agents.transcripts,
+        &args.session,
+        args.last,
+        false,
+        args.before,
+    )
+    .await)
 }
 
 fn render(read: SessionsReply) -> Result<Reply> {

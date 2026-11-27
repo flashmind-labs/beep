@@ -136,6 +136,8 @@ pub(crate) mod start;
 #[cfg(feature = "host")]
 mod tool_diff;
 #[cfg(feature = "host")]
+pub(crate) mod transcripts;
+#[cfg(feature = "host")]
 pub(crate) mod uploads;
 #[cfg(feature = "host")]
 mod usage;
@@ -171,7 +173,7 @@ pub(crate) use reopen::{OpenSession, SavedSession};
 #[cfg(feature = "host")]
 pub use requests::serve_sessions;
 #[cfg(feature = "host")]
-pub(crate) use requests::{TRANSCRIPT_PROTOCOL, serve_transcripts};
+pub(crate) use requests::{TRANSCRIPT_PROTOCOL, serve_transcripts, transcript_reply};
 #[cfg(feature = "host")]
 pub(crate) use search::follow as follow_search;
 #[cfg(feature = "host")]
@@ -236,6 +238,8 @@ pub struct Agents {
     pub(crate) delete: Arc<delete::Delete>,
     /// Who is whose child, and what the children tell their parents.
     pub(crate) family: Arc<family::Family>,
+    /// Reads a session's transcript, live or found.
+    pub(crate) transcripts: Arc<transcripts::Transcripts>,
     /// The watchers of the agents' stores, while clients follow them.
     pub(crate) bridge: Arc<follow::sources::EventBridge>,
 }
@@ -315,10 +319,17 @@ impl Agents {
             delete.clone(),
         ));
 
+        let transcripts = Arc::new(transcripts::Transcripts::new(
+            sessions.clone(),
+            listings.clone(),
+            family.clone(),
+        ));
+
         Self {
             bridge,
             delete,
             family,
+            transcripts,
             listings,
             events: events.clone(),
             usage: Arc::new(usage::Usage::new(catalog.clone())),

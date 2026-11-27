@@ -760,23 +760,6 @@ impl Listings {
 }
 
 impl Agents {
-    pub(super) async fn transcript_window(
-        &self,
-        session: &SessionId,
-        last: usize,
-        before: Option<u64>,
-        followed: Option<(&crate::logs::claude::Followed, Option<u64>)>,
-        keep_pictures: bool,
-    ) -> Result<Option<(Vec<Entry>, u64)>> {
-        if let Some(found) = self.sessions.get(session) {
-            return Ok(Some(self.live_transcript(&found, last, before).await));
-        }
-
-        self.listings
-            .found_transcript(session, last, before, followed, keep_pictures)
-            .await
-    }
-
     /// Takes over the Claude Code session `id` started outside Beep, once
     /// nothing runs it; one this node already runs is returned as it is.
     /// `id` may also be one of this node's sessions that ended: it goes on

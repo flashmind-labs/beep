@@ -10,10 +10,10 @@ use super::{
     sessions::new_id,
 };
 use crate::machine::env::locate::folder;
-use crate::{agents::child_reach, process::spawn_env};
+use crate::process::spawn_env;
 use anyhow::{Context, Result};
 use beep_proto::SessionId;
-use beep_proto::node::agent::{self, CheckoutPlan, ParentLink, Persona, Status};
+use beep_proto::node::agent::{CheckoutPlan, ParentLink, Persona, Status};
 use beep_proto::watched;
 use beep_proto::{AccountName, AgentAccount};
 use std::time::Duration;
@@ -25,76 +25,6 @@ use std::{
 };
 
 impl Agents {
-    /// The last `last` entries of a session this node runs and how many
-    /// came before them, each Codex subagent among them with the steps
-    /// its rollout holds: codex-acp sends none of them.
-    pub(super) async fn live_transcript(
-        &self,
-        session: &Session,
-        last: usize,
-        before: Option<u64>,
-    ) -> (Vec<agent::Entry>, u64) {
-        let history = self.listings.claude_history(session, last, before).await;
-        let (native, dropped) = history.as_ref().map_or((0, 0), |h| (h.native, h.dropped));
-        let live_before = before.map(|end| end.saturating_sub(native).saturating_add(dropped));
-        let (mut entries, earlier) = self
-            .listings
-            .codex_transcript(session, last, live_before)
-            .await;
-
-        if session.agent == "claude" {
-            let (id, calls) = {
-                watched::read(&session.live, |live| {
-                    (
-                        live.agent_session.clone(),
-                        live.claude_children(earlier, entries.len()),
-                    )
-                })
-            };
-
-            if let Some(id) = id
-                && !calls.is_empty()
-            {
-                match self
-                    .listings
-                    .external()
-                    .attach_children(&id, calls, entries.clone())
-                    .await
-                {
-                    Ok(linked) => entries = linked,
-                    Err(e) => log::debug!("native child conversations not linked: {e}"),
-                }
-            }
-        }
-
-        child_reach::show_children(&self.family, session, &mut entries);
-        let start = native + earlier.saturating_sub(dropped);
-        if let Some(history) = history
-            && earlier == dropped
-            && entries.len() < last
-        {
-            let end = before.unwrap_or(native).min(native);
-            if end > 0 {
-                match self
-                    .listings
-                    .external()
-                    .page(history.path, last - entries.len(), Some(end))
-                    .await
-                {
-                    Ok(mut page) => {
-                        page.entries.extend(entries);
-                        return (page.entries, page.earlier);
-                    }
-                    Err(error) => log::warn!("native history page not recovered: {error:#}"),
-                }
-            } else if entries.is_empty() {
-                return (entries, 0);
-            }
-        }
-
-        (entries, start)
-    }
-
     /// While the node runs: checks installed harness releases once an hour
     /// and deletes background children as they close.
     pub fn start_upkeep(self: &Arc<Self>) -> tokio_util::task::AbortOnDropHandle<()> {
