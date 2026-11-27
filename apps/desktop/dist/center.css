@@ -816,6 +816,8 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 .us-row > .us-r { flex: 0 1 auto; max-width: 60%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right }
 .us-note { font-size: 11px; color: var(--muted); line-height: 15px }
 .us-seg { display: flex; gap: 2px; padding: 2px; margin-bottom: 12px; border-radius: var(--radius-sm); background: var(--ctl-fill) }
+.us-seg.us-filter { flex-wrap: wrap }
+.us-seg.us-filter + .us-seg.us-filter { margin-top: -6px }
 .us-seg button { flex: 1; border: 0; background: transparent; color: var(--muted); font: 11.5px var(--mono); height: calc(var(--ctl-h) - 4px); border-radius: var(--radius-sm); cursor: default }
 .us-seg button:hover { color: var(--fg) }
 .us-seg button.on { background: var(--ctl-fill-hi); color: var(--fg) }

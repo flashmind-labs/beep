@@ -48,8 +48,20 @@ export interface UsageTableRow {
   cost_usd: number;
 }
 
+/// What one harness spent on one model in one project, one way.
+export interface SpendCell {
+  project: string | null;
+  agent: string;
+  model: string;
+  /// A subscription covered it: the cost is an estimate, in no total.
+  subscription: boolean;
+  cost_usd: number;
+  tokens: number;
+}
+
 /// What was spent in one period, by project and by harness.
 export interface Period {
+  cells?: SpendCell[];
   daily: UsageTableRow[];
   total: Spend;
   tokens: number;
@@ -226,4 +238,80 @@ export function hasUsage(view: UsageView | null): view is UsageView {
   if (!view) return false;
   const spent = (p: Period | null) => !!p && (p.total.cost_usd > 0 || p.tokens > 0 || p.projects.length > 0 || p.harnesses.length > 0);
   return !!view.historical?.length || view.limits.some(p => p.windows.length || p.credits?.length) || spent(view.today) || spent(view.week) || spent(view.month);
+}
+
+/// The harness and project the usage tables are narrowed to; null is all.
+export interface UsageFilter {
+  agent: string | null;
+  project: string | null;
+}
+
+export const NO_FILTER: UsageFilter = { agent: null, project: null };
+
+export interface ProjectTotal {
+  project: string | null;
+  cost_usd: number;
+  tokens: number;
+}
+
+/// The tables of the cells that pass a filter.
+export interface Breakdown {
+  harnesses: HarnessSpend[];
+  models: NamedTokens[];
+  projects: ProjectTotal[];
+  total: { cost_usd: number; tokens: number };
+}
+
+/// The harnesses and projects the cells name, each once, in the order they first appear.
+export function filterOptions(cells: SpendCell[]) {
+  const agents = [...new Set(cells.map(cell => cell.agent))];
+  const projects = [...new Set(cells.flatMap(cell => cell.project === null ? [] : [cell.project]))];
+  return { agents, projects };
+}
+
+/// `filter`, or all where it names a harness or project the cells no longer have.
+export function settleFilter(cells: SpendCell[], filter: UsageFilter): UsageFilter {
+  const { agents, projects } = filterOptions(cells);
+  const agent = filter.agent !== null && agents.includes(filter.agent) ? filter.agent : null;
+  const project = filter.project !== null && projects.includes(filter.project) ? filter.project : null;
+  return agent === filter.agent && project === filter.project ? filter : { agent, project };
+}
+
+/// Harness, model and project tables of the cells that match `filter`. Subscription
+/// cells add tokens, never dollars, and their estimate stays on their own harness row.
+export function breakdown(cells: SpendCell[], filter: UsageFilter): Breakdown {
+  const harnesses = new Map<string, HarnessSpend & { models: NamedTokens[] }>();
+  const projects = new Map<string | null, ProjectTotal>();
+  const total = { cost_usd: 0, tokens: 0 };
+
+  for (const cell of cells) {
+    if ((filter.agent !== null && cell.agent !== filter.agent) || (filter.project !== null && cell.project !== filter.project)) continue;
+
+    const paid = cell.subscription ? 0 : cell.cost_usd;
+    const key = `${cell.agent}:${cell.subscription}`;
+    const harness = harnesses.get(key) ?? { agent: cell.agent, subscription: cell.subscription, cost_usd: null, tokens: 0, models: [] };
+    harness.cost_usd = (harness.cost_usd ?? 0) + cell.cost_usd;
+    harness.tokens += cell.tokens;
+    harness.models.push({ name: cell.model, tokens: cell.tokens });
+    harnesses.set(key, harness);
+
+    const row = projects.get(cell.project) ?? { project: cell.project, cost_usd: 0, tokens: 0 };
+    row.cost_usd += paid;
+    row.tokens += cell.tokens;
+    projects.set(cell.project, row);
+
+    total.cost_usd += paid;
+    total.tokens += cell.tokens;
+  }
+
+  const rows = [...harnesses.values()].map(h => ({ ...h, cost_usd: h.cost_usd && h.cost_usd > 0 ? h.cost_usd : null }));
+  const spent = (h: HarnessSpend) => h.subscription ? 0 : h.cost_usd ?? 0;
+  rows.sort((a, b) => spent(b) - spent(a) || b.tokens - a.tokens);
+
+  return {
+    harnesses: rows,
+    models: modelTotals(rows),
+    projects: [...projects.values()].sort((a, b) => b.cost_usd - a.cost_usd || b.tokens - a.tokens),
+    total,
+  };
 }

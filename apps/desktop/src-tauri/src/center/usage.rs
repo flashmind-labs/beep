@@ -5,7 +5,7 @@
 use crate::{beep::epoch_ms, error::Result, fleet::projects::FleetState};
 use beep_proto::{
     AccountName, AgentSlug, CreditUnit, HarnessBill, ModelSpend, PlanLimits, PlanWindow,
-    ProjectBill, ProviderCredits, SpendPeriod, SpendReport, UsageTableRow,
+    ProjectBill, ProviderCredits, SpendCell, SpendPeriod, SpendReport, UsageTableRow,
 };
 use rust_decimal::{Decimal, RoundingStrategy};
 use serde::Serialize;
@@ -29,6 +29,7 @@ pub struct PeriodRow {
     projects: Vec<SpendRow>,
     harnesses: Vec<HarnessRow>,
     daily: Vec<UsageTableRow>,
+    cells: Vec<SpendCell>,
 }
 
 #[derive(Debug, Serialize)]
@@ -207,6 +208,7 @@ impl From<SpendPeriod> for PeriodRow {
                 cost_usd: p.cost_usd,
             },
             daily: p.daily,
+            cells: p.cells,
             tokens: p.metered_tokens.saturating_add(p.subscription_tokens),
             projects: p.projects.into_iter().map(Into::into).collect(),
             harnesses: p.harnesses.into_iter().map(Into::into).collect(),

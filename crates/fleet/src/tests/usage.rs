@@ -46,6 +46,40 @@ fn a_plan_that_could_not_be_told_reports_tokens_not_dollars() {
 }
 
 #[test]
+fn cells_split_by_project_harness_model_and_billing() {
+    let paid = hour(Billing::Metered);
+    let covered = hour(Billing::Subscription);
+    let mut other = hour(Billing::Metered);
+    other.model = ModelId::new("other-model");
+    other.cost_usd = 20.0;
+    let mut idle = hour(Billing::Metered);
+    idle.input_tokens = 0;
+    idle.cost_usd = 0.0;
+    let row = |project: Option<&str>, agent, hour| Row {
+        project: project.map(str::to_owned),
+        agent,
+        hour,
+    };
+    let rows = [
+        row(Some("widget"), &AgentSlug::CLAUDE, &paid),
+        row(Some("widget"), &AgentSlug::CLAUDE, &paid),
+        row(Some("widget"), &AgentSlug::CLAUDE, &covered),
+        row(None, &AgentSlug::CODEX, &other),
+        row(None, &AgentSlug::CODEX, &idle),
+    ];
+
+    let cells = bill(&rows).cells;
+
+    assert_eq!(cells.len(), 3);
+    assert_eq!(cells[0].model, ModelId::new("other-model"));
+    assert_eq!(cells[0].project, None);
+    assert_eq!((cells[1].cost_usd, cells[1].tokens), (10.0, 2_000));
+    assert!(!cells[1].subscription);
+    assert!(cells[2].subscription);
+    assert_eq!(cells[2].cost_usd, 5.0);
+}
+
+#[test]
 fn a_credit_only_plan_reaches_the_usage_view_without_becoming_spend() {
     let credits = ProviderCredits {
         provider: "openrouter".into(),

@@ -64,6 +64,7 @@ fn empty_period() -> SpendPeriod {
         subscription_tokens: 0,
         projects: Vec::new(),
         harnesses: Vec::new(),
+        cells: Vec::new(),
         daily: Vec::new(),
     }
 }

@@ -175,3 +175,45 @@ test("the weekly table shows each day's spend and keeps the historical balance s
   await expect(pop.getByRole("table", { name: /Historical spend/ }).getByRole("cell", { name: "$3.25" })).toBeVisible();
   await pop.screenshot({ path: "../../.artifacts/daily-usage-table.png" });
 });
+
+test("the usage popup narrows spend to a harness or a project", async ({ page }) => {
+  const cell = (project: string | null, agent: string, model: string, cost_usd: number, tokens: number, subscription = false) => ({ project, agent, model, subscription, cost_usd, tokens });
+  const row = (project: string, cost_usd: number, tokens: number) => ({ first: "2026-03-06", last: "2026-03-06", project, agent: null, cost_usd, tokens });
+  const cells = [
+    cell("acme/widget", "claude", "claude-opus", 6, 6000), cell("acme/relay", "codex", "gpt-codex", 3, 3000),
+    cell("acme/relay", "claude", "claude-opus", 1, 1000), cell("acme/widget", "claude", "claude-sonnet", 4, 40000, true),
+  ];
+  const period = {
+    total: { cost_usd: 10 }, tokens: 50_000, projects: [], cells,
+    daily: [row("acme/widget", 6, 46_000), row("acme/relay", 4, 4000)],
+    harnesses: [
+      { agent: "claude", subscription: false, cost_usd: 7, tokens: 7000, models: [{ name: "claude-opus", tokens: 7000 }] },
+      { agent: "codex", subscription: false, cost_usd: 3, tokens: 3000, models: [{ name: "gpt-codex", tokens: 3000 }] },
+      { agent: "claude", subscription: true, cost_usd: 4, tokens: 40_000, models: [{ name: "claude-sonnet", tokens: 40_000 }] },
+    ],
+  };
+  await openDesktop(page, false, { usage_get: { limits: [], today: period, week: period, month: period } });
+  await page.getByRole("button", { name: "Cost today: $10.00" }).click();
+  const pop = page.getByRole("dialog", { name: "Plan usage and cost" });
+  const harness = pop.getByRole("group", { name: "Harness" }), project = pop.getByRole("group", { name: "Project" });
+  await expect(pop.getByRole("table", { name: "By project" })).toHaveCount(0);
+  await expect(pop.getByRole("table", { name: "Daily usage" })).toBeVisible();
+
+  await harness.getByRole("button", { name: "Codex" }).click();
+  await expect(pop.getByRole("table", { name: "Daily usage" })).toHaveCount(0);
+  await expect(pop.getByRole("table", { name: "By harness" }).getByRole("row", { name: /Claude/ })).toHaveCount(0);
+  await expect(pop.getByRole("table", { name: "By model" }).getByRole("row", { name: /gpt-codex/ })).toBeVisible();
+  await expect(pop.getByRole("table", { name: "By project" }).getByRole("row", { name: /acme\/relay/ })).toBeVisible();
+  await expect(pop.getByRole("table", { name: "By project" }).getByRole("row", { name: /acme\/widget/ })).toHaveCount(0);
+
+  await harness.getByRole("button", { name: "All harnesses" }).click();
+  await project.getByRole("button", { name: "acme/widget" }).click();
+  await expect(pop.getByRole("table", { name: "Daily usage" }).getByRole("row", { name: /acme\/relay/ })).toHaveCount(0);
+  await expect(pop.getByRole("table", { name: "By harness" }).getByRole("row", { name: /Claude Code, subscription/ })).toContainText("~$4");
+  await expect(pop.getByRole("row", { name: /^Total / })).toContainText("$6.00");
+  expect(await pop.getByRole("table", { name: "By harness" }).ariaSnapshot()).toMatchSnapshot("filtered-by-harness.txt");
+
+  await page.evaluate(value => { window.__navigation.respond("usage_get", value); window.__navigation.notify("usage"); }, { limits: [], today: { ...period, cells: cells.filter(c => c.project !== "acme/widget") }, week: period, month: period });
+  await expect(project.getByRole("button", { name: "acme/widget" })).toHaveCount(0);
+  await expect(pop.getByRole("table", { name: "By project" })).toHaveCount(0);
+});

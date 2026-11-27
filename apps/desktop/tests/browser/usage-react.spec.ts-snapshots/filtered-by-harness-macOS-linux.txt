@@ -1,0 +1,21 @@
+- table "By harness":
+  - caption: By harness
+  - rowgroup:
+    - row "Harness Spend Tokens":
+      - columnheader "Harness"
+      - columnheader "Spend"
+      - columnheader "Tokens"
+  - rowgroup:
+    - row "Claude Code $6.00 6K":
+      - cell "Claude Code"
+      - cell "$6.00"
+      - cell "6K"
+    - row "Claude Code, subscription ~$4 40K":
+      - cell "Claude Code, subscription"
+      - cell "~$4"
+      - cell "40K"
+  - rowgroup:
+    - row "Total $6.00 46K":
+      - rowheader "Total"
+      - cell "$6.00"
+      - cell "46K"

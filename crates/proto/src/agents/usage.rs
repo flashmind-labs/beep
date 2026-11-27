@@ -80,6 +80,22 @@ wire_structs! {
         pub harnesses: Vec<HarnessBill>,
         #[serde(default)]
         pub daily: Vec<UsageTableRow>,
+        /// Every project, harness, model and billing combination that spent, the
+        /// most expensive first, for filtering the tables above.
+        #[serde(default)]
+        pub cells: Vec<SpendCell>,
+    }
+
+    /// What one harness spent on one model in one project, one way.
+    pub struct SpendCell {
+        /// `org/repo`, else the folder's name; `None` for other folders.
+        pub project: Option<String>,
+        pub agent: AgentSlug,
+        pub model: ModelId,
+        /// A subscription covered it: the cost is an estimate, in no total.
+        pub subscription: bool,
+        pub cost_usd: f64,
+        pub tokens: u64,
     }
 
     /// A daily project total or an undated session balance with known local dates.

@@ -7,7 +7,7 @@ import { pushedView } from "../../ui/snapshot-state.ts";
 // The pill at the right end of every command center header: how much of each
 // coding agent's plan is used and what the agents cost today.
 
-import { hasUsage, type PeriodKey, type UsageView } from "../../stores/center/usage-state.ts";
+import { hasUsage, NO_FILTER, settleFilter, type PeriodKey, type UsageFilter, type UsageView } from "../../stores/center/usage-state.ts";
 
 let allProjects = false;
 
@@ -17,11 +17,14 @@ export function mountUsage(read: (refresh: boolean) => Promise<UsageView | null>
   let loaded = false;
   let open = false;
   let period: PeriodKey = "today";
+  let filter: UsageFilter = NO_FILTER;
   const pick = (key: PeriodKey) => { period = key; draw(); };
+  const narrow = (next: UsageFilter) => { filter = next; draw(); };
   const draw = () => {
     if (!hasUsage(view)) { placeWindowParts({ usage: null }); return; }
     const current = view;
-    placeWindowParts({ usage: <UsageWidget view={current} open={open} period={period} allProjects={allProjects}
+    filter = settleFilter(current[period]?.cells ?? [], filter);
+    placeWindowParts({ usage: <UsageWidget view={current} open={open} period={period} allProjects={allProjects} filter={filter} narrow={narrow}
       toggle={() => toggle(!open)} pick={pick} more={() => { allProjects = !allProjects; draw(); }} /> });
   };
 

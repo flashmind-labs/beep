@@ -13,7 +13,7 @@ use crate::{
 use beep_projects::imports::records::{ImportRow, imported_project_of};
 use beep_proto::{
     AccountName, AgentSlug, AgentTokens, HarnessBill, ModelId, ModelSpend, PlanLimits, ProjectBill,
-    SpendPeriod, SpendReport, UsageTableRow,
+    SpendCell, SpendPeriod, SpendReport, UsageTableRow,
     node::{
         agent::{SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
         usage::HourSpend,
@@ -481,7 +481,38 @@ fn bill(rows: &[Row<'_>]) -> SpendPeriod {
         projects,
         harnesses,
         daily: daily_rows(rows),
+        cells: cells(rows),
     }
+}
+
+fn cells(rows: &[Row<'_>]) -> Vec<SpendCell> {
+    let mut grouped: BTreeMap<(&Option<String>, &AgentSlug, &ModelId, bool), (f64, u64)> =
+        BTreeMap::new();
+
+    for row in rows {
+        let entry = grouped
+            .entry((&row.project, row.agent, &row.hour.model, !metered(row)))
+            .or_default();
+        entry.0 += row.hour.cost_usd;
+        entry.1 = entry.1.saturating_add(row.hour.tokens());
+    }
+
+    let mut cells: Vec<SpendCell> = grouped
+        .into_iter()
+        .filter(|(_, (cost_usd, tokens))| *cost_usd > 0.0 || *tokens > 0)
+        .map(
+            |((project, agent, model, subscription), (cost_usd, tokens))| SpendCell {
+                project: project.clone(),
+                agent: agent.clone(),
+                model: model.clone(),
+                subscription,
+                cost_usd,
+                tokens,
+            },
+        )
+        .collect();
+    cells.sort_by(|a, b| cmp_cost(a.cost_usd, b.cost_usd).then(b.tokens.cmp(&a.tokens)));
+    cells
 }
 
 #[cfg(test)]
