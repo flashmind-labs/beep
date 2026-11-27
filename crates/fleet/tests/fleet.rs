@@ -137,6 +137,8 @@ struct FakeNode {
     prints: Vec<(&'static str, &'static str)>,
     /// What `FollowUsage` says.
     usage: Vec<SessionsReply>,
+    /// What `FollowUsage` says after `usage`, set by a test while the node runs.
+    later_usage: Mutex<Vec<SessionsReply>>,
     /// The tools its `status/1` reports.
     tools: Vec<&'static str>,
     /// The diffs it was asked for.
@@ -297,7 +299,8 @@ impl FakeNode {
                     return;
                 };
 
-                for reply in &self.usage {
+                let later = self.later_usage.lock().expect("later usage").clone();
+                for reply in self.usage.iter().chain(&later) {
                     if tx.send(reply).await.is_err() {
                         return;
                     }
@@ -4159,6 +4162,34 @@ async fn the_change_feed_goes_to_one_follower_and_keeps_the_order_reads_finish()
         .expect("a stale read");
     session.settled().await;
     session.spend(false).await.expect("a cold spend");
+    session.settled().await;
+    // The same spend read again is not news. A node that spent more since is.
+    session.spend(false).await.expect("a stale spend");
+    session.settled().await;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("after the epoch")
+        .as_secs();
+    node.later_usage
+        .lock()
+        .expect("later usage")
+        .push(SessionsReply::SessionSpend {
+            usage: SessionSpend {
+                agent: "claude".into(),
+                session: "later".into(),
+                cwd: "/home/user/widget".into(),
+                since: 0,
+                historical: Vec::new(),
+                hours: vec![HourSpend {
+                    hour: now - now % 3600,
+                    model: "claude-opus-4-1".into(),
+                    input_tokens: 10,
+                    cost_usd: 1.0,
+                    billing: beep_proto::node::usage::Billing::Metered,
+                    ..HourSpend::default()
+                }],
+            },
+        });
     session.spend(false).await.expect("a stale spend");
     session.settled().await;
 
