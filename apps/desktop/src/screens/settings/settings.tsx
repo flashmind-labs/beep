@@ -33,6 +33,8 @@ export interface MacSettings {
   autostart: boolean;
   /// Coding agents notify when they ask something or finish a turn.
   agent_notices: boolean;
+  /// Review requests and assignments on git hosts notify.
+  forge_notices: boolean;
   /// Where saves go now; null when no folder is reachable.
   save_folder: string | null;
   /// That folder was picked in Settings rather than Downloads.
@@ -340,6 +342,7 @@ function localView(kind: LocalView): ReactNode {
       autostart={(enabled: boolean) => void change(generalPending, "autostart", "set_autostart", { enabled })}
       notices={(enabled: boolean) => void change(generalPending, "notices", "set_agent_notices", { enabled })}
       optionTaps={(enabled: boolean) => void change(generalPending, "optionTaps", "set_option_taps", { enabled })}
+      forgeNotices={(enabled: boolean) => void change(generalPending, "forgeNotices", "set_forge_notices", { enabled })}
       nodeUpdates={(enabled: boolean) => void change(generalPending, "nodeUpdates", "set_node_auto_update", { enabled })}
       developer={(enabled: boolean) => void change(generalPending, "developer", "set_developer_mode", { enabled })}
       chooseSaves={() => void pickHere("Save files to", local.set.save_folder).then(folder => { if (folder !== null) void change(generalPending, "saves", "set_save_folder", { folder }); }, e => console.warn(e))}

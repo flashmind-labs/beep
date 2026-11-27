@@ -4,10 +4,10 @@ import type { PaneTarget } from "../../shell/bar/pane.ts";
 import type { ProjectsArg } from "./state.ts";
 import { bytes, formatAgo } from "../../ui/format.ts";
 
-export type NoteKind = "finished" | "asks" | "conflict" | "move_failed" | "offline" | "skill_conflict" | "run" | "removed";
+export type NoteKind = "finished" | "asks" | "conflict" | "move_failed" | "offline" | "skill_conflict" | "run" | "removed" | "review_requested" | "assigned";
 
-/// A build's note opens its project on the run.
-type NoteTarget = PaneTarget | { projects: ProjectsArg };
+/// A build's note opens its project on the run; a review request or assignment opens its page.
+type NoteTarget = PaneTarget | { projects: ProjectsArg } | { link: string };
 
 /// What the mesh told this Mac, as `notes_list` gives it.
 export interface Note {
@@ -93,7 +93,7 @@ export function find(items: Note[], id: string | null): Note | null {
 /// machine back.
 export function doneLabel(i: Note): string {
   if (!i.done) return "";
-  return i.kind === "asks" ? "Answered" : i.kind === "conflict" || i.kind === "skill_conflict" ? "Settled" : i.kind === "offline" ? "Back online" : "";
+  return i.kind === "asks" ? "Answered" : i.kind === "conflict" || i.kind === "skill_conflict" ? "Settled" : i.kind === "offline" ? "Back online" : i.kind === "review_requested" ? "Reviewed" : i.kind === "assigned" ? "Unassigned" : "";
 }
 
 /// Whether the row still asks, with Allow and Deny.
@@ -142,9 +142,10 @@ export function conflictProject(i: Note): string | null {
 }
 
 /// What a click on a row does: a skill conflict opens in the pane, the rest
-/// open their session, the project a sync conflict is in, or Machines.
-export function opens(i: Note): "skill" | "session" | "project" | "conflict" | "machines" | null {
+/// open their session, the project a sync conflict is in, Machines, or a pull request or issue in the browser.
+export function opens(i: Note): "skill" | "session" | "project" | "conflict" | "machines" | "link" | null {
   if (i.kind === "skill_conflict") return "skill";
+  if (i.target && typeof i.target === "object" && "link" in i.target) return "link";
   if (i.target && typeof i.target === "object" && "projects" in i.target) return "project";
   if (i.target) return "session";
   if (i.kind === "conflict") return "conflict";

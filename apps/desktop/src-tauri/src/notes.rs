@@ -58,6 +58,10 @@ pub enum NoteKind {
     Run,
     /// A temporary machine, such as a container, was offline so long that this Mac removed it.
     Removed,
+    /// Someone asked for the user's review of a pull request; `done` once that ends.
+    ReviewRequested,
+    /// A pull request or issue was assigned to the user; `done` once that ends.
+    Assigned,
 }
 
 /// One row of the bell's pane from the mesh.
@@ -529,7 +533,12 @@ fn run_note(news: &RunNews) -> Option<Note> {
 /// make or one was made already (another machine told it too). The note is
 /// read when another app read it.
 pub(crate) fn run_ended(app: &AppHandle, news: &RunNews) -> Option<Note> {
-    let note = run_note(news)?;
+    recorded(app, run_note(news)?)
+}
+
+/// Adds `note` unless one with its id is kept, and returns it as kept: read when another app
+/// read it.
+pub(crate) fn recorded(app: &AppHandle, note: Note) -> Option<Note> {
     let notes = notes(app);
 
     if notes.get(&note.id).is_some() {

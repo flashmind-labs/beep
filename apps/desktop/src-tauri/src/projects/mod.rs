@@ -7,6 +7,7 @@ pub(crate) mod branches;
 pub(crate) mod create;
 pub(crate) mod diff_view;
 pub(crate) mod file_sync;
+pub(crate) mod forge_notices;
 pub(crate) mod git_items;
 pub(crate) mod git_sync;
 pub(crate) mod groups;

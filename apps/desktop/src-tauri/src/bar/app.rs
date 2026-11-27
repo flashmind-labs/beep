@@ -48,6 +48,8 @@ pub struct Settings {
     autostart: bool,
     /// Coding agents notify when they ask or finish a turn.
     agent_notices: bool,
+    /// Review requests and assignments on git hosts notify.
+    forge_notices: bool,
     /// Where saves go now.
     save_folder: Option<PathBuf>,
     /// Whether that folder was picked rather than Downloads.
@@ -70,6 +72,7 @@ pub fn settings(app: AppHandle, prefs: State<'_, Prefs>) -> Settings {
         #[cfg(mobile)]
         autostart: false,
         agent_notices: prefs.agent_notices(),
+        forge_notices: prefs.forge_notices(),
         save_folder: crate::platform::saves_dir(&app).ok(),
         save_folder_picked: prefs.save_folder().is_some(),
         developer: prefs.developer(),
@@ -102,6 +105,12 @@ pub fn use_downloads(prefs: State<'_, Prefs>) {
 #[tauri::command]
 pub fn set_agent_notices(prefs: State<'_, Prefs>, enabled: bool) {
     prefs.set_agent_notices(enabled);
+}
+
+/// Whether review requests and assignments on git hosts notify.
+#[tauri::command]
+pub fn set_forge_notices(prefs: State<'_, Prefs>, enabled: bool) {
+    prefs.set_forge_notices(enabled);
 }
 
 /// Whether machines running an older beep-node update themselves when seen online.

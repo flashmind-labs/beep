@@ -53,6 +53,7 @@ fn issues_parse_with_their_repository() {
             (Query::ReviewRequested, issues(REVIEW)),
             (Query::AuthoredIssues, issues(ISSUES)),
             (Query::AssignedIssues, issues(ISSUES)),
+            (Query::AssignedPulls, issues(REVIEW)),
         ],
     );
     assert_eq!(items.len(), 3);
@@ -65,7 +66,7 @@ fn issues_parse_with_their_repository() {
     assert!(pr.authored && pr.draft, "a WIP title marks a draft");
     assert_eq!(pr.comments, 2);
     let review = &items[1].item;
-    assert!(review.review_requested && review.draft && !review.authored);
+    assert!(review.review_requested && review.draft && !review.authored && review.assigned);
     let issue = &items[2].item;
     assert_eq!(issue.kind, GitItemKind::Issue {});
     assert!(issue.authored && issue.assigned && !issue.draft);

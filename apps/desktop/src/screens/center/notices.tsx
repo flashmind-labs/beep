@@ -127,7 +127,8 @@ export function mountNotices() {
     if (!to) return;
     if (i.kind === "run") dismiss([i.id]);
     toggle(false);
-    if (to === "project") go("projects", (i.target as { projects: ProjectsArg }).projects);
+    if (to === "link") invoke("open_url", { url: (i.target as { link: string }).link }).catch(e => console.warn("opening a link:", e));
+    else if (to === "project") go("projects", (i.target as { projects: ProjectsArg }).projects);
     else if (to === "session") go("pane", i.target as PaneTarget);
     else if (to === "conflict") openConflict(conflictProject(i));
     else openScreen({ screen: "settings", section: "machines" });

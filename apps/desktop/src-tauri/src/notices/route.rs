@@ -9,7 +9,7 @@ use crate::{
     error::Result,
     fleet::Fleet,
     fleet::{alerts::Direct, session_mirror::SessionMirror},
-    notes,
+    notes::{self, Note},
     platform::notify::{self, Action},
     targets::CenterTarget,
 };
@@ -35,6 +35,11 @@ const SETTLE: Duration = Duration::from_secs(5);
 pub(crate) async fn follow_actions(app: AppHandle, mut actions: mpsc::UnboundedReceiver<Action>) {
     while let Some(action) = actions.recv().await {
         match action {
+            Action::Open(CenterTarget::Link(url)) => {
+                if let Err(e) = crate::bar::app::open_url(app.clone(), url) {
+                    log::warn!("opening a link from a notification: {e}");
+                }
+            }
             Action::Open(target) => open(&app, target),
             Action::Answer(key, allow) => {
                 let app = app.clone();
@@ -106,15 +111,9 @@ pub(crate) async fn serve(app: AppHandle, mut direct: mpsc::Receiver<Direct>) {
             // A build: the bell keeps it, and the first machine to tell
             // it shows it.
             Direct::Run(news) => {
-                if let Some(note) = notes::run_ended(&app, &news)
-                    && !note.read
-                    && let Some(target) = note.target.clone()
-                {
-                    let read = note.mark();
-                    show_unread(&app, read, settle, move |app| {
-                        let body = format!("{}: {}", note.source, note.text);
-                        notify::opening(app, &note.title, &body, target);
-                    });
+                if let Some(note) = notes::run_ended(&app, &news) {
+                    let body = format!("{}: {}", note.source, note.text);
+                    show_new(&app, note, body, settle);
                 }
             }
             Direct::Phone { machine, device } => {
@@ -129,6 +128,22 @@ pub(crate) async fn serve(app: AppHandle, mut direct: mpsc::Receiver<Direct>) {
             }
         }
     }
+}
+
+/// Shows an unread `note` that has a target as a notification with `body`, which opens the
+/// target when clicked.
+pub(crate) fn show_new(app: &AppHandle, note: Note, body: String, settle: Instant) {
+    if note.read {
+        return;
+    }
+
+    let Some(target) = note.target.clone() else {
+        return;
+    };
+    let read = note.mark();
+    show_unread(app, read, settle, move |app| {
+        notify::opening(app, &note.title, &body, target);
+    });
 }
 
 /// A coding agent asked something or finished a turn. The bell keeps it, and the notice shows

@@ -28,6 +28,8 @@ pub(crate) enum CenterTarget {
     Machines,
     /// The Report a problem sheet, over the page on screen.
     Report,
+    /// A pull request or issue on its git host, in the browser.
+    Link(String),
 }
 
 /// A CI run of a project: its id on `host`, as the Actions tile keys runs.

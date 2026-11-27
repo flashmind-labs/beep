@@ -58,6 +58,9 @@ pub struct Saved {
     /// Coding agents notify when they ask something or finish a turn.
     #[serde(default = "on")]
     pub agent_notices: bool,
+    /// Review requests and assignments on git hosts notify.
+    #[serde(default = "on")]
+    pub forge_notices: bool,
     /// Machines running an older beep-node update themselves when seen online.
     #[serde(default = "on")]
     pub node_auto_update: bool,
@@ -111,6 +114,7 @@ impl Default for Saved {
             use_mac: true,
             mac_on: Some(true),
             agent_notices: true,
+            forge_notices: true,
             node_auto_update: true,
             option_taps: true,
             zoom: Zoom::default(),
@@ -188,6 +192,15 @@ impl Prefs {
 
     pub fn set_agent_notices(&self, on: bool) {
         self.update(|s| s.agent_notices = on);
+    }
+
+    /// Whether review requests and assignments on git hosts notify.
+    pub fn forge_notices(&self) -> bool {
+        self.saved().forge_notices
+    }
+
+    pub fn set_forge_notices(&self, on: bool) {
+        self.update(|s| s.forge_notices = on);
     }
 
     /// Whether machines running an older beep-node update themselves.

@@ -231,6 +231,11 @@ body.cbody
                   b "Coding agent notifications"
                   small "Coding agents only show under Waiting"
                 button#agentNotices.dswitch [aria-checked="false" aria-label="Coding agent notifications" role="switch" type="button"]
+              div.dtoggle
+                span
+                  b "Pull request notifications"
+                  small "Review requests and assignments only show on Home"
+                button#forgeNotices.dswitch [aria-checked="false" aria-label="Pull request notifications" role="switch" type="button"]
               div#dockerContainersSetting.dtoggle
                 span
                   b "Docker containers in Running"

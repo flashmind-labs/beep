@@ -321,6 +321,7 @@ pub fn run() {
             bar::app::quit,
             bar::app::set_agent_notices,
             tray::menu::set_option_taps,
+            bar::app::set_forge_notices,
             bar::app::set_node_auto_update,
             bar::app::set_developer_mode,
             bar::app::set_save_folder,
@@ -924,13 +925,17 @@ fn setup(
     tauri::async_runtime::spawn(views::follow_changes(handle.clone(), changes));
     tauri::async_runtime::spawn(agents::files_live::follow(handle.clone()));
     views::listen(&handle);
-    tauri::async_runtime::spawn(projects::git_items::forge_source(
-        handle.clone(),
-        app.state::<fleet::outbox::WindowOutbox>().forge(),
-    ));
     app.manage(center::Pending::default());
     app.manage(tray::waiting::WaitingList::default());
     app.manage(Arc::new(notes::Notes::load(dir.join("notes.json"))));
+    // Reads at once, and notes what it finds: the notes are managed above.
+    let (forge_reads, forge_read) = tokio::sync::mpsc::unbounded_channel();
+    tauri::async_runtime::spawn(notices::follow_reads(handle.clone(), forge_read));
+    tauri::async_runtime::spawn(projects::git_items::forge_source(
+        handle.clone(),
+        app.state::<fleet::outbox::WindowOutbox>().forge(),
+        forge_reads,
+    ));
     app.manage(machines::terminals::Attached::default());
     app.manage(machines::devices::Attached::default());
     app.state::<machines::this_mac::Machine>().start();

@@ -93,6 +93,17 @@ fn option_taps_are_on_until_turned_off() {
 }
 
 #[test]
+fn forge_notices_are_on_until_turned_off() {
+    assert!(parse("{}").forge_notices);
+    let saved = Saved {
+        forge_notices: false,
+        ..Saved::default()
+    };
+    let json = serde_json::to_string(&saved).expect("the state serializes");
+    assert!(!parse(&json).forge_notices);
+}
+
+#[test]
 fn developer_mode_is_off_until_turned_on() {
     assert!(!parse("{}").developer);
     let saved = Saved {

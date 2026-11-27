@@ -1,5 +1,6 @@
 //! The user's open pull requests and issues on their git hosts, for Home.
 
+use super::forge_notices::{Found, Marked};
 use crate::{
     beep::epoch_ms,
     error::Result,
@@ -24,7 +25,10 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tauri::{AppHandle, Manager, State};
-use tokio::{sync::watch, time::MissedTickBehavior};
+use tokio::{
+    sync::{mpsc, watch},
+    time::MissedTickBehavior,
+};
 
 /// What Home lists.
 #[derive(Debug, Clone, Serialize)]
@@ -35,6 +39,7 @@ pub struct GitItemsView {
 
 #[derive(Debug, Clone, Serialize)]
 struct GitHostRow {
+    host: String,
     error: Option<String>,
 }
 
@@ -63,11 +68,27 @@ struct GitItemRow {
 
 impl From<GitHost> for GitHostRow {
     fn from(host: GitHost) -> Self {
-        Self { error: host.error }
+        Self {
+            host: host.host,
+            error: host.error,
+        }
     }
 }
 
 impl GitItemRow {
+    fn marked(&self) -> Marked {
+        Marked {
+            host: self.host.clone(),
+            repo: self.repo.clone(),
+            number: self.number,
+            title: self.title.clone(),
+            url: self.url.clone(),
+            updated_at: self.updated_at,
+            review_requested: self.review_requested,
+            assigned: self.assigned,
+        }
+    }
+
     fn labeled(item: GitItem, labels: Vec<String>, opened_at: Option<SystemTime>) -> Self {
         Self {
             host: item.host,
@@ -85,6 +106,17 @@ impl GitItemRow {
             review: item.review.into(),
             checks_failing: item.checks_failing,
             labels,
+        }
+    }
+}
+
+impl GitItemsView {
+    /// The items as the notice diff reads them, and the hosts that answered.
+    fn found(&self) -> Found {
+        let answered = self.hosts.iter().filter(|host| host.error.is_none());
+        Found {
+            items: self.items.iter().map(GitItemRow::marked).collect(),
+            answered: answered.map(|host| host.host.clone()).collect(),
         }
     }
 }
@@ -122,9 +154,21 @@ pub async fn git_items(
     cache_view(&cache, View::GitItems, &done.kept);
     Ok(Some(done.items.into()))
 }
-/// Hosts without a push feed are read once for all windows. Results arrive as IPC events.
-pub(crate) async fn forge_source(app: AppHandle, mut active: watch::Receiver<bool>) {
+/// Reads the git hosts every 60 s for as long as the app runs, for Home and the bell. Windows
+/// that follow the `forge` topic get the views as IPC events. Each read goes to `reads`,
+/// for the bell's notes. A phone reads only while a window follows.
+pub(crate) async fn forge_source(
+    app: AppHandle,
+    mut active: watch::Receiver<bool>,
+    reads: mpsc::UnboundedSender<Found>,
+) {
+    let mut previous = None;
+    let mut ticks = tokio::time::interval(Duration::from_secs(60));
+    ticks.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
     loop {
+        // A phone reads only while a window follows, to spare its battery.
+        #[cfg(mobile)]
         if watched::wait_for(&mut active, |active| *active)
             .await
             .is_err()
@@ -132,44 +176,58 @@ pub(crate) async fn forge_source(app: AppHandle, mut active: watch::Receiver<boo
             return;
         }
 
-        let mut previous = None;
-        let mut ticks = tokio::time::interval(Duration::from_secs(60));
-        ticks.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        tokio::select! {
+            changed = active.changed() => {
+                if changed.is_err() { return; }
+                // A window that starts following gets the current view at once.
+                if !watched::read_and_update(&mut active, |active| *active) { continue; }
+                previous = None;
+            },
+            _ = ticks.tick() => {}
+        }
 
-        loop {
-            tokio::select! {
-                changed = active.changed() => {
-                    if changed.is_err() { return; }
-                    if !watched::read_and_update(&mut active, |active| *active) { break; }
-                },
-                _ = ticks.tick() => {
-                    let read = git_items(
-                        app.state::<Arc<beep_fleet::Session>>(),
-                        app.state::<Arc<ViewCache>>());
-                    let result = tokio::select! {
-                        result = read => result,
-                        _ = watched::wait_for(&mut active, |active| !*active) => break,
-                    };
+        let read = git_items(
+            app.state::<Arc<beep_fleet::Session>>(),
+            app.state::<Arc<ViewCache>>(),
+        );
+        let result = tokio::select! {
+            result = read => result,
+            changed = active.changed() => {
+                if changed.is_err() { return; }
+                watched::read_and_update(&mut active, |active| *active);
+                continue;
+            },
+        };
+        let following = watched::read_and_update(&mut active, |active| *active);
 
-                    match result {
-                        Ok(Some(items)) => {
-                            let current = serde_json::to_value(&items).ok();
+        match result {
+            Ok(Some(items)) => {
+                if reads.send(items.found()).is_err() {
+                    return;
+                }
 
-                            if current != previous {
-                                previous = current;
-                                let fleet = app.state::<Arc<Fleet>>();
-                                app.state::<WindowOutbox>().publish_views(fleet.me, Topic::new("forge"),
-                                    serde_json::json!({ "views": [{ "command": "git_items", "args": {}, "value": items }] }));
-                            }
-                        },
-                        Ok(None) => {},
-                        Err(error) => {
-                            previous = None;
-                            let fleet = app.state::<Arc<Fleet>>();
-                            let view = ViewUpdate::failed("git_items", serde_json::json!({}), &error.to_string());
-                            app.state::<WindowOutbox>().publish_views(fleet.me, Topic::new("forge"), serde_json::json!({ "views": [view] }));
-                        },
-                    }
+                let current = serde_json::to_value(&items).ok();
+
+                if following && current != previous {
+                    previous = current;
+                    let fleet = app.state::<Arc<Fleet>>();
+                    app.state::<WindowOutbox>().publish_views(fleet.me, Topic::new("forge"),
+                        serde_json::json!({ "views": [{ "command": "git_items", "args": {}, "value": items }] }));
+                }
+            }
+            Ok(None) => {}
+            Err(error) => {
+                previous = None;
+
+                if following {
+                    let fleet = app.state::<Arc<Fleet>>();
+                    let view =
+                        ViewUpdate::failed("git_items", serde_json::json!({}), &error.to_string());
+                    app.state::<WindowOutbox>().publish_views(
+                        fleet.me,
+                        Topic::new("forge"),
+                        serde_json::json!({ "views": [view] }),
+                    );
                 }
             }
         }

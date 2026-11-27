@@ -38,7 +38,7 @@ apps/desktop/src-tauri/src/platform/energy.rs | start | interval#1 | outside | s
 apps/desktop/src-tauri/src/platform/login_path.rs | login_path | sleep#1 | outside | waits for a login shell child to exit; no process event
 apps/desktop/src-tauri/src/platform/update.rs | follow | sleep#1 | pace | delays the first update check after launch
 apps/desktop/src-tauri/src/platform/update.rs | follow | sleep#2 | outside | checks the update feed periodically; the feed cannot push
-apps/desktop/src-tauri/src/projects/git_items.rs | forge_source | interval#1 | outside | reads the git hosts every 60 s while a window follows them
+apps/desktop/src-tauri/src/projects/git_items.rs | forge_source | interval#1 | outside | reads the git hosts every 60 s for Home and the bell
 apps/desktop/src-tauri/src/projects/live.rs | poll | interval#1 | poll | rereads project lists and runs every 120 s; the lists and runs topics could push
 apps/desktop/src-tauri/src/projects/team_live.rs | keep_asking | sleep#1 | compat | asks nodes before 0.8.26 for project cards every 10 s; newer ones push the topic
 apps/desktop/src-tauri/src/settings/skill_libraries.rs | follow | sleep#1 | outside | waits for the next skill library check against its remote

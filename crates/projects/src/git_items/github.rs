@@ -22,8 +22,8 @@ enum Query {
     AuthoredPulls,
     #[strum(serialize = "is:open is:issue author:@me archived:false")]
     AuthoredIssues,
-    /// Issues assigned to the user.
-    #[strum(serialize = "is:open is:issue assignee:@me archived:false")]
+    /// PRs and issues assigned to the user.
+    #[strum(serialize = "is:open assignee:@me archived:false")]
     Assigned,
     /// PRs asking for the user's review.
     #[strum(serialize = "is:open is:pr review-requested:@me archived:false")]

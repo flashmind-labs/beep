@@ -18,14 +18,16 @@ enum Query {
     ReviewRequested,
     AuthoredIssues,
     AssignedIssues,
+    AssignedPulls,
 }
 
 impl Query {
-    const ALL: [Query; 4] = [
+    const ALL: [Query; 5] = [
         Query::AuthoredPulls,
         Query::ReviewRequested,
         Query::AuthoredIssues,
         Query::AssignedIssues,
+        Query::AssignedPulls,
     ];
 }
 
@@ -37,6 +39,7 @@ impl From<Query> for [(&'static str, &'static str); 2] {
             Query::ReviewRequested => [("type", "pulls"), ("review_requested", "true")],
             Query::AuthoredIssues => [("type", "issues"), ("created", "true")],
             Query::AssignedIssues => [("type", "issues"), ("assigned", "true")],
+            Query::AssignedPulls => [("type", "pulls"), ("assigned", "true")],
         }
     }
 }
@@ -108,7 +111,7 @@ fn merge(host: &str, found: Vec<(Query, Vec<Issue>)>) -> Vec<Found> {
             match query {
                 Query::AuthoredPulls | Query::AuthoredIssues => item.authored = true,
                 Query::ReviewRequested => item.review_requested = true,
-                Query::AssignedIssues => item.assigned = true,
+                Query::AssignedIssues | Query::AssignedPulls => item.assigned = true,
             }
         }
     }
