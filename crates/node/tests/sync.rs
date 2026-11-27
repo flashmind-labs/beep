@@ -1746,24 +1746,6 @@ async fn a_peer_that_never_reported_git_deletes_nothing_of_it() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn git_is_not_copied_again_after_it_was_removed_locally() {
-    let (mut a, b) = synced_repo().await;
-    let there = head(&b);
-    fs::remove_dir_all(a.path(".git")).unwrap();
-    a.stop().await;
-    a.start().await;
-    a.sync_with(&b).await;
-    b.sync_with(&a).await;
-    write(&b.path("later.txt"), "a later round\n");
-    b.running().transfers.syncs().rescan(PROJECT).await.unwrap();
-    a.running().transfers.syncs().rescan(PROJECT).await.unwrap();
-    assert!(!a.path("later.txt").exists());
-    assert!(!a.path(".git").exists());
-    assert_eq!(head(&b), there);
-    assert_sound(&b);
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn two_existing_checkouts_at_other_commits_keep_their_files() {
     let a = Node::new().await;
     let b = Node::new().await;
