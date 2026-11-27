@@ -103,6 +103,13 @@ export class AgentFeed<K, T> {
     };
   }
 
+  /// Follows `key` off screen, ahead of its being opened. It is an ordinary background reader: it
+  /// is not shown, so it marks nothing read, and it counts under `BACKGROUND_FOLLOWS`.
+  warm(key: K) {
+    this.ensure(key, this.transport.name(key));
+    this.limit();
+  }
+
   /// The reader of `name`, opened again when it ended and its time to retry came.
   private ensure(key: K, name: string) {
     let reader = this.readers.get(name);

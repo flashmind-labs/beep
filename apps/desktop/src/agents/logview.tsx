@@ -84,7 +84,8 @@ export function drawAgentBody(keep?: string, polled = false, older: boolean | "p
   const olderText = olderNote(p, AG.older.stop, AG.older.reading !== null);
   const parent = parentSession(p.session);
   const crumb: ActivityRow | null = parent ? { kind: "crumb", id: "up", parent: parent.title || "Session", title: s.title || "Session" } : null;
-  const olderRow: ActivityRow | null = olderText ? { kind: "older", id: "older", text: olderText } : null;
+  // Kept while earlier entries remain, empty when idle, so its coming and going moves nothing.
+  const olderRow: ActivityRow | null = p.earlier > 0 ? { kind: "older", id: "older", text: olderText } : null;
   // The log goes in by turns, and only those near the view are drawn.
   const before = continuedFrom(s, sessions), after = continuedIn(s, sessions);
   const from: ActivityRow | null = s.continues ? { kind: "continued", id: "continued-from", way: "from", text: continuedLine("from", before, harnessName), open: !!before } : null;

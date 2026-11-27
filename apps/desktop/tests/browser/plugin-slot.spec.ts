@@ -580,7 +580,7 @@ test("enter and leave animate only when the user allows motion", async ({ page }
 
 test("the open session's turns reach plugins as session.turn, once for each change", async ({ page }) => {
   const wanted = { name: "session.turn", key: "notice-one", machine: "build-box" };
-  await openDesktop(page, true, { agent_commands: commands, plugins_wanted: [wanted] });
+  await openDesktop(page, true, { agent_sessions: [], agent_commands: commands, plugins_wanted: [wanted] });
   await page.evaluate(() => {
     const invoke = window.__TAURI__.core.invoke;
     window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {

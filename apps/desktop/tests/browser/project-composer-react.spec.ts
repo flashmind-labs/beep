@@ -97,6 +97,7 @@ for (const typed of ["Inspect the attachment", ""]) test(`project composer submi
 
 test("a draft's start opens as a session at once, and the session its machine names takes it over", { tag: "@windows" }, async ({ page }, info) => {
   await openDesktop(page, false, {
+    agent_sessions: [],
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: "/srv/project", home: "/srv", capabilities: [] }],
     agent_begin: { session: start, why: "" },
     agent_view: pageOf(start, "Inspect the project", null),

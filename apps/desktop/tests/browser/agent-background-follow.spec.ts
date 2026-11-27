@@ -5,7 +5,7 @@ const running = { kind: "agent", machine_id: "build-box", machine_name: "build-b
 
 /// Answers `agent_follow` with a stream the test pushes entries into with `window.pushEntry(text)`.
 async function streamSession(page: Page) {
-  await openDesktop(page, true);
+  await openDesktop(page, true, { agent_sessions: [] });
   await page.evaluate(() => {
     const invoke = window.__TAURI__.core.invoke;
     window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {

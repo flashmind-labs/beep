@@ -16,8 +16,8 @@ const view = {
 
 /// Answers `agent_older` with the entries before `before`, a page at a time. While
 /// `window.holdOlder` is set, an answer waits for `window.releaseOlder()`.
-async function serveOlder(page: import("@playwright/test").Page) {
-  await page.evaluate(() => {
+async function serveOlder(page: import("@playwright/test").Page, size = 200, tall = true) {
+  await page.evaluate(({ size, tall }) => {
     const w = window as unknown as { holdOlder: boolean; releaseOlder: () => void; waiting: (() => void)[]; olderReads: number[] };
     w.holdOlder = false;
     w.waiting = [];
@@ -26,16 +26,16 @@ async function serveOlder(page: import("@playwright/test").Page) {
     const invoke = window.__TAURI__.core.invoke;
     window.__TAURI__.core.invoke = <T>(command: string, args?: Record<string, unknown>) => {
       if (command !== "agent_older") return invoke<T>(command, args);
-      const before = Number(args?.before), start = Math.max(0, before - 200);
+      const before = Number(args?.before), start = Math.max(0, before - size);
       const entries = Array.from({ length: before - start }, (_, k) => {
         const i = start + k;
-        return { kind: i % 2 ? "agent" : "user", text: `Message ${i}\n${"Conversation text. ".repeat(30)}` };
+        return { kind: i % 2 ? "agent" : "user", text: tall ? `Message ${i}\n${"Conversation text. ".repeat(30)}` : `Message ${i}` };
       });
       w.olderReads.push(before);
       const answer = () => Promise.resolve({ earlier: start, entries } as T);
       return w.holdOlder ? new Promise<T>(done => w.waiting.push(() => done(answer() as unknown as T))).then(v => v) : answer();
     };
-  });
+  }, { size, tall });
 }
 
 test("a big log opens at its latest message with a bounded read, and reads on near the top", async ({ page }) => {
@@ -116,4 +116,75 @@ test("a row that grows during a wheel glide does not release the end on a nudge 
   await page.waitForTimeout(300);
 
   expect((await state()).stuck).toBe(true);
+});
+
+test("a short log sits at the bottom while older pages arrive above it", async ({ page }) => {
+  const short = { ...view, entries: Array.from({ length: 20 }, (_, i) => ({ kind: i % 2 ? "agent" : "user", text: `Short ${i}` })), earlier: 15, turns: 10 };
+  // Tall enough for the first three pages to fit, so the last fills it.
+  await page.setViewportSize({ width: 1280, height: 1580 });
+  await openDesktop(page, false, { agent_view: short });
+  await serveOlder(page, 5, false);
+  await page.evaluate(() => { (window as unknown as { holdOlder: boolean }).holdOlder = true; });
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), session);
+  const body = page.locator("#agbody");
+  const reads = () => page.evaluate(() => (window as unknown as { olderReads: number[] }).olderReads.length);
+  const lastBottom = () => body.evaluate(el => {
+    const rows = el.querySelectorAll("[data-row]");
+    return rows[rows.length - 1].getBoundingClientRect().bottom;
+  });
+  const fits = () => body.evaluate(el => el.scrollHeight <= el.clientHeight);
+
+  await expect(body).toContainText("Short 19");
+  await expect.poll(reads).toBe(1);
+  expect(await fits()).toBe(true);
+  const bottom = await lastBottom();
+  expect(await body.evaluate(el => el.scrollTop)).toBe(0);
+
+  // Two held pages arrive: the newest rows stay where they were.
+  for (const wanted of [2, 3]) {
+    await page.evaluate(() => { const w = window as unknown as { holdOlder: boolean; releaseOlder: () => void }; w.releaseOlder(); w.holdOlder = true; });
+    await expect.poll(reads).toBe(wanted);
+    expect(await body.evaluate(el => el.scrollTop)).toBe(0);
+    expect(Math.abs(await lastBottom() - bottom)).toBeLessThan(1);
+  }
+
+  // The last page fills the view: the reader is at the end.
+  await page.evaluate(() => { const w = window as unknown as { holdOlder: boolean; releaseOlder: () => void }; w.releaseOlder(); });
+  await expect(body).toContainText("Message 0");
+  await expect.poll(() => body.evaluate(el => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeLessThan(2);
+});
+
+test("a big log is placed once, before it paints, with one older read at most", async ({ page }) => {
+  await openDesktop(page, false, { agent_view: view });
+  await serveOlder(page);
+  await page.evaluate(() => {
+    const w = window as unknown as { scrolls: number };
+    w.scrolls = 0;
+    document.addEventListener("scroll", event => { if ((event.target as Element | null)?.id === "agbody") w.scrolls++; }, true);
+  });
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), session);
+  const body = page.locator("#agbody");
+
+  await expect(body).toContainText(`Message ${TOTAL - 1}`);
+  await page.waitForTimeout(600);
+  expect(await page.evaluate(() => (window as unknown as { scrolls: number }).scrolls)).toBeLessThanOrEqual(1);
+  expect(await body.evaluate(el => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeLessThan(2);
+  expect(await page.evaluate(() => (window as unknown as { olderReads: number[] }).olderReads.length)).toBeLessThanOrEqual(1);
+});
+
+test("a session that asks is followed before it opens and paints at once", async ({ page }) => {
+  await openDesktop(page, true);
+  const asking = { ...session, id: "asking-one", title: "Needs an answer", status: "asking", question: { id: "q1", text: "Proceed?", detail: null, options: [] } };
+  await page.evaluate(rows => { window.__navigation.respond("agent_sessions", rows); window.__navigation.notify("home"); }, [asking]);
+  const calls = (name: string) => page.evaluate(([command, id]) => window.__navigation.calls().filter(c => c.command === command && c.args.session === id).map(c => c.args), [name, asking.id]);
+
+  await expect.poll(async () => (await calls("agent_follow")).length).toBe(1);
+  expect((await calls("agent_follow"))[0].after).toBeNull();
+  expect(await calls("agent_view")).toHaveLength(0);
+
+  await page.evaluate(() => window.__navigation.hold("transcript_kept"));
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), asking);
+  await expect(page.locator("#agbody")).toBeVisible();
+  await expect(page.locator("#agbody .dagmain")).toBeAttached();
+  expect(await calls("agent_view")).toHaveLength(0);
 });

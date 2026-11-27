@@ -59,7 +59,7 @@ export function ActivityView({ row }: { row: ActivityRow }) {
     case "note": return <Note row={row} />;
     case "crumb": return <div className="dcrumb"><button id="agup">{row.parent}</button><span>/</span><b>{row.title}</b><span className="sp" /><Button id="agup2">Open parent<kbd>esc</kbd></Button></div>;
     case "continued": return <div className="dcoderen compacted dcontinued">{row.open ? <button data-continued={row.way}>{row.text}</button> : <span>{row.text}</span>}</div>;
-    case "older": return <div className="dmuted">{row.text}</div>;
+    case "older": return <div className="dmuted dolder">{row.text}</div>;
     case "pictures": return row.folded
       ? <div className="dcoderen dfoldpics" data-row={row.at ?? undefined}><span className="pics" dangerouslySetInnerHTML={{ __html: row.pictures }} /></div>
       : <div className="dcoderen tool"><span className="pics" dangerouslySetInnerHTML={{ __html: row.pictures }} /></div>;

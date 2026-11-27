@@ -7,7 +7,7 @@ const cursor = { start: 0, next: 2, fingerprint: "kept" };
 const calls = (page: Page, command: string) => page.evaluate(name => window.__navigation.calls().filter(call => call.command === name).map(call => call.args), command);
 
 test("a session kept on disk draws at once and follows on from its cursor", async ({ page }) => {
-  await openDesktop(page);
+  await openDesktop(page, false, { agent_sessions: [] });
   await page.evaluate(kept => {
     const invoke = window.__TAURI__.core.invoke;
     window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
@@ -31,7 +31,7 @@ test("a session kept on disk draws at once and follows on from its cursor", asyn
 
 test("a streaming session is kept by the native follow, with no keep call from the page", async ({ page }) => {
   await page.clock.install();
-  await openDesktop(page, true);
+  await openDesktop(page, true, { agent_sessions: [] });
   await page.evaluate(() => {
     const invoke = window.__TAURI__.core.invoke;
     window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {

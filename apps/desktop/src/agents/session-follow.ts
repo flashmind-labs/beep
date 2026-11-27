@@ -15,7 +15,8 @@ import { endPage, mergePage } from "./open-page.ts";
 import { followStale, followsOnly, isOpen, setNote, setReadNote, openSession, staleFrame, stoppingNow } from "./open-state.ts";
 import { sessionBody } from "./session-frame-state.ts";
 import { isNativeSession, nativeUpdate } from "./native-session-state.ts";
-import { keepNativeSession, sessions } from "./sessions.ts";
+import { keepNativeSession, sessions, sessionsRead } from "./sessions.ts";
+import { conversationHistory, openOf } from "./conversation-state.ts";
 import { isStarting } from "./starting-state.ts";
 import { loadOlder } from "./older.ts";
 import { readModes } from "./modepill.tsx";
@@ -26,6 +27,7 @@ import { stopPending } from "./agentqueue.ts";
 import { continueAfterTurn } from "./continue-here.ts";
 
 import { paneShown, visibilitySnapshot } from "../ui/active.ts";
+import { onPhone } from "../ui/platform.ts";
 import { publishTurn } from "../plugins/plugins-state.ts";
 
 interface FeedUpdate extends TranscriptUpdate<AgentPage> {
@@ -36,6 +38,10 @@ interface FeedUpdate extends TranscriptUpdate<AgentPage> {
 /// What a session is doing, for how long it stays followed off screen.
 const activityOf = (s: AgentRow): Activity =>
   s.question || s.status === "asking" ? "asking" : AGENT_ACTIVE.has(s.status) ? "running" : "idle";
+
+/// The cursor a follow goes on from. A page with no fingerprint has none to match, and any `after`
+/// makes the node read its whole tail, so it asks for the newest page instead.
+export const followFrom = (cursor: TranscriptCursor | undefined): TranscriptCursor | null => cursor?.fingerprint ? cursor : null;
 
 /// Follows the open session and, off screen, those that run or ask, so they
 /// show at once when opened again. Off screen an update only joins its model.
@@ -48,7 +54,7 @@ export const feed = new AgentFeed<OpenAgent, FeedUpdate>({
   open: (o, id, receive) => {
     const onEvent = new Channel<FeedUpdate>();
     onEvent.onmessage = receive;
-    return invoke<void>("agent_follow", { ...where(o), id, last: viewRead(window.innerHeight), after: transcripts.get(transcriptKey(o))?.cursor ?? null, onEvent });
+    return invoke<void>("agent_follow", { ...where(o), id, last: viewRead(window.innerHeight), after: followFrom(transcripts.get(transcriptKey(o))?.cursor), onEvent });
   },
   close: id => { void invoke("agent_unfollow", { id }).catch(e => console.warn("session detach:", e)); },
   // What it said of its modes and tasks goes stale unless it is the open session, read again after a gap.
@@ -115,6 +121,41 @@ export async function keptTranscript(o: OpenAgent): Promise<AgentPage | null> {
   if (kept.cursor) transcripts.seed(key, { page: kept.page, cursor: kept.cursor });
   return kept.page;
 }
+
+/// How many sessions are made ready before they are opened.
+const WARM_SESSIONS = 4;
+/// The sessions being warmed, by key, so a push that comes meanwhile does not start them twice.
+const warming = new Set<string>();
+
+/// Makes ready the sessions the user most likely opens next, so each draws at the bottom at once:
+/// those asking, then those running, then the latest visited. Each takes its page kept on disk; one
+/// that asks or runs and has none is followed off screen. An idle one is not read before a click.
+export function warmSessions(all: readonly AgentRow[]) {
+  if (!paneShown() || onPhone()) return;
+  // A start has no stream to follow.
+  const rows = conversationHistory.order(all, null).filter(r => r.status !== "starting" && !isStarting(r.id));
+  const asking = rows.filter(r => activityOf(r) === "asking");
+  const running = rows.filter(r => activityOf(r) === "running");
+  const visited = conversationHistory.visited(rows);
+  const picked = new Map<string, AgentRow>();
+
+  for (const row of [...asking, ...running, ...visited]) {
+    if (picked.size >= WARM_SESSIONS) break;
+    picked.set(transcriptKey(openOf(row)), row);
+  }
+
+  for (const [key, row] of picked) {
+    if (transcripts.peek(key) || warming.has(key)) continue;
+    warming.add(key);
+    const o = openOf(row);
+
+    void keptTranscript(o).finally(() => warming.delete(key)).then(() => {
+      if (activityOf(row) !== "idle" && !transcripts.peek(key) && paneShown()) feed.warm(o);
+    });
+  }
+}
+
+sessionsRead.add(() => warmSessions(sessions));
 
 /// The steers the live page lists. It must still be followed for its queue to be current.
 export function heldSteers(o: OpenAgent): string[] {

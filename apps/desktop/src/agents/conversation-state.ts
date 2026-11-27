@@ -19,6 +19,10 @@ export class ConversationHistory {
     const key = conversationKey(s);
     this.visits = [key, ...this.visits.filter(k => k !== key)].slice(0, 100);
   }
+  /// The rows opened before, the latest first.
+  visited(rows: readonly AgentRow[]): AgentRow[] {
+    return this.order(rows, null).filter(row => this.visits.includes(conversationKey(row)));
+  }
   order(rows: readonly AgentRow[], current: AgentRow | null): AgentRow[] {
     const unique = new Map<string, AgentRow>();
 

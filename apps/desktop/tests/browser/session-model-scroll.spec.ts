@@ -146,7 +146,7 @@ test("a failed turn runs its prompt again on the model picked from its error", a
 
 test("touch scrolling releases the log before the next animation frame", async ({ page }) => {
   const active = { ...session, status: "working", external: false };
-  await openDesktop(page, false, { agent_view: view(active) });
+  await openDesktop(page, false, { agent_sessions: [], agent_view: view(active) });
   await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), active);
   const body = page.locator("#agbody");
   const details = page.locator("#agshortcuts"), summary = details.locator("summary");

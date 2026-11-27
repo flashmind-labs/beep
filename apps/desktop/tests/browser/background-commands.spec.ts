@@ -7,7 +7,7 @@ const three = [task("t1", "npm run dev"), task("t2", "cargo watch -x check"), ta
 
 /// Follows the session with `three` running; `window.setTasks(list)` sends a new list.
 async function openSession(page: Page) {
-  await openDesktop(page, true, { agent_tasks: three, agent_steer: [] });
+  await openDesktop(page, true, { agent_sessions: [], agent_tasks: three, agent_steer: [] });
   await page.evaluate(tasks => {
     const invoke = window.__TAURI__.core.invoke;
     window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
