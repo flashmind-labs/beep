@@ -145,7 +145,7 @@ body:not(.mobile) .agpacts { border-top: 0 }
 body:not(.mobile) .dagmain { gap: 14px; padding-top: 10px }
 body:not(.mobile) .dagmain > :is(.dcoderlog, .dcoder, .dmuted, .derr) { max-width: 720px }
 /* Wide tables grow past the reading column toward the pane's right edge, then scroll. */
-body:not(.mobile) .dcoderen.agent.md table { width: max-content; max-width: calc(50% + 50cqw - 24px) }
+body:not(.mobile) #agbody .dcoderen.agent.md:not(.sessionbody) table { width: max-content; max-width: calc(50% + 50cqw - 24px) }
 body:not(.mobile) .dcoderen.agent { font-size: 13.5px; line-height: 21px; color: var(--fg) }
 body:not(.mobile) .dcard.dcoder:has(> .q:last-child) { padding-bottom: 0 }
 
