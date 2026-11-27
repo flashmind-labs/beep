@@ -2,7 +2,7 @@
 //! folder a collection of its files, led by a manifest when it has executable
 //! files or empty folders.
 
-use super::{Out, Ticker};
+use super::progress::{Out, Ticker};
 use crate::fs::fsat;
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::transfer::{
