@@ -334,3 +334,23 @@ async fn a_desktops_agent_call_is_answered_not_refused() {
     };
     assert!(failed && text.contains("own Beep MCP server"), "{text}");
 }
+
+#[tokio::test]
+async fn a_desktops_start_agent_is_refused_while_commands_are_off() {
+    let agents = Some(Arc::new(crate::agents::Agents::new(crate::agents::Parts::default())));
+    let start = Request {
+        tool: Tool::StartAgent,
+        args: r#"{"harness":"codex","prompt":"hi"}"#.to_owned(),
+        ..note()
+    };
+    let off = Caller {
+        from: Some(iroh::SecretKey::generate().public()),
+        agents,
+        commands_off: Some("box doesn't run commands: Let Beep use this computer is off".into()),
+        ..caller(Table::Shared)
+    };
+    let Reply::Done { text, failed } = answer(start, off).await else {
+        panic!("not a done reply");
+    };
+    assert!(failed && text.contains("Let Beep use this computer is off"), "{text}");
+}

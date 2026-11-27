@@ -362,6 +362,14 @@ fn commands_off(offers: &Offers) -> Option<String> {
     ))
 }
 
+/// Why a desktop's agent may not run commands or start agents here. The
+/// desktop in this process, which has the node's own key, is the user at
+/// this machine and is never held back; a desktop of the mesh, a phone
+/// included, is when this machine is not lent.
+fn desktop_commands_off(offers: &Offers, peer: iroh::EndpointId, own: iroh::EndpointId) -> Option<String> {
+    (peer != own).then(|| commands_off(offers)).flatten()
+}
+
 /// Whether another node of the mesh may open `protocol` here: status and
 /// agent tools, and the devices its agents boot and drive (`device/1`, kept
 /// off by `withheld` while this machine is not lent). A node reads only some
@@ -432,6 +440,7 @@ pub(super) async fn serve_open(
                 let caller = match who {
                     Who::Everything(peer) => Caller {
                         from: Some(peer),
+                        commands_off: desktop_commands_off(&offers, peer, node.own.endpoint.id()),
                         ..Caller::of(&node)
                     },
                     Who::Node { peer, desktop_here } => Caller {

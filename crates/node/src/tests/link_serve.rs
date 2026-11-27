@@ -129,3 +129,17 @@ async fn only_a_controller_can_read_or_change_mcp_servers() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn a_desktop_of_the_mesh_runs_commands_and_agents_only_while_this_machine_is_lent() {
+    let offers = Offers::default();
+    let own = iroh::SecretKey::generate().public();
+    let remote = iroh::SecretKey::generate().public();
+
+    offers.lend_to_peers(false);
+    assert!(desktop_commands_off(&offers, remote, own).is_some());
+    assert!(desktop_commands_off(&offers, own, own).is_none());
+
+    offers.lend_to_peers(true);
+    assert!(desktop_commands_off(&offers, remote, own).is_none());
+}
