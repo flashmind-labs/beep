@@ -56,10 +56,10 @@ fn png(fill: u8) -> Vec<u8> {
 /// Agents that read Claude Code's sessions in `root`.
 #[cfg(unix)]
 fn agents_at(root: &std::path::Path) -> Agents {
-    Agents {
+    Agents::new(Parts {
         occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::at(root), Default::default()),
-        ..Agents::default()
-    }
+        ..Parts::default()
+    })
 }
 
 /// An adapter whose one turn thinks in chunks, as Codex's reasoning
@@ -743,10 +743,10 @@ async fn a_session_resumes_only_on_its_own_agent() {
 #[tokio::test]
 async fn sessions_list_with_no_agent_program_found() {
     let root = tempfile::tempdir().expect("a temp folder");
-    let agents = Agents {
+    let agents = Agents::new(Parts {
         occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::locate_in(root.path()), Default::default()),
-        ..Agents::default()
-    };
+        ..Parts::default()
+    });
     assert_eq!(
         agents.offers(),
         vec![
@@ -770,10 +770,10 @@ async fn a_live_view_survives_idle_time_and_detaching_keeps_the_agent_running() 
     use agent::{FollowSession, SessionUpdate};
     use tokio::time::{advance, pause, resume, timeout};
     let root = tempfile::tempdir().unwrap();
-    let agents = Arc::new(Agents {
+    let agents = Arc::new(Agents::new(Parts {
         occupancy: crate::occupancy::Occupancy::over(Default::default(), crate::logs::found::Stores::default()),
-        ..Agents::default()
-    });
+        ..Parts::default()
+    }));
     let kind = sh_agent("codex", THINKING_ADAPTER);
     let session = agents
         .start(&kind, root.path().to_str(), Begin::default())
@@ -993,10 +993,10 @@ async fn project_history_pages_metadata_without_preview_text() {
         );
         std::fs::write(sessions.join(format!("session-{i:03}.jsonl")), text).unwrap();
     }
-    let agents = Agents {
+    let agents = Agents::new(Parts {
         occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::at(root.path()), crate::logs::found::Stores::at(None, Some(&root.path().join("sessions")), None)),
-        ..Agents::default()
-    };
+        ..Parts::default()
+    });
     let mut cursor = None;
     let mut ids = std::collections::HashSet::new();
     loop {

@@ -51,10 +51,10 @@ fn pi_session() -> String {
 
 fn agents(codex: &Path, pi: &Path) -> Agents {
     let nothing = tempfile::tempdir().expect("a temp folder");
-    Agents {
+    Agents::new(Parts {
         occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::at(nothing.path()), crate::logs::found::Stores::at(Some(codex), Some(pi), None)),
-        ..Agents::default()
-    }
+        ..Parts::default()
+    })
 }
 
 async fn read(agents: &Agents, id: &str, last: u32) -> SessionsReply {

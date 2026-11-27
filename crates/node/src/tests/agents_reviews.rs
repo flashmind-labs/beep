@@ -250,10 +250,11 @@ async fn a_finished_reviewer_leaves_no_session_on_disk() {
     .expect("a transcript");
     let claude = named_kind("claude", &dir.path().join("claude.log"), ID);
     let rig = Rig {
-        agents: Arc::new(Agents {
+        agents: Arc::new(Agents::new(Parts {
+            kinds: vec![claude],
             occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::at(&dir.path().join("claude")), Default::default()),
-            ..Agents::new(Parts { kinds: vec![claude], ..Parts::default() })
-        }),
+            ..Parts::default()
+        })),
         dir,
     };
     let run = rig

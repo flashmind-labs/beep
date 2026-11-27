@@ -1,3 +1,4 @@
+use crate::agents::Parts;
 use super::{
     read::{ALPN, Access, Leaving, Pulled, pull},
     worktree::MovingWorktree,
@@ -61,10 +62,10 @@ fn source(content: &str) -> Source {
     fs::create_dir_all(&day).expect("folders");
     let rollout = day.join(format!("rollout-2026-11-04T09-30-00-{ID}.jsonl"));
     fs::write(&rollout, content).expect("a rollout");
-    let agents = Agents {
+    let agents = Agents::new(Parts {
         occupancy: crate::occupancy::Occupancy::over(Default::default(), crate::logs::found::Stores::at(Some(dir.path()), None, None)),
-        ..Agents::default()
-    };
+        ..Parts::default()
+    });
     // The sessions open before the last stop run again: none were open.
     agents.reopen.reopened.send_replace(true);
     Source {
@@ -556,10 +557,10 @@ fn flsh_source() -> (TempDir, Arc<Agents>) {
          INSERT INTO session_meta VALUES ('session_old', NULL, 'm', '/srv/app', 100);",
     )
     .expect("a database");
-    let agents = Agents {
+    let agents = Agents::new(Parts {
         occupancy: crate::occupancy::Occupancy::over(Default::default(), crate::logs::found::Stores::at(None, None, Some(dir.path()))),
-        ..Agents::default()
-    };
+        ..Parts::default()
+    });
     agents.reopen.reopened.send_replace(true);
     (dir, Arc::new(agents))
 }

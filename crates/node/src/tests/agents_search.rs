@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::Parts;
 use super::follow::{conversations, index_new, reads_stores};
 use crate::agents::Agents;
 
@@ -20,10 +21,10 @@ async fn an_archived_conversation_outside_projects_is_indexed_and_can_be_read() 
         archive.join("rollout-test.jsonl"),
         format!("{header}\n{message}\n"),
     )?;
-    let agents = Agents {
+    let agents = Agents::new(Parts {
         occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::at(root.path()), crate::logs::found::Stores::at(Some(root.path()), None, None)),
-        ..Agents::default()
-    };
+        ..Parts::default()
+    });
     let sessions = conversations(&agents).await;
     let [session] = sessions.as_slice() else {
         anyhow::bail!("expected the archived conversation");

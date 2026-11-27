@@ -1,13 +1,14 @@
 use super::*;
+use crate::agents::Parts;
 use beep_proto::node::agent::{Entry, EntryKind};
 
 #[tokio::test]
 async fn event_sources_are_shared_and_stop_with_the_last_subscription() {
     let root = tempfile::tempdir().unwrap();
-    let agents = Arc::new(Agents {
+    let agents = Arc::new(Agents::new(Parts {
         occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::locate_in(root.path()), crate::logs::found::Stores::at(Some(root.path()), None, None)),
-        ..Agents::default()
-    });
+        ..Parts::default()
+    }));
     let first = agents.watch_event_sources().await.unwrap();
     let second = agents.watch_event_sources().await.unwrap();
     assert!(Arc::ptr_eq(&first, &second));
@@ -24,10 +25,10 @@ async fn event_sources_are_shared_and_stop_with_the_last_subscription() {
 #[tokio::test]
 async fn an_external_process_exit_publishes_agent_and_summary_events() {
     let root = tempfile::tempdir().unwrap();
-    let agents = Arc::new(Agents {
+    let agents = Arc::new(Agents::new(Parts {
         occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::locate_in(root.path()), crate::logs::found::Stores::at(Some(root.path()), None, None)),
-        ..Agents::default()
-    });
+        ..Parts::default()
+    }));
     let _lease = agents.watch_event_sources().await.unwrap();
     let mut changes = agents.events.subscribe();
     let mut child = tokio::process::Command::new("sh")
@@ -86,10 +87,10 @@ async fn summary_cache_rescans_only_changed_harnesses_and_tracks_file_changes() 
         )
     };
     std::fs::write(&flsh_file, flsh_session("flsh-example", "Original")).unwrap();
-    let agents = Agents {
+    let agents = Agents::new(Parts {
         occupancy: crate::occupancy::Occupancy::over(Default::default(), crate::logs::found::Stores::at(Some(&codex), None, Some(&flsh))),
-        ..Agents::default()
-    };
+        ..Parts::default()
+    });
     let mut cache = SummaryCache::default();
     let initial = cache.read(&agents, &BTreeSet::new()).await.unwrap();
     assert_eq!(initial.len(), 2);
@@ -152,10 +153,10 @@ async fn cached_source_notifications_follow_file_creation_title_changes_and_remo
     let root = tempfile::tempdir().unwrap();
     let sessions = root.path().join("sessions/2026/11/01");
     std::fs::create_dir_all(&sessions).unwrap();
-    let agents = Arc::new(Agents {
+    let agents = Arc::new(Agents::new(Parts {
         occupancy: crate::occupancy::Occupancy::over(Default::default(), crate::logs::found::Stores::at(Some(root.path()), None, None)),
-        ..Agents::default()
-    });
+        ..Parts::default()
+    }));
     let mut changes = agents.events.subscribe();
     let _source = agents.watch_event_sources().await.unwrap();
     async fn changed(changes: &mut tokio::sync::broadcast::Receiver<crate::events::Change>) {
@@ -196,10 +197,10 @@ async fn listings_follow_what_the_watcher_read_of_the_stores() {
         )
         .unwrap();
     };
-    let agents = Arc::new(Agents {
+    let agents = Arc::new(Agents::new(Parts {
         occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::locate_in(root.path()), crate::logs::found::Stores::at(Some(root.path()), None, None)),
-        ..Agents::default()
-    });
+        ..Parts::default()
+    }));
     write("first");
     assert_eq!(agents.sightings().await.unwrap().len(), 1);
     // Unwatched, no copy of a read is kept: the next listing sees the change.
@@ -236,10 +237,10 @@ async fn source_summaries_ignore_transcript_appends_but_notice_title_changes() {
     std::fs::create_dir_all(&sessions).unwrap();
     let file = sessions.join("rollout-example.jsonl");
     std::fs::write(&file, "{\"type\":\"session_meta\",\"payload\":{\"id\":\"example\",\"cwd\":\"/srv/project\",\"source\":\"cli\"}}\n").unwrap();
-    let agents = Agents {
+    let agents = Agents::new(Parts {
         occupancy: crate::occupancy::Occupancy::over(Default::default(), crate::logs::found::Stores::at(Some(root.path()), None, None)),
-        ..Agents::default()
-    };
+        ..Parts::default()
+    });
     let before = source_summary(&agents).await.unwrap();
     assert_eq!(before.len(), 1);
     let mut writer = OpenOptions::new().append(true).open(file).unwrap();
@@ -266,10 +267,10 @@ async fn database_only_sessions_return_the_existing_transcript_error_and_refresh
         CREATE TABLE session_meta (chat_key TEXT PRIMARY KEY, title TEXT, working_dir TEXT, created_at INTEGER);
         CREATE TABLE sessions (chat_key TEXT, entry_kind TEXT, content TEXT, turn_index INTEGER, created_at INTEGER);
         INSERT INTO session_meta VALUES ('example', 'Original', '/srv/project', 100);").unwrap();
-    let agents = Arc::new(Agents {
+    let agents = Arc::new(Agents::new(Parts {
         occupancy: crate::occupancy::Occupancy::over(Default::default(), crate::logs::found::Stores::at(None, None, Some(root.path()))),
-        ..Agents::default()
-    });
+        ..Parts::default()
+    }));
     assert_eq!(
         source_summary(&agents).await.unwrap()[0].title.as_deref(),
         Some("Original")
@@ -583,10 +584,10 @@ async fn a_resume_window_can_extend_beyond_the_initial_two_hundred_entries() {
     let mut text: String = (0..250).map(line).collect();
     let file = folder.join(format!("{id}.jsonl"));
     std::fs::write(&file, &text).unwrap();
-    let agents = Agents {
+    let agents = Agents::new(Parts {
         occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::locate_in(root.path()), Default::default()),
-        ..Agents::default()
-    };
+        ..Parts::default()
+    });
     let mut request = FollowSession {
         agent: "claude".into(),
         session: id.into(),
@@ -987,10 +988,10 @@ fn read_retained() -> Read<'static> {
 #[tokio::test]
 async fn callers_asking_during_a_store_read_share_it() {
     let root = tempfile::tempdir().unwrap();
-    let agents = Agents {
+    let agents = Agents::new(Parts {
         occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::locate_in(root.path()), crate::logs::found::Stores::at(Some(root.path()), None, None)),
-        ..Agents::default()
-    };
+        ..Parts::default()
+    });
     let (first, second) = (agents.sightings(), crate::agents::reach::sighted_folders(&agents.occupancy));
     tokio::pin!(first, second);
     assert!(futures::poll!(first.as_mut()).is_pending());

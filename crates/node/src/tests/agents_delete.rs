@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::Parts;
 use crate::agents::{AgentKind, Begin};
 use std::{
     collections::BTreeMap,
@@ -88,11 +89,11 @@ impl Machine {
         }
 
         write(&root.join("outside.jsonl"), "keep me");
-        let agents = Agents {
-            catalog: Arc::new(crate::agents::catalog::Catalog::new(vec![kind("claude"), kind("codex"), kind("pi")], None, None)),
+        let agents = Agents::new(Parts {
+            kinds: vec![kind("claude"), kind("codex"), kind("pi")],
             occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::at(&root.join("claude")), crate::logs::found::Stores::at(Some(&root.join("codex")), Some(&root.join("pi")), None)),
-            ..Agents::default()
-        };
+            ..Parts::default()
+        });
         Self { dir, agents }
     }
 

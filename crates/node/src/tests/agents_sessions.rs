@@ -140,10 +140,10 @@ async fn recovery_blocks_new_sessions_and_open_sessions_block_recovery() {
 /// no others.
 fn reading(claude: &Path) -> (Agents, tempfile::TempDir) {
     let nothing = tempfile::tempdir().unwrap();
-    let agents = Agents {
+    let agents = Agents::new(Parts {
         occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::locate_in(claude), crate::logs::found::Stores::at(Some(nothing.path()), Some(nothing.path()), None)),
-        ..Agents::default()
-    };
+        ..Parts::default()
+    });
 
     (agents, nothing)
 }
