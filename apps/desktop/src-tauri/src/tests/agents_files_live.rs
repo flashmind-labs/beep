@@ -151,3 +151,44 @@ fn a_released_node_is_not_taken_to_name_who_created_a_worktree() {
     assert!(!names_creators(None));
     assert!(names_creators(Some("0.8.28")));
 }
+
+#[test]
+fn a_change_reads_again_only_the_places_of_sessions_working_in_its_folder() {
+    let (machine, _) = key("/srv/one");
+    let ask = |session: &str| -> PlaceAsk {
+        serde_json::from_value(json!({ "agent": "codex", "session": session, "external": true }))
+            .expect("a place ask")
+    };
+    let here = vec![ask("here")];
+    let elsewhere = vec![ask("elsewhere")];
+    let unknown = vec![ask("unknown")];
+    let mut held = Held::default();
+    held.places.insert(
+        machine,
+        vec![
+            ("main".into(), here.clone()),
+            ("main".into(), elsewhere.clone()),
+            ("main".into(), unknown),
+        ],
+    );
+    held.placed
+        .insert((machine, "here".into()), "/srv/one/.worktrees/fix".into());
+    held.placed
+        .insert((machine, "elsewhere".into()), "/srv/two".into());
+
+    assert_eq!(held.places_in(machine, "/srv/one"), [here.clone()]);
+    assert_eq!(
+        held.places_in(machine, "/srv/one/.worktrees/fix/src"),
+        [here]
+    );
+    assert_eq!(held.places_in(machine, "/srv/two"), [elsewhere]);
+    assert!(held.places_in(machine, "/srv/three").is_empty());
+
+    // A session no set holds any longer forgets its checkout.
+    held.places
+        .get_mut(&machine)
+        .expect("the machine's sets")
+        .remove(0);
+    held.forget_placed();
+    assert!(!held.placed.contains_key(&(machine, "here".into())));
+}

@@ -58,12 +58,18 @@ pub async fn agent_places(
     machine_id: String,
     asks: Vec<PlaceAsk>,
 ) -> Result<Places> {
-    // Asking makes the window follow the machine's folders: a change comes as a view.
-    if let Some(machine) = fleet.member(&machine_id) {
+    // Asking makes the window follow the folders its sessions work in: a change comes as a view.
+    let machine = fleet.member(&machine_id);
+    if let Some(machine) = machine {
         live.follow_places(window.label(), machine, &asks);
     }
 
-    places_of(&fleet, &machine_id, &asks).await
+    let places = places_of(&fleet, &machine_id, &asks).await?;
+    if let Some(machine) = machine {
+        live.placed(machine, &asks, &places);
+    }
+
+    Ok(places)
 }
 
 /// The slash commands and skills the running session `session` offers on

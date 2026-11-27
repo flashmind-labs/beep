@@ -1090,6 +1090,12 @@ pub struct PlaceAsk {
     external: bool,
 }
 
+impl PlaceAsk {
+    pub(crate) fn session(&self) -> &SessionId {
+        &self.session
+    }
+}
+
 /// Where each session of `asks` works, in order, as its node worked it out
 /// from what the agent records; `None` for one the node does not say. Beep's
 /// sessions come from one listing, however many are asked.

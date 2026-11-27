@@ -5,7 +5,7 @@
 //! topic, so the window takes them from the push instead of asking again. `views` hears
 //! the push, reserves the read here and sends the views.
 
-use super::file_reads::{places_of, tree_of};
+use super::file_reads::{Places, places_of, tree_of};
 use crate::fleet::{
     Fleet,
     agents::PlaceAsk,
@@ -13,6 +13,7 @@ use crate::fleet::{
     outbox::WindowOutbox,
     view_signal::{Update, View, join_changed},
 };
+use crate::palette_store::places::within;
 use beep_proto::{
     SessionId,
     node::{agent::Worktree, events::Topic},
@@ -71,6 +72,9 @@ pub(crate) struct FilesLive(Mutex<Held>);
 struct Held {
     folders: HashMap<(EndpointId, String), Folder>,
     places: HashMap<EndpointId, Vec<(String, Vec<PlaceAsk>)>>,
+    /// The checkout each session of `places` was last answered with: a change to a folder
+    /// reads again only the sets with a session in it.
+    placed: HashMap<(EndpointId, SessionId), String>,
     /// The topics whose reads are being made now, and the update that came meanwhile, which
     /// they are made again for.
     reading: HashMap<(EndpointId, Topic), Option<Update>>,
@@ -85,6 +89,37 @@ impl Held {
         let machines: HashSet<EndpointId> =
             self.folders.keys().map(|(machine, _)| *machine).collect();
         self.places.retain(|machine, _| machines.contains(machine));
+        self.forget_placed();
+    }
+
+    /// Drops the checkouts of sessions no set of places holds.
+    fn forget_placed(&mut self) {
+        let places = &self.places;
+        self.placed.retain(|(machine, session), _| {
+            places.get(machine).is_some_and(|sets| {
+                sets.iter()
+                    .any(|(_, asks)| asks.iter().any(|ask| ask.session() == session))
+            })
+        });
+    }
+
+    /// The sets of places of `machine` with a session whose checkout holds `root` or is in it.
+    fn places_in(&self, machine: EndpointId, root: &str) -> Vec<Vec<PlaceAsk>> {
+        let Some(sets) = self.places.get(&machine) else {
+            return Vec::new();
+        };
+        let touches = |ask: &PlaceAsk| {
+            self.placed
+                .get(&(machine, ask.session().clone()))
+                .is_some_and(|folder| within(folder, root) || within(root, folder))
+        };
+        let touched: Vec<_> = sets
+            .iter()
+            .filter(|(_, asks)| asks.iter().any(touches))
+            .cloned()
+            .collect();
+
+        distinct(&touched)
     }
 
     /// Drops the reads of windows that are gone, and the folders and machines left with none.
@@ -103,6 +138,7 @@ impl Held {
         }
 
         self.places.retain(|_, sets| !sets.is_empty());
+        self.forget_placed();
     }
 
     /// Whether the caller reads for `update` now: false when a read is running, which takes
@@ -190,6 +226,23 @@ impl FilesLive {
         let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         let sets = held.places.entry(machine).or_default();
         keep(sets, (window.to_owned(), asks.to_vec()), PLACES_KEPT);
+        held.forget_placed();
+    }
+
+    /// Keeps the checkout `places` answers for each session of `asks` on `machine`.
+    pub(crate) fn placed(&self, machine: EndpointId, asks: &[PlaceAsk], places: &Places) {
+        let Places::Found { places } = places else {
+            return;
+        };
+        let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+
+        for (ask, place) in asks.iter().zip(places) {
+            let key = (machine, ask.session().clone());
+            match place {
+                Some(place) => held.placed.insert(key, place.folder.clone()),
+                None => held.placed.remove(&key),
+            };
+        }
     }
 
     /// Ends what no window follows now: `followed` says whether a window follows a folder's
@@ -233,7 +286,7 @@ impl FilesLive {
     }
 
     /// What is followed for `topic`: the listings and worktrees of its folder, and the places
-    /// of the machine.
+    /// of the machine's sessions that work in it.
     fn followed(
         &self,
         machine: EndpointId,
@@ -249,11 +302,7 @@ impl FilesLive {
                 worktrees: distinct(&folder.worktrees),
             })
             .unwrap_or_default();
-        let places = held
-            .places
-            .get(&machine)
-            .map(|sets| distinct(sets))
-            .unwrap_or_default();
+        let places = held.places_in(machine, &root);
 
         (root, folder, places)
     }
@@ -375,7 +424,10 @@ pub(crate) async fn read(app: &AppHandle, machine: EndpointId, topic: &Topic) ->
         let (fleet, machine_id) = (&fleet, &machine_id);
         async move {
             match places_of(fleet, machine_id, &asks).await {
-                Ok(places) => View::new("agent_places", args, places),
+                Ok(places) => {
+                    app.state::<FilesLive>().placed(machine, &asks, &places);
+                    View::new("agent_places", args, places)
+                }
                 Err(error) => Some(View::failed("agent_places", args, &error.to_string())),
             }
         }
