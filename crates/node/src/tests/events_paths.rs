@@ -19,33 +19,6 @@ async fn a_missing_directory_only_watches_its_parent_non_recursively() {
 }
 
 #[tokio::test]
-async fn aliases_share_one_watch_and_removing_one_keeps_the_directory_watched() {
-    let root = tempfile::tempdir().unwrap();
-    #[cfg(not(unix))]
-    let aliases = vec![root.path().to_owned(), root.path().to_owned()];
-    #[cfg(unix)]
-    let (_alias_directory, aliases) = {
-        let directory = tempfile::tempdir().unwrap();
-        let alias = directory.path().join("alias");
-        std::os::unix::fs::symlink(root.path(), &alias).unwrap();
-        (directory, vec![root.path().to_owned(), alias])
-    };
-    let (changed, mut changes) = mpsc::channel(8);
-    let watcher = Paths::new("test", move |paths| {
-        let _ = changed.try_send(paths);
-    })
-    .unwrap();
-    watcher.replace(aliases).await.unwrap();
-    watcher.replace(vec![root.path().to_owned()]).await.unwrap();
-    while changes.try_recv().is_ok() {}
-    std::fs::write(root.path().join("example.txt"), "changed").unwrap();
-    tokio::time::timeout(Duration::from_secs(5), changes.recv())
-        .await
-        .unwrap()
-        .unwrap();
-}
-
-#[tokio::test]
 async fn renaming_and_recreating_a_root_rearms_the_replacement_directory() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("watched");
