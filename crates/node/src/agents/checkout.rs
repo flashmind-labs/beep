@@ -574,8 +574,10 @@ pub(crate) mod tests {
             "made from the base"
         );
         let exclude = fs::read_to_string(work.join(".git/info/exclude")).expect("the exclude");
+        // A global ignore file of the machine's user may cover it already.
         assert!(
-            exclude.lines().any(|line| line == ".worktrees/"),
+            exclude.lines().any(|line| line == ".worktrees/")
+                || git(&work, &["check-ignore", "--quiet", ".worktrees"]).is_ok(),
             "{exclude}"
         );
         assert_eq!(run(&work, &["status", "--porcelain"]), "");
