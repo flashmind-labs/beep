@@ -91,7 +91,7 @@ async fn set(own: Own, link: TeamLink, active: Mesh, offers: Offers) {
     let dir = own.dir.clone();
     let follow = follow(active.clone(), me, offers.clone());
     let reaches = crate::machine::elect::Reaches::new(active.clone());
-    let runs = crate::machine::ci::watch(
+    let runs = crate::upkeep::ci::watch(
         active.clone(),
         me,
         dir.clone(),

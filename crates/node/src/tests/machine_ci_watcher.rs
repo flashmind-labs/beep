@@ -1,5 +1,5 @@
 use super::*;
-use crate::machine::ci::check::Answer;
+use crate::upkeep::ci::check::Answer;
 use std::{future::pending, sync::atomic::Ordering::SeqCst};
 use tempfile::TempDir;
 

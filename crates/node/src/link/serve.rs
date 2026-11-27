@@ -118,7 +118,7 @@ pub async fn serve(
     // Only the CLI updates itself; the Mac app's node updates with the app.
     #[cfg(feature = "cli")]
     {
-        let updates = crate::machine::update::Updates::new(offers.agents.clone());
+        let updates = crate::upkeep::update::Updates::new(offers.agents.clone());
         offers.extra.push(Arc::new(updates));
     }
     // Files only when the owner shared folders in node.toml or a workspace.

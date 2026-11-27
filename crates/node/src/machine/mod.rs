@@ -1,9 +1,7 @@
 //! The machine itself: what it has (`env`, `stats`, `host`), installing and
-//! running the node (`service`, `update`, `provision`), the WSL
-//! distributions a Windows node runs as machines (`wsl`), and the watch on
-//! the CI runs of pinned projects (`ci`).
+//! running the node (`service`, `provision`), and the WSL distributions a
+//! Windows node runs as machines (`wsl`).
 
-pub(crate) mod ci;
 pub(crate) mod elect;
 pub mod env;
 pub mod host;
@@ -11,8 +9,6 @@ pub mod provision;
 pub mod service;
 pub(crate) mod sign_in;
 pub(crate) mod stats;
-#[cfg(feature = "cli")]
-pub mod update;
 pub mod wsl;
 
 /// The most open files the node asks for; the common soft limits, 256 on a

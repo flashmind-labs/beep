@@ -3,8 +3,11 @@
 //! for idle (`restart`), and asking a running node how it stands
 //! (`local_status`).
 
+pub(crate) mod ci;
 #[cfg(feature = "cli")]
 mod local_status;
+#[cfg(feature = "cli")]
+pub mod update;
 
 #[cfg(feature = "cli")]
 pub use local_status::local_status;

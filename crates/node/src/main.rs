@@ -3,8 +3,9 @@
 use beep_node::{
     agents::{Agents, claude::hooks},
     link::{self, peers, state},
-    machine::{env, host, service, update},
+    machine::{env, host, service},
     tools,
+    upkeep::update,
 };
 use beep_proto::SessionId;
 

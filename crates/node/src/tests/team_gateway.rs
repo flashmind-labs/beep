@@ -1,7 +1,7 @@
 use super::*;
 use crate::membership::team_repo_of;
 use crate::{
-    machine::ci::projects::pinned,
+    upkeep::ci::projects::pinned,
     team::{
         board::tests::{URL, member, repo},
         home::{Home, Project, picks_up, read},
