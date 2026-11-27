@@ -1,3 +1,4 @@
+import "./tauri-window.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { ProjectRow, SessionRow } from "../src/project/projects-state.ts";

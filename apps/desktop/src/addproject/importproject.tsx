@@ -8,7 +8,7 @@ import { syncthingImportChoice } from "../project/syncthing.ts";
 // default <Projects in>/<org>/<repo>), then Import.
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.tsx";
-import { START, next, looksLikeRepo, folderNote, goesInText, hasCustomFolder, keepLastImport, typedFolder } from "./importproject-state.ts";
+import { START, next, looksLikeRepo, folderNote, goesInText, hasCustomFolder, keepLastImport, projectsIn, typedFolder } from "./importproject-state.ts";
 export { keepLastImport };
 import type { ImportEvent } from "./importproject-state.ts";
 import type { MachineFolder, ProjectRow } from "../project/projects-state.ts";
@@ -248,11 +248,6 @@ function learnBase() {
     roots.set(machine, folder);
     if (mine === opening && root && state.machine === machine) { scheduleTypedFolder(true); draw(); }
   });
-}
-
-/// Where `machine` keeps its projects: its Projects in folder, else its home.
-export function projectsIn(machine: string): Promise<string> {
-  return invoke<string>("machine_search", { machineId: machine }).then(folder => folder.trim() || "~", () => "~");
 }
 
 /// Choose…: the picker of the machine's folders, opened where the folder shown is.

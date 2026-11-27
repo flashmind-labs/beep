@@ -9,7 +9,7 @@ import { openSheet } from "../ui/parts.tsx";
 import { openMenu } from "../ui/menu.tsx";
 import { cleanError } from "./importproject-state.ts";
 import { canCreate, pickHost, projectFolders, startForm, toggleMachine } from "./newproject-state.ts";
-import { projectsIn } from "./importproject.tsx";
+import { projectsIn } from "./importproject-state.ts";
 import type { Created, Forge, NewProjectForm } from "./newproject-state.ts";
 import type { ProjectRow } from "../project/projects-state.ts";
 

@@ -1,8 +1,10 @@
 // What the "Add a project" sheet decides, as pure functions so they can be
 // tested without Tauri: which found folders a search shows, which are
 // ticked, and running a batch of imports a few at a time.
-import { agentLabel } from "../project/projects-state.ts";
-import type { FoundRow } from "../project/projects-state.ts";
+import { agentLabel, importPlan } from "../project/projects-state.ts";
+import type { FoundRow, ProjectRow } from "../project/projects-state.ts";
+import { invoke } from "../ui/tauri.ts";
+import { reason } from "../ui/format.ts";
 
 /// At most this many imports run at once in a batch.
 export const IMPORTS_AT_ONCE = 3;
@@ -83,4 +85,67 @@ export function emptyText(looking: readonly string[], unread: readonly string[],
   if (looking.length) return null;
   if (unread.length) return unread.join(" ");
   return error || "No other folders yet.";
+}
+
+/// A machine of the mesh to ask for its checkouts (FoundMachine).
+export interface FoundMachine {
+  id: string;
+  name: string;
+}
+
+/// The found list after one machine looked again (FoundAfter): null rows
+/// when the ask itself failed.
+export interface FoundAfter {
+  rows: FoundRow[] | null;
+  problem: string | null;
+}
+
+/// Each machine's look again while it runs, so a second open shares it.
+const scans = new Map<string, Promise<FoundAfter>>();
+
+/// Has `machine` look for checkouts again, once at a time.
+function rescan(machine: FoundMachine) {
+  let scan = scans.get(machine.id);
+
+  if (!scan) {
+    scan = invoke<FoundAfter>("rescan_found", { machineId: machine.id })
+      .catch(e => ({ rows: null, problem: reason(e) }))
+      .finally(() => scans.delete(machine.id));
+    scans.set(machine.id, scan);
+  }
+
+  return scan;
+}
+
+/// Has every online machine look for checkouts again. `start` gets them as
+/// the looks begin, and `each` the list after each machine answers.
+export async function rescanAll(start: (machines: FoundMachine[]) => void, each: (machine: FoundMachine, after: FoundAfter) => void) {
+  let machines: FoundMachine[] = [];
+
+  try {
+    machines = await invoke<FoundMachine[]>("found_machines");
+  } catch (e) {
+    console.warn("found machines:", e);
+  }
+
+  start(machines);
+  await Promise.all(machines.map(machine => rescan(machine).then(after => each(machine, after))));
+}
+
+/// Imports a found row in place on each machine that has it.
+export async function importFound(row: FoundRow, syncthingFiles: boolean | null = null) {
+  let first: ProjectRow | null = null;
+
+  for (const one of importPlan(row)) {
+    try {
+      const project = await invoke<ProjectRow>("import_project", { ...one, syncthingFiles });
+      first = first || project;
+    } catch (e) {
+      if (!first) throw e;
+      console.warn(`linking ${row.name} on another machine:`, e);
+    }
+  }
+
+  if (!first) throw new Error("Nothing to import.");
+  return first;
 }

@@ -7,7 +7,7 @@ import { SyncthingChoice } from "../project/syncthing-choice.tsx";
 // origin remote offers Add, which adds it in place with no clone.
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.tsx";
-import { keepLastImport, projectsIn } from "./importproject.tsx";
+import { keepLastImport, projectsIn } from "./importproject-state.ts";
 import { cleanError, repoFromRemote } from "./importproject-state.ts";
 import { noOffer, startOn } from "./addfolder-state.ts";
 import type { FolderOffer } from "../project/addmachine-state.ts";

@@ -6,6 +6,7 @@ import { single } from "../ui/active.ts";
 import type { FoundRow } from "./projects-state.ts";
 import { state, pages, sessionsDue, homeDataChanged } from "../center/state.ts";
 import { go, openScreen } from "../center/nav.ts";
+import { importFound, rescanAll } from "../addproject/addproject-state.ts";
 
 /// Opens the Add a machine sheet; the machines topic brings the new one.
 export function openAddMachine() {
@@ -28,7 +29,7 @@ export function landed(p: { name: string }) {
 
 /// Opens the Import a project sheet; the project is selected once it is in.
 export function importSheet(repo: string | null = null, machine: string | null = null) {
-  openScreen({ screen: "importproject", repo, machine });
+  openScreen({ screen: "importproject", repo, machine, openAfter: true });
 }
 
 /// Opens the Add a project sheet: found folders, a folder, a clone, or a new project.
@@ -47,7 +48,6 @@ export const loadFound = single(async () => {
   }
 
   drawFound();
-  const { rescanAll } = await import("../addproject/addproject.tsx");
   await rescanAll(() => {}, (_, after) => {
     if (!after.rows) return;
     state.found = after.rows;
@@ -70,7 +70,6 @@ export async function importFromPage(row: FoundRow) {
   homeDataChanged.notify();
 
   try {
-    const { importFound } = await import("../addproject/addproject.tsx");
     const project = await importFound(row);
     state.importing = null;
     landed(project);

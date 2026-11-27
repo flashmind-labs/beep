@@ -10,7 +10,7 @@ import { pushedView } from "../ui/snapshot-state.ts";
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.tsx";
 import { reason } from "../ui/format.ts";
-import { projectsIn } from "../addproject/importproject.tsx";
+import { projectsIn } from "../addproject/importproject-state.ts";
 import { browseStart, copyLine, offers, shortName, type CopyLine, type FolderOffer } from "./addmachine-state.ts";
 import type { SyncDetail } from "./filesync.ts";
 import { plainPath } from "./filesync.ts";

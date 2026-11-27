@@ -1,8 +1,9 @@
 // Home's Open PRs and issues tab, and importing a repo from it.
-import { MACHINES } from "../machines/machine-store.ts";
 import { reason } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
+import { importFound } from "../addproject/addproject-state.ts";
 import { keepLastImport, lastImport } from "../addproject/importproject-state.ts";
+import { openScreen } from "./nav.ts";
 import { foundFor, type ProjectRow } from "../project/projects-state.ts";
 import { projectStart, projectsWithOpen, replyStart, type GitItemRow, type GitItemsView, type Hosts, type StartProject } from "./openitems-state.ts";
 import { agentButtons, earlierReview, startPrWork, startReview, workOnIssue } from "../project/composer.tsx";
@@ -93,7 +94,7 @@ export async function quickImport(p: OpenRepo) {
     // A checkout the machines found imports as it is, not as a second clone.
     if (!state.found) await loadFound();
     const here = foundFor(state.found, p.repo);
-    if (here) { const { importFound } = await import("../addproject/addproject.tsx"); await importFound(here); }
+    if (here) await importFound(here);
     else keepLastImport(await invoke<ProjectRow>("import_project", { repo: importRepo(p), machineId: machine.id, folder: null, worktrees: [] }));
     rowImports.delete(p.key);
   } catch (e) {
@@ -108,13 +109,7 @@ export async function quickImport(p: OpenRepo) {
 /// The Import a project sheet for the row's repository, on the last
 /// machine used.
 function importWithSettings(p: OpenRepo) {
-  const machine = importMachine();
-  void import("../addproject/importproject.tsx").then(m => m.openImportProject({
-    machines: state.home?.machines || [],
-    macId: MACHINES.mac?.id || null,
-    repo: importRepo(p),
-    machine: machine?.id ?? null,
-  }));
+  openScreen({ screen: "importproject", repo: importRepo(p), machine: importMachine()?.id ?? null, openAfter: false });
 }
 
 /// Reads the open items through the machines and the saved tokens; the

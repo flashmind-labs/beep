@@ -52,7 +52,7 @@ import { projectPlaces } from "./projectrows.ts";
 import { copyLine, shortName } from "./addmachine-state.ts";
 import type { SyncDetail } from "./filesync.ts";
 import { projectUnder } from "../addproject/importproject-state.ts";
-import { projectsIn } from "../addproject/importproject.tsx";
+import { projectsIn } from "../addproject/importproject-state.ts";
 import { startAttachments } from "../agents/start-attachments.tsx";
 import { useState } from "react";
 import { Button, SheetHead } from "../ui/kit.tsx";
