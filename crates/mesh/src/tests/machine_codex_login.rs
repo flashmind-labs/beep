@@ -40,22 +40,24 @@ fn only_openai_pages_are_passed_on() {
     assert_eq!(device_page("https://example.com"), None);
 }
 
-/// A node that pushes the sign-in task's status on a watch and answers nothing else: a direct
-/// ask would open a stream and panic.
-struct PushedStatus(tokio::sync::watch::Sender<crate::Followed>);
+/// A node that pushes the sign-in task's status and answers nothing else: a direct ask would
+/// open a stream and panic.
+fn pushing_node() -> (Arc<crate::Snapshots>, iroh::EndpointId, PeerClient) {
+    let snapshots = Arc::new(crate::Snapshots::default());
+    let id = iroh::SecretKey::generate().public();
+    snapshots.open_stream(id, sign_in_read().topic().unwrap());
+    let unasked: crate::SessionFn = Arc::new(|_, _| panic!("the output is pushed, not asked"));
+    let client = PeerClient::local(unasked).with_snapshots(snapshots.clone(), id);
 
-impl crate::SnapshotReader for PushedStatus {
-    fn snapshot(&self, _read: Read) -> crate::SnapshotFuture<'_> {
-        Box::pin(async { None })
-    }
-
-    fn follow(&self, _read: Read) -> crate::FollowFuture<'_> {
-        Box::pin(async { Some(self.0.subscribe()) })
-    }
+    (snapshots, id, client)
 }
 
-fn status(state: TaskState, text: &str) -> crate::Followed {
-    Some(Ok(Value::Process(process::Reply::Status {
+fn sign_in_read() -> Read {
+    Read::Process(process::Request::Status { id: TaskId(1) })
+}
+
+fn status(state: TaskState, text: &str) -> Value {
+    Value::Process(process::Reply::Status {
         task: process::Task {
             id: TaskId(1),
             command: CODEX_LOGIN.into(),
@@ -63,20 +65,17 @@ fn status(state: TaskState, text: &str) -> crate::Followed {
         },
         lines: lines(text),
         earlier: false,
-    })))
+    })
 }
 
 #[tokio::test]
 async fn the_code_is_taken_from_the_output_the_node_pushes() {
-    let (push, _) = tokio::sync::watch::channel(None);
-    let unasked: crate::SessionFn = Arc::new(|_, _| panic!("the output is pushed, not asked"));
-    let client =
-        PeerClient::local(unasked).with_snapshot_reader(Arc::new(PushedStatus(push.clone())));
+    let (snapshots, id, client) = pushing_node();
     let half: String = DEVICE_AUTH.lines().take(9).collect::<Vec<_>>().join("\n");
 
     let (prompt, ()) = tokio::join!(wait_for_code(&client, TaskId(1)), async {
-        push.send_replace(status(TaskState::Running, &half));
-        push.send_replace(status(TaskState::Running, DEVICE_AUTH));
+        snapshots.push(id, sign_in_read(), status(TaskState::Running, &half));
+        snapshots.push(id, sign_in_read(), status(TaskState::Running, DEVICE_AUTH));
     });
 
     assert_eq!(prompt.unwrap().code, "UZIW-O7IAI");
@@ -84,13 +83,14 @@ async fn the_code_is_taken_from_the_output_the_node_pushes() {
 
 #[tokio::test]
 async fn a_sign_in_that_ends_before_its_code_says_why() {
-    let (push, _) = tokio::sync::watch::channel(None);
-    let unasked: crate::SessionFn = Arc::new(|_, _| panic!("the output is pushed, not asked"));
-    let client =
-        PeerClient::local(unasked).with_snapshot_reader(Arc::new(PushedStatus(push.clone())));
+    let (snapshots, id, client) = pushing_node();
 
     let (prompt, ()) = tokio::join!(wait_for_code(&client, TaskId(1)), async {
-        push.send_replace(status(TaskState::Exited { code: Some(1) }, "network down"));
+        snapshots.push(
+            id,
+            sign_in_read(),
+            status(TaskState::Exited { code: Some(1) }, "network down"),
+        );
     });
 
     assert_eq!(prompt.unwrap_err(), "Codex could not sign in: network down");

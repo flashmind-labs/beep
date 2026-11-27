@@ -1,41 +1,44 @@
 use super::*;
 use crate::machine::said;
 use beep_proto::SessionId;
+use beep_proto::node::events::Topic;
 use iroh::SecretKey;
 use iroh::endpoint::VarInt;
 use std::future::pending;
 
-struct CurrentSessions;
+/// A node that pushes the session list and the Codex sign-in state, and is asked nothing.
+fn pushing_sessions() -> (Arc<Snapshots>, EndpointId) {
+    let snapshots = Arc::new(Snapshots::default());
+    let id = SecretKey::generate().public();
+    let list = Read::Sessions(Box::new(
+        beep_proto::node::agent::SessionsRequest::ListAll {},
+    ));
+    let sign_in = Read::SignIn {
+        tool: "codex".into(),
+    };
+    snapshots.open_stream(id, list.topic().unwrap());
+    snapshots.open_stream(id, sign_in.topic().unwrap());
+    snapshots.push(
+        id,
+        list,
+        Value::Sessions(Box::new(beep_proto::node::agent::SessionsReply::Sessions {
+            sessions: Vec::new(),
+        })),
+    );
+    snapshots.push(
+        id,
+        sign_in,
+        Value::SignIn(beep_proto::node::sign_in::State::SignedIn {}),
+    );
 
-impl SnapshotReader for CurrentSessions {
-    fn snapshot(&self, read: Read) -> SnapshotFuture<'_> {
-        Box::pin(async move {
-            match read {
-                Read::Sessions(request)
-                    if matches!(
-                        request.as_ref(),
-                        beep_proto::node::agent::SessionsRequest::ListAll {}
-                    ) =>
-                {
-                    Some(Ok(Value::Sessions(Box::new(
-                        beep_proto::node::agent::SessionsReply::Sessions {
-                            sessions: Vec::new(),
-                        },
-                    ))))
-                }
-                Read::SignIn { tool } if tool == "codex" => Some(Ok(Value::SignIn(
-                    beep_proto::node::sign_in::State::SignedIn {},
-                ))),
-                _ => None,
-            }
-        })
-    }
+    (snapshots, id)
 }
 
 #[tokio::test]
 async fn a_subscribed_sign_in_state_uses_its_snapshot_without_opening_an_rpc() {
     let unavailable: SessionFn = Arc::new(|_, _| panic!("a cached read must not open a stream"));
-    let client = PeerClient::local(unavailable).with_snapshot_reader(Arc::new(CurrentSessions));
+    let (snapshots, id) = pushing_sessions();
+    let client = PeerClient::local(unavailable).with_snapshots(snapshots, id);
     assert_eq!(
         crate::machine::sign_in(
             &client,
@@ -52,7 +55,8 @@ async fn a_subscribed_sign_in_state_uses_its_snapshot_without_opening_an_rpc() {
 #[tokio::test]
 async fn a_subscribed_session_read_uses_its_snapshot_without_opening_an_rpc() {
     let unavailable: SessionFn = Arc::new(|_, _| panic!("a cached read must not open a stream"));
-    let client = PeerClient::local(unavailable).with_snapshot_reader(Arc::new(CurrentSessions));
+    let (snapshots, id) = pushing_sessions();
+    let client = PeerClient::local(unavailable).with_snapshots(snapshots, id);
     assert!(
         crate::machine::sessions::list_all(&client)
             .await
@@ -61,13 +65,16 @@ async fn a_subscribed_session_read_uses_its_snapshot_without_opening_an_rpc() {
     );
 }
 
-/// A reader that would keep every read live: found checkouts must not use it.
-struct EveryRead;
+/// A node whose streams are all open, so that a read kept live would show as a query.
+fn every_stream_open() -> (Arc<Snapshots>, EndpointId) {
+    let snapshots = Arc::new(Snapshots::default());
+    let id = SecretKey::generate().public();
 
-impl SnapshotReader for EveryRead {
-    fn snapshot(&self, read: Read) -> SnapshotFuture<'_> {
-        Box::pin(async move { panic!("{read:?} was kept live") })
+    for topic in ["agents", "agent", "files", "moves", "processes"] {
+        snapshots.open_stream(id, Topic::new(topic));
     }
+
+    (snapshots, id)
 }
 
 #[tokio::test]
@@ -90,11 +97,13 @@ async fn found_checkouts_are_asked_once_and_never_kept_live() {
             .unwrap();
         })
     });
-    let client = PeerClient::local(node).with_snapshot_reader(Arc::new(EveryRead));
+    let (snapshots, id) = every_stream_open();
+    let client = PeerClient::local(node).with_snapshots(snapshots.clone(), id);
     let found = crate::machine::sessions::found_folders(&client, 7)
         .await
         .unwrap();
     assert!(found.is_empty());
+    assert!(snapshots.queries(id).is_empty());
 }
 
 /// Reads asked once go to the node as calls and never become live queries:
@@ -136,7 +145,8 @@ async fn one_off_reads_are_calls_and_never_kept_live() {
             tx.send(&reply).await.unwrap();
         })
     });
-    let client = PeerClient::local(node).with_snapshot_reader(Arc::new(EveryRead));
+    let (snapshots, id) = every_stream_open();
+    let client = PeerClient::local(node).with_snapshots(snapshots.clone(), id);
 
     let one = sessions::external(&client, "claude", 1, Some("example-session".into()));
     assert!(one.await.unwrap().is_empty());
@@ -181,18 +191,11 @@ async fn one_off_reads_are_calls_and_never_kept_live() {
         sessions::tree(&client, &list, Reading::Once).await.unwrap(),
         NodeWork::Done(_)
     ));
+    assert!(snapshots.queries(id).is_empty());
 }
 
 /// A subscription that never gives its snapshot, as while the node sets
 /// up a large file watch.
-struct Starting;
-
-impl SnapshotReader for Starting {
-    fn snapshot(&self, _read: Read) -> SnapshotFuture<'_> {
-        Box::pin(pending())
-    }
-}
-
 #[tokio::test(start_paused = true)]
 async fn a_followed_read_asks_the_node_when_its_subscription_is_slow() {
     use crate::machine::sessions::{self, NodeWork, Reading};
@@ -218,7 +221,10 @@ async fn a_followed_read_asks_the_node_when_its_subscription_is_slow() {
             .unwrap();
         })
     });
-    let client = PeerClient::local(node).with_snapshot_reader(Arc::new(Starting));
+    let snapshots = Arc::new(Snapshots::default());
+    let id = SecretKey::generate().public();
+    snapshots.open_stream(id, Topic::keyed("files", "/srv/project"));
+    let client = PeerClient::local(node).with_snapshots(snapshots, id);
     let list = beep_proto::ListWorkTree {
         machine_id: String::new(),
         root: "/srv/project".into(),
@@ -234,20 +240,7 @@ async fn a_followed_read_asks_the_node_when_its_subscription_is_slow() {
     ));
 }
 
-/// A reader whose subscriptions open one after the other: the first fails, the second ends,
-/// the third pushes the value.
-struct Reopening(std::sync::Mutex<Vec<tokio::sync::watch::Receiver<Followed>>>);
-
-impl SnapshotReader for Reopening {
-    fn snapshot(&self, _read: Read) -> SnapshotFuture<'_> {
-        Box::pin(async { None })
-    }
-
-    fn follow(&self, _read: Read) -> FollowFuture<'_> {
-        Box::pin(async { self.0.lock().unwrap().pop() })
-    }
-}
-
+/// A wait whose subscription fails, then ends, and is then open again with the value.
 #[tokio::test(start_paused = true)]
 async fn a_wait_opens_its_subscription_again_when_it_fails_or_ends() {
     use beep_proto::node::{events::Value, sync::Reply};
@@ -255,20 +248,48 @@ async fn a_wait_opens_its_subscription_again_when_it_fails_or_ends() {
     let status = Value::Sync(Box::new(Reply::Status {
         projects: Vec::new(),
     }));
-    let (_failed, failed) = tokio::sync::watch::channel(Some(Err("node failed".to_owned())));
-    let (ended, ending) = tokio::sync::watch::channel(None);
-    drop(ended);
-    let (_pushed, pushed) = tokio::sync::watch::channel(Some(Ok(status)));
-    let reader = Reopening(std::sync::Mutex::new(vec![pushed, ending, failed]));
+    let snapshots = Arc::new(Snapshots::default());
+    let id = SecretKey::generate().public();
+    let topic = Read::SyncList.topic().unwrap();
+    let generation = snapshots.open_stream(id, topic.clone());
     let unasked: SessionFn = Arc::new(|_, _| panic!("the status is pushed, not asked"));
-    let client = PeerClient::local(unasked).with_snapshot_reader(Arc::new(reader));
+    let client = PeerClient::local(unasked).with_snapshots(snapshots.clone(), id);
     let started = tokio::time::Instant::now();
 
-    let found = client
-        .snapshot_until(Read::SyncList, |value| {
-            matches!(value, Value::Sync(_)).then_some(())
-        })
-        .await;
+    let wait = client.snapshot_until(Read::SyncList, |value| {
+        matches!(value, Value::Sync(_)).then_some(())
+    });
+    let node = async {
+        let mut changes = snapshots.changes();
+        let asked = |snapshots: &Snapshots| !snapshots.queries(id).is_empty();
+
+        // The first subscription fails.
+        while !asked(&snapshots) {
+            changes.changed().await.unwrap();
+        }
+        snapshots.refuse(id, Read::SyncList, "node failed");
+
+        // The second ends: its stream goes, and is open again for the third.
+        loop {
+            changes.changed().await.unwrap();
+            if asked(&snapshots) {
+                break;
+            }
+        }
+        snapshots.end(id, generation);
+        snapshots.open_stream(id, topic.clone());
+
+        // The third pushes the value.
+        loop {
+            changes.changed().await.unwrap();
+            if asked(&snapshots) {
+                break;
+            }
+        }
+        snapshots.push(id, Read::SyncList, status);
+    };
+
+    let (found, ()) = tokio::join!(wait, node);
 
     assert!(found.is_ok());
     assert_eq!(started.elapsed(), RETRY * 2);

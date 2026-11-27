@@ -3,7 +3,7 @@
 
 use crate::mesh::Mark;
 use crate::timeouts::{OPEN_TIMEOUT, RETRY};
-use crate::{Mesh, MeshError};
+use crate::{Mesh, MeshError, Snapshots};
 use beep_proto::node::events::{Read, Value};
 use beep_proto::node::{LinkRx, LinkTx, Open, Opened, link, local_link};
 use beep_proto::watched;
@@ -24,7 +24,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
-use tokio::sync::watch;
 use tokio::task::spawn;
 use tokio::time::error::Elapsed;
 use tokio::time::timeout;
@@ -189,38 +188,6 @@ type OpenBi = Arc<
         + Sync,
 >;
 
-/// The current value of a subscribed read, or `None` to use an ordinary request.
-pub type SnapshotFuture<'a> =
-    Pin<Box<dyn Future<Output = Option<Result<Value, MeshError>>> + Send + 'a>>;
-
-/// A subscribed read as it stands: `None` until its first value, then each value the node
-/// pushes, or the reason it gave for failing.
-pub type Followed = Option<Result<Value, String>>;
-
-/// Demand for a subscribed read that lasts until it is dropped.
-pub type Hold = Box<dyn Send + Sync>;
-
-/// A subscription's pushed values once it is open, or `None` when none can own the read.
-pub type FollowFuture<'a> =
-    Pin<Box<dyn Future<Output = Option<watch::Receiver<Followed>>> + Send + 'a>>;
-
-/// A caller-owned source of live read projections.
-pub trait SnapshotReader: Send + Sync {
-    fn snapshot(&self, read: Read) -> SnapshotFuture<'_>;
-
-    /// Keeps `read` subscribed, whatever views are open, until the hold is dropped.
-    fn hold(&self, _read: &Read) -> Hold {
-        Box::new(())
-    }
-
-    /// `read` as its subscription holds it, changing with each push, once the subscription is
-    /// open; `None` when none can own it. A subscription that ends or fails is followed again
-    /// by calling this again.
-    fn follow(&self, _read: Read) -> FollowFuture<'_> {
-        Box::pin(async { None })
-    }
-}
-
 fn no_subscription() -> MeshError {
     MeshError::Link(anyhow::anyhow!("this node has no subscription to follow"))
 }
@@ -237,7 +204,8 @@ enum Via {
 pub struct PeerClient {
     via: Via,
     peer: Option<EndpointId>,
-    snapshots: Option<Arc<dyn SnapshotReader>>,
+    /// What the owner's nodes pushed, and the machine this client reads it for.
+    snapshots: Option<(Arc<Snapshots>, EndpointId)>,
     channels: Option<Mesh>,
 }
 
@@ -457,17 +425,17 @@ impl PeerClient {
         }
     }
 
-    /// Uses the owner's current snapshots for subscribed reads.
-    pub fn with_snapshot_reader(mut self, snapshots: Arc<dyn SnapshotReader>) -> Self {
-        self.snapshots = Some(snapshots);
+    /// Uses the owner's current snapshots of `machine` for subscribed reads.
+    pub fn with_snapshots(mut self, snapshots: Arc<Snapshots>, machine: EndpointId) -> Self {
+        self.snapshots = Some((snapshots, machine));
         self
     }
 
     /// Reads from a live subscription when one owns this resource.
     pub async fn snapshot(&self, read: Read) -> Option<Result<Value, MeshError>> {
-        let snapshots = self.snapshots.as_ref()?;
+        let (snapshots, machine) = self.snapshots.as_ref()?;
         let mut timing = CallTiming::snapshot(self.peer);
-        let value = snapshots.snapshot(read).await;
+        let value = snapshots.snapshot(*machine, read).await;
         timing.outcome = match &value {
             Some(Ok(_)) => "ok",
             Some(Err(_)) => "error",
@@ -485,12 +453,12 @@ impl PeerClient {
         read: Read,
         mut done: impl FnMut(&Value) -> Option<T>,
     ) -> Result<T, MeshError> {
-        let snapshots = self.snapshots.as_ref().ok_or_else(no_subscription)?;
-        let _hold = snapshots.hold(&read);
+        let (snapshots, machine) = self.snapshots.as_ref().ok_or_else(no_subscription)?;
+        let _hold = snapshots.hold(*machine, &read);
 
         loop {
             let mut followed = snapshots
-                .follow(read.clone())
+                .subscribe(*machine, read.clone())
                 .await
                 .ok_or_else(no_subscription)?;
 

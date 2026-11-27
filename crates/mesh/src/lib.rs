@@ -11,6 +11,7 @@ mod join;
 mod link;
 pub mod machine;
 mod mesh;
+mod snapshots;
 mod state;
 mod store;
 mod team;
@@ -19,10 +20,7 @@ mod timeouts;
 mod wire;
 
 pub(crate) use client::CALL_TIMEOUT;
-pub use client::{
-    DEADLINE, FollowFuture, Followed, Hold, Offline, PeerClient, SessionFn, SnapshotFuture,
-    SnapshotReader, with_deadline,
-};
+pub use client::{DEADLINE, Offline, PeerClient, SessionFn, with_deadline};
 pub use devices::{Device, DeviceKind};
 pub(crate) use devices::{DeviceOp, Devices, Merged, WriteLimit};
 pub use error::MeshError;
@@ -31,6 +29,7 @@ pub use mesh::{
     DEFAULT_TICKET_TTL, DeviceStatus, InUse, JoinProtocol, Lease, Mesh, MeshProtocol, PeerStream,
     router, transport_config,
 };
+pub use snapshots::{Followed, Heard, Hold, LINGER, Snapshots};
 pub use state::Key;
 pub(crate) use state::{Applied, Entry, Heads, State};
 pub use team::{TeamTicket, TeamWrites, keep_contacts, secret_hash, take_roster};

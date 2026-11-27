@@ -10,6 +10,8 @@ publish.workspace = true
 # Agent log pictures made small, by a node or the server. The phone draws
 # what it is given.
 thumbs = ["dep:image"]
+# `Snapshots` methods that make a node push, for tests of crates above.
+test-util = []
 
 [dependencies]
 anyhow.workspace = true
@@ -35,6 +37,7 @@ tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
 tokio-util.workspace = true
 tracing.workspace = true
 url.workspace = true
+uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
 # The default features carry the in-process terminal host the tests start.

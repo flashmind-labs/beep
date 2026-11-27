@@ -1,6 +1,7 @@
-//! Read projections owned by the currently demanded node streams.
+//! Read projections owned by the currently demanded node streams: what a node pushes, kept
+//! for the clients that read it.
 
-use beep_mesh::{FollowFuture, Hold, MeshError, SnapshotFuture, SnapshotReader};
+use crate::MeshError;
 use beep_proto::node::events::{
     self, MOVE_PROGRESS_TOPIC, Query, Read, Snapshot, TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC, Topic,
     Value,
@@ -15,18 +16,23 @@ use std::{
 use tokio::sync::{broadcast, watch};
 use uuid::Uuid;
 
-pub(crate) type Current = Option<std::result::Result<Value, String>>;
+/// A subscribed read as it stands: `None` until its first value, then each value the node
+/// pushes, or the reason it gave for failing.
+pub type Followed = Option<std::result::Result<Value, String>>;
+
+/// Demand for a subscribed read that lasts until it is dropped.
+pub type Hold = Box<dyn Send + Sync>;
 
 /// How long a live query keeps a changed value nobody read before it is
 /// dropped and the node stops reading it. A view that follows it reads
 /// again on each change; a read again within this reuses it.
-pub(super) const LINGER: Duration = Duration::from_secs(30);
+pub const LINGER: Duration = Duration::from_secs(30);
 
 struct Entry {
     query: Query,
     stream: Topic,
     used: u64,
-    current: watch::Sender<Current>,
+    current: watch::Sender<Followed>,
     /// Since when it has held a value no reader took.
     unread: Option<Instant>,
 }
@@ -45,15 +51,15 @@ struct Held {
 
 /// What a node said on a topic, told to whoever follows `Snapshots::heard`.
 #[derive(Clone)]
-pub(crate) struct Heard {
-    pub(crate) machine: EndpointId,
-    pub(crate) topic: Topic,
+pub struct Heard {
+    pub machine: EndpointId,
+    pub topic: Topic,
     /// What it answered; `None` when it refused the topic.
     answer: Option<Arc<Snapshot>>,
 }
 
 impl Heard {
-    pub(crate) fn said(machine: EndpointId, snapshot: &Arc<Snapshot>) -> Self {
+    pub fn said(machine: EndpointId, snapshot: &Arc<Snapshot>) -> Self {
         Self {
             machine,
             topic: snapshot.topic.clone(),
@@ -61,7 +67,7 @@ impl Heard {
         }
     }
 
-    pub(crate) fn refused(machine: EndpointId, topic: Topic) -> Self {
+    pub fn refused(machine: EndpointId, topic: Topic) -> Self {
         Self {
             machine,
             topic,
@@ -69,12 +75,13 @@ impl Heard {
         }
     }
 
-    pub(crate) fn value(&self) -> Option<&Value> {
+    pub fn value(&self) -> Option<&Value> {
         self.answer.as_ref().map(|snapshot| &snapshot.value)
     }
 }
 
-pub(crate) struct Snapshots {
+/// What the nodes pushed on the streams a desktop holds open, and the demand that keeps them open.
+pub struct Snapshots {
     held: Mutex<Held>,
     /// What the nodes say, for the bell and the team pages to follow.
     heard: broadcast::Sender<Heard>,
@@ -122,7 +129,7 @@ const HEARD_BACKLOG: usize = 1024;
 
 impl Snapshots {
     /// Tells the followers what a node said.
-    pub(super) fn tell(&self, heard: Heard) {
+    pub fn tell(&self, heard: Heard) {
         // Only what the bell and the team pages follow goes through: a busy topic such as a
         // terminal screen never fills the backlog.
         if !followed(&heard.topic) {
@@ -139,7 +146,7 @@ impl Snapshots {
 
     /// What each machine last said on each followed topic: a follower that was told it missed
     /// some takes its state from here.
-    pub(crate) fn latest(&self) -> Vec<Heard> {
+    pub fn latest(&self) -> Vec<Heard> {
         self.latest
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -148,16 +155,12 @@ impl Snapshots {
             .collect()
     }
 
-    pub(crate) fn heard(&self) -> broadcast::Receiver<Heard> {
+    pub fn heard(&self) -> broadcast::Receiver<Heard> {
         self.heard.subscribe()
     }
 
     /// Demands what waits hold on top of what views want, for the machines in `online`.
-    pub(super) fn add_holds(
-        &self,
-        wanted: &mut BTreeMap<EndpointId, Vec<Topic>>,
-        online: &[EndpointId],
-    ) {
+    pub fn add_holds(&self, wanted: &mut BTreeMap<EndpointId, Vec<Topic>>, online: &[EndpointId]) {
         let holds = watched::read_sent(&self.holds, Clone::clone);
 
         for (machine, topic) in holds {
@@ -170,11 +173,11 @@ impl Snapshots {
         }
     }
 
-    pub(super) fn holds(&self) -> watch::Receiver<Vec<(EndpointId, Topic)>> {
+    pub fn holds(&self) -> watch::Receiver<Vec<(EndpointId, Topic)>> {
         self.holds.subscribe()
     }
 
-    pub(super) fn reconcile(&self, wanted: &BTreeMap<EndpointId, Vec<Topic>>) {
+    pub fn reconcile(&self, wanted: &BTreeMap<EndpointId, Vec<Topic>>) {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
         let mut changed = held.machines.len() != wanted.len();
         held.machines.retain(|id, _| wanted.contains_key(id));
@@ -220,7 +223,7 @@ impl Snapshots {
         }
     }
 
-    pub(super) fn connected(&self, id: EndpointId, topic: Topic, generation: Uuid) -> bool {
+    pub fn connected(&self, id: EndpointId, topic: Topic, generation: Uuid) -> bool {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
 
         if let Some(machine) = held.machines.get_mut(&id)
@@ -242,7 +245,7 @@ impl Snapshots {
         false
     }
 
-    pub(super) fn end(&self, id: EndpointId, generation: Uuid) {
+    pub fn end(&self, id: EndpointId, generation: Uuid) {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
 
         if let Some(machine) = held.machines.get_mut(&id)
@@ -258,7 +261,7 @@ impl Snapshots {
         }
     }
 
-    pub(super) fn queries_for(&self, id: EndpointId, topic: &Topic) -> Vec<Query> {
+    pub fn queries_for(&self, id: EndpointId, topic: &Topic) -> Vec<Query> {
         let held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
         held.machines
             .get(&id)
@@ -273,7 +276,7 @@ impl Snapshots {
             .unwrap_or_default()
     }
 
-    pub(super) fn queries(&self, id: EndpointId) -> Vec<Query> {
+    pub fn queries(&self, id: EndpointId) -> Vec<Query> {
         self.held
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -289,16 +292,11 @@ impl Snapshots {
             .unwrap_or_default()
     }
 
-    pub(super) fn changes(&self) -> watch::Receiver<()> {
+    pub fn changes(&self) -> watch::Receiver<()> {
         self.changed.subscribe()
     }
 
-    pub(super) fn install(
-        &self,
-        id: EndpointId,
-        generation: Uuid,
-        snapshot: &Snapshot,
-    ) -> Option<bool> {
+    pub fn install(&self, id: EndpointId, generation: Uuid, snapshot: &Snapshot) -> Option<bool> {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
         let machine = held
             .machines
@@ -325,13 +323,7 @@ impl Snapshots {
         None
     }
 
-    pub(super) fn failed(
-        &self,
-        id: EndpointId,
-        generation: Uuid,
-        query: u64,
-        reason: String,
-    ) -> bool {
+    pub fn failed(&self, id: EndpointId, generation: Uuid, query: u64, reason: String) -> bool {
         let held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
 
         if let Some(machine) = held.machines.get(&id)
@@ -345,28 +337,13 @@ impl Snapshots {
         false
     }
 
-    pub(crate) fn reader(self: &Arc<Self>, id: EndpointId) -> Arc<dyn SnapshotReader> {
-        Arc::new(Reader {
-            snapshots: self.clone(),
-            id,
-        })
-    }
-
     /// Holds `read` on machine `id` for as long as the receiver lives: its node keeps pushing
     /// the value, and nothing sweeps it. `None` when the machine's stream for it is not open.
-    pub(crate) fn follow(
+    pub fn register(
         &self,
         id: EndpointId,
         read: Read,
-    ) -> Option<std::result::Result<watch::Receiver<Current>, MeshError>> {
-        self.register(id, read)
-    }
-
-    fn register(
-        &self,
-        id: EndpointId,
-        read: Read,
-    ) -> Option<std::result::Result<watch::Receiver<Current>, MeshError>> {
+    ) -> Option<std::result::Result<watch::Receiver<Followed>, MeshError>> {
         let topic = read.topic()?;
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
         let machine = held.machines.get(&id)?;
@@ -448,7 +425,7 @@ impl Snapshots {
     /// Drops the queries of `stream` on machine `id` that changed and were
     /// not read again within `LINGER` by `now`, so the node stops reading
     /// them; whether any went.
-    pub(super) fn sweep(&self, id: EndpointId, stream: &Topic, now: Instant) -> bool {
+    pub fn sweep(&self, id: EndpointId, stream: &Topic, now: Instant) -> bool {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(machine) = held.machines.get_mut(&id) else {
             return false;
@@ -514,72 +491,137 @@ fn wait_for_snapshot(read: &Read) -> Duration {
     }
 }
 
-struct Reader {
-    snapshots: Arc<Snapshots>,
-    id: EndpointId,
-}
-
-impl SnapshotReader for Reader {
-    fn hold(&self, read: &Read) -> Hold {
+impl Snapshots {
+    /// Keeps `read` subscribed on machine `id`, whatever views are open, until the hold is
+    /// dropped.
+    pub fn hold(self: &Arc<Self>, id: EndpointId, read: &Read) -> Hold {
         let Some(topic) = read.topic() else {
             return Box::new(());
         };
-        self.snapshots
-            .holds
-            .send_modify(|holds| holds.push((self.id, topic.clone())));
+        self.holds
+            .send_modify(|holds| holds.push((id, topic.clone())));
 
         Box::new(Holding {
-            snapshots: self.snapshots.clone(),
-            machine: self.id,
+            snapshots: self.clone(),
+            machine: id,
             topic,
         })
     }
 
-    fn follow(&self, read: Read) -> FollowFuture<'_> {
-        Box::pin(async move {
-            read.topic()?;
-            let mut changes = self.snapshots.changes();
+    /// `read` on machine `id` as its subscription holds it, changing with each push, once the
+    /// subscription is open; `None` when none can own it. A subscription that ends or fails is
+    /// followed again by calling this again.
+    pub async fn subscribe(&self, id: EndpointId, read: Read) -> Option<watch::Receiver<Followed>> {
+        read.topic()?;
+        let mut changes = self.changes();
 
-            loop {
-                match self.snapshots.follow(self.id, read.clone()) {
-                    Some(Ok(current)) => return Some(current),
-                    Some(Err(_)) => return None,
-                    None => {}
-                }
-
-                changes.changed().await.ok()?;
+        loop {
+            match self.register(id, read.clone()) {
+                Some(Ok(current)) => return Some(current),
+                Some(Err(_)) => return None,
+                None => {}
             }
-        })
+
+            changes.changed().await.ok()?;
+        }
     }
 
-    fn snapshot(&self, read: Read) -> SnapshotFuture<'_> {
-        Box::pin(async move {
-            let wait = wait_for_snapshot(&read);
-            let mut current = match self.snapshots.register(self.id, read)? {
-                Ok(current) => current,
-                Err(error) => return Some(Err(error)),
-            };
-            Some(
-                match tokio::time::timeout(wait, watched::wait_for(&mut current, Option::is_some))
-                    .await
-                {
-                    Ok(Ok(())) => match watched::read(&current, Clone::clone) {
-                        Some(Ok(value)) => Ok(value),
-                        Some(Err(reason)) => Err(error(&reason)),
-                        None => Err(error("the subscription did not provide its snapshot")),
-                    },
-                    // The read can outlive its view's subscription.
-                    Ok(Err(_)) => return None,
-                    // A busy node can take longer. The caller asks it directly meanwhile, which is
-                    // no failure, and the query stays registered: the snapshot that comes late
-                    // serves the next read at once.
-                    Err(_) => return None,
+    /// The current value of `read` on machine `id` from its subscription, or `None` to use an
+    /// ordinary request.
+    pub async fn snapshot(&self, id: EndpointId, read: Read) -> Option<Result<Value, MeshError>> {
+        let wait = wait_for_snapshot(&read);
+        let mut current = match self.register(id, read)? {
+            Ok(current) => current,
+            Err(error) => return Some(Err(error)),
+        };
+        Some(
+            match tokio::time::timeout(wait, watched::wait_for(&mut current, Option::is_some)).await
+            {
+                Ok(Ok(())) => match watched::read(&current, Clone::clone) {
+                    Some(Ok(value)) => Ok(value),
+                    Some(Err(reason)) => Err(error(&reason)),
+                    None => Err(error("the subscription did not provide its snapshot")),
                 },
-            )
-        })
+                // The read can outlive its view's subscription.
+                Ok(Err(_)) => return None,
+                // A busy node can take longer. The caller asks it directly meanwhile, which is
+                // no failure, and the query stays registered: the snapshot that comes late
+                // serves the next read at once.
+                Err(_) => return None,
+            },
+        )
+    }
+}
+
+/// A node that tests make push: the machine's stream is open, and each read is answered by what
+/// the test says.
+#[cfg(any(test, feature = "test-util"))]
+impl Snapshots {
+    /// Demands `topic` on `id` and opens its stream, as a view that wants it would, unless it
+    /// is open; the stream's generation.
+    pub fn open_stream(&self, id: EndpointId, topic: Topic) -> Uuid {
+        let mut wanted: BTreeMap<EndpointId, Vec<Topic>> = {
+            let held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+
+            if let Some(open) = held
+                .machines
+                .get(&id)
+                .and_then(|machine| machine.streams.get(&topic))
+            {
+                return *open;
+            }
+            held.machines
+                .iter()
+                .map(|(id, machine)| (*id, machine.topics.clone()))
+                .collect()
+        };
+        let topics = wanted.entry(id).or_default();
+
+        if !topics.contains(&topic) {
+            topics.push(topic.clone());
+        }
+        self.reconcile(&wanted);
+        let generation = Uuid::new_v4();
+        self.connected(id, topic, generation);
+        generation
+    }
+
+    /// Has the node push `value` as the answer to `read`.
+    pub fn push(&self, id: EndpointId, read: Read, value: Value) {
+        self.answer(id, read, |query, topic| Snapshot {
+            topic,
+            query: Some(query),
+            revision: 1,
+            value,
+        });
+    }
+
+    /// Has the node fail `read` with `reason`.
+    pub fn refuse(&self, id: EndpointId, read: Read, reason: &str) {
+        let (query, generation) = self.query_of(id, read);
+        self.failed(id, generation, query, reason.to_owned());
+    }
+
+    fn answer(&self, id: EndpointId, read: Read, snapshot: impl FnOnce(u64, Topic) -> Snapshot) {
+        let topic = read.topic().expect("a read that has a topic");
+        let (query, generation) = self.query_of(id, read);
+        self.install(id, generation, &snapshot(query, topic));
+    }
+
+    /// The query of `read` on `id`, registered if it is not yet, and its stream's generation.
+    fn query_of(&self, id: EndpointId, read: Read) -> (u64, Uuid) {
+        drop(self.register(id, read.clone()).expect("an open stream"));
+        let held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        let machine = &held.machines[&id];
+        let entry = machine
+            .entries
+            .values()
+            .find(|entry| entry.query.read == read)
+            .expect("a registered query");
+        (entry.query.id, machine.streams[&entry.stream])
     }
 }
 
 #[cfg(test)]
-#[path = "../../tests/fleet_events_snapshots.rs"]
+#[path = "tests/snapshots.rs"]
 mod tests;
