@@ -1088,6 +1088,8 @@ while read -r line; do :; done
     append(&tree);
     let listed = agents.listed_with_places(false).await;
     let place = listed[0].place.as_ref().expect("a reported checkout");
+    // macOS temp folders sit behind a `/var` link that git resolves.
+    let tree = tree.canonicalize().expect("the linked checkout");
     assert_eq!(place.folder, tree.to_string_lossy());
     assert!(place.linked);
     assert_eq!(place.branch.as_deref(), Some("fix"));
@@ -1135,6 +1137,7 @@ async fn native_places_skip_an_unreadable_transcript() {
         .expect("native places remain available");
 
     assert_eq!(places.len(), 1);
+    let repo = repo.canonicalize().expect("the checkout");
     assert_eq!(
         places[&SessionId::from(CLAUDE_ID)].folder,
         repo.to_string_lossy()

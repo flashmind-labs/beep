@@ -34,8 +34,9 @@ use tokio_util::task::AbortOnDropHandle;
 
 /// Why a call to an attached device fails once its view is gone.
 const VIEW_STOPPED: &str = "the device's view stopped";
-/// How long a machine has to list its devices.
-const LIST_LIMIT: Duration = Duration::from_secs(15);
+/// How long a machine has to list its devices: a Mac asks `devicectl` for up
+/// to 20 s and `simctl` can take 17 s with nothing booted.
+const LIST_LIMIT: Duration = Duration::from_secs(30);
 /// How long a machine has to start or stop a device.
 const POWER_LIMIT: Duration = Duration::from_secs(60);
 /// How long reading what a screen shows may take.
