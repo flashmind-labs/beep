@@ -1,3 +1,3 @@
 ### Changed
 
-- Desktop: wide tables in agent replies use the free space beside the chat column before scrolling.
+- Desktop: agent chat uses the full pane width, and tables are centered at their natural width.
