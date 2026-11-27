@@ -706,6 +706,89 @@ async fn a_session_goes_by_the_agents_id_and_ends_with_the_node() {
     assert_eq!(ended.state.error.as_deref(), Some(session::NODE_STOPPED));
 }
 
+/// A regression guard rather than a test of one fix: it passes before the
+/// owners were split too. No owner or task of the node holds the
+/// composition or an upper owner once the node stopped.
+#[cfg(unix)]
+#[tokio::test]
+async fn nothing_holds_an_owner_once_the_node_stopped_and_agents_is_dropped() {
+    use iroh::{Endpoint, SecretKey, endpoint::presets};
+    use std::sync::Weak;
+    use tokio_util::task::AbortOnDropHandle;
+
+    let dir = tempfile::tempdir().unwrap();
+    let kind = sh_agent("codex", NAMING_ADAPTER);
+    let agents = Arc::new(Agents::new(Parts {
+        kinds: vec![kind.clone()],
+        search: Some(dir.path().join("search.sqlite")),
+        ..Parts::default()
+    }));
+    let endpoint = Endpoint::builder(presets::Minimal)
+        .secret_key(SecretKey::generate())
+        .bind()
+        .await
+        .unwrap();
+    let mesh = beep_mesh::Mesh::create(&dir.path().join("mesh"), endpoint.clone(), "build-box")
+        .await
+        .unwrap();
+    let session = agents
+        .starter
+        .start(&kind, Some("/"), Begin::default())
+        .await
+        .unwrap();
+    let mut live = session.live.clone();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        watched::wait_for(&mut live, |live| live.agent_session.is_some()),
+    )
+    .await
+    .expect("the agent gives its id")
+    .expect("the session is still there");
+    agents.search.open().await.expect("the index opens");
+    let search = AbortOnDropHandle::new(tokio::spawn(crate::agents::follow_search(
+        mesh.clone(),
+        agents.search.clone(),
+        agents.transcripts.clone(),
+    )));
+    let moves = AbortOnDropHandle::new(tokio::spawn(crate::agents::follow_moves(
+        mesh,
+        endpoint,
+        dir.path().join("moves"),
+        agents.moves.clone(),
+        agents.starter.clone(),
+        agents.family.clone(),
+        agents.usage.clone(),
+        agents.catalog.clone(),
+    )));
+    tokio::task::yield_now().await;
+
+    agents.shutdown().await;
+    let owners = (
+        Arc::downgrade(&agents.sessions),
+        Arc::downgrade(&agents.family),
+        Arc::downgrade(&agents.starter),
+        Arc::downgrade(&agents.moves),
+        Arc::downgrade(&agents.search),
+    );
+    let node = Arc::downgrade(&agents);
+    drop(agents);
+    for follow in [search, moves] {
+        follow.abort();
+        let _ = follow.await;
+    }
+    drop(session);
+    drop(live);
+
+    let (sessions, family, starter, moves, search): (Weak<_>, Weak<_>, Weak<_>, Weak<_>, Weak<_>) =
+        owners;
+    assert!(node.upgrade().is_none(), "something holds the composition");
+    assert!(sessions.upgrade().is_none(), "something holds Sessions");
+    assert!(family.upgrade().is_none(), "something holds Family");
+    assert!(starter.upgrade().is_none(), "something holds Starter");
+    assert!(moves.upgrade().is_none(), "something holds Moves");
+    assert!(search.upgrade().is_none(), "something holds Opener");
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn a_resumed_session_replaces_the_ended_run_in_listings() {

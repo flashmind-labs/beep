@@ -182,6 +182,7 @@ pub(crate) use requests::{TRANSCRIPT_PROTOCOL, serve_transcripts, transcript_rep
 pub(crate) use search::follow as follow_search;
 #[cfg(feature = "host")]
 pub(crate) use session::{Answered, Asking};
+#[cfg(feature = "host")]
 pub(crate) use session_stream::send_session;
 #[cfg(feature = "host")]
 pub use session_stream::serve_session;
@@ -212,9 +213,11 @@ pub struct Agents {
     /// The agents it can start, how their adapters stand and the user's
     /// settings for them.
     pub catalog: Arc<catalog::Catalog>,
+    pub(crate) sessions: Arc<sessions::Sessions>,
+    /// The sessions that started sessions, and the children on other machines.
+    pub(crate) links: Arc<family::links::Links>,
     /// What sessions spend and how much of the agents' plans is left.
     pub(crate) usage: Arc<usage::Usage>,
-    pub(crate) sessions: Arc<sessions::Sessions>,
     /// What sessions did that the user would want to hear about.
     alerts: Arc<AlertHub>,
     /// What git says of the folders sessions and peers read.
@@ -223,30 +226,28 @@ pub struct Agents {
     lsp: lsp::Pool,
     /// The CI runs this node tells, and how it reaches the hosts.
     pub(crate) ci: Arc<ci::Ci>,
-    /// How the moves of sessions to this machine stand.
-    pub(crate) moves: Arc<moving::Moves>,
     /// What file requests may reach: the shared folders and the sessions'.
     pub(crate) reach: Arc<reach::Reach>,
-    /// The sessions that started sessions, and the children on other machines.
-    pub(crate) links: Arc<family::links::Links>,
     /// The reviews reviewers handed in, and the reviewers running.
     pub(crate) reviews: Arc<reviews::kept::Reviews>,
-    /// The search index, once the mesh opened it.
-    pub(crate) search: Arc<search::Opener>,
     /// The sessions kept across the last stop, and whether they were resumed.
     pub reopen: Arc<reopen::Reopen>,
     /// What the node has read of the folders it lists sessions in.
     pub listings: Arc<listings::Listings>,
+    /// The watchers of the agents' stores, while clients follow them.
+    pub(crate) bridge: Arc<follow::sources::EventBridge>,
+    /// The search index, once the mesh opened it.
+    pub(crate) search: Arc<search::Opener>,
     /// Deletes ended sessions and the background children that closed.
     pub(crate) delete: Arc<delete::Delete>,
+    /// How the moves of sessions to this machine stand.
+    pub(crate) moves: Arc<moving::Moves>,
     /// Who is whose child, and what the children tell their parents.
     pub(crate) family: Arc<family::Family>,
     /// Reads a session's transcript, live or found.
     pub(crate) transcripts: Arc<transcripts::Transcripts>,
     /// Starts sessions and puts each in its family.
     pub(crate) starter: Arc<running::Starter>,
-    /// The watchers of the agents' stores, while clients follow them.
-    pub(crate) bridge: Arc<follow::sources::EventBridge>,
 }
 
 #[cfg(feature = "host")]
@@ -364,27 +365,27 @@ impl Agents {
         ));
 
         Self {
-            bridge,
-            delete,
-            family,
-            transcripts,
-            starter,
-            listings,
-            events: events.clone(),
-            usage,
-            occupancy: parts.occupancy.clone(),
-            reviews,
-            reopen,
-            links,
-            reach,
-            sessions,
+            occupancy: parts.occupancy,
+            events,
             catalog,
-            search,
+            sessions,
+            links,
+            usage,
             alerts,
             checkouts,
             lsp: lsp::Pool::default(),
             ci: Arc::default(),
+            reach,
+            reviews,
+            reopen,
+            listings,
+            bridge,
+            search,
+            delete,
             moves,
+            family,
+            transcripts,
+            starter,
         }
     }
 
