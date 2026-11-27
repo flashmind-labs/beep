@@ -89,6 +89,9 @@ pub fn to_html(markdown: &str) -> String {
                     "mermaid-pending".into(),
                 )))
             }
+            // A tag the cleaner would drop shows as written: `<title>` or `<textarea>` would
+            // otherwise turn the rest of the reply into text.
+            Event::Html(raw) | Event::InlineHtml(raw) if !allowed_tags(&raw) => Event::Text(raw),
             other => other,
         });
     let events = autolink(TextMergeStream::new(events))
@@ -121,6 +124,23 @@ pub fn to_html(markdown: &str) -> String {
         })
         .clean(&out)
         .to_string()
+}
+
+/// Whether every tag in `raw` is one the cleaner keeps, MathML included; comments count as kept,
+/// since the cleaner drops them alone.
+fn allowed_tags(raw: &str) -> bool {
+    let mut allowed = ammonia::Builder::default().clone_tags();
+    allowed.extend(MATH_TAGS);
+
+    raw.split('<').skip(1).all(|after| {
+        let name: String = after
+            .trim_start_matches('/')
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+            .collect::<String>()
+            .to_ascii_lowercase();
+        name.is_empty() || allowed.contains(name.as_str())
+    })
 }
 
 /// Markdown as one run of inline HTML for a short preview, such as a

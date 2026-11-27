@@ -72,7 +72,7 @@ fn a_pasted_block_folds_and_stays_text() {
 fn renders_markdown_and_drops_scripts() {
     let html = to_html("**hi** <script>alert(1)</script> [x](javascript:alert(1))");
     assert!(html.contains("<strong>hi</strong>"));
-    assert!(!html.contains("script"));
+    assert!(!html.contains("<script"), "{html}");
     assert!(!html.contains("javascript:"));
 }
 
@@ -244,7 +244,7 @@ fn math_is_cleaned_too() {
 fn a_reply_cannot_add_a_button() {
     let html = to_html("x <button data-copy=\"https://x.example\">y</button>");
     assert!(!html.contains("<button"), "{html}");
-    assert!(!html.contains("data-copy"), "{html}");
+    assert!(html.contains("&lt;button"), "{html}");
 }
 
 #[test]
@@ -261,4 +261,19 @@ fn a_notification_reply_renders_inline_without_html_or_links() {
         "Merged into <strong>main</strong> as <code>b09a9be</code>. see the PR"
     );
     assert_eq!(plain_text(reply), "Merged into main as b09a9be. see the PR");
+}
+
+#[test]
+fn an_unknown_tag_shows_as_text_and_keeps_the_rest() {
+    let html = to_html("a `Note: {x}` note named <title>. Then **bold** and <kbd>K</kbd>.");
+    assert!(html.contains("&lt;title&gt;"), "{html}");
+    assert!(html.contains("<strong>bold</strong>"), "{html}");
+    assert!(html.contains("<kbd>K</kbd>"), "{html}");
+}
+
+#[test]
+fn a_known_html_block_still_renders() {
+    let html = to_html("<details>\n<summary>More</summary>\n\nhidden\n\n</details>");
+    assert!(html.contains("<details>"), "{html}");
+    assert!(html.contains("<summary>More</summary>"), "{html}");
 }
