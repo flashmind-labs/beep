@@ -1,8 +1,8 @@
 //! What streams order a session to do, and the questions it asks.
 
 use super::{
-    Answered, Command, MAX_ASKED, MAX_PLAN, MAX_QUEUED, MAX_QUEUED_BYTES,
     actor::{Actor, Asked, Reply, Waiting, agent_title},
+    types::{Answered, Command, MAX_ASKED, MAX_PLAN, MAX_QUEUED, MAX_QUEUED_BYTES},
 };
 use crate::agents::{acp::{self, Prompt}, live::Live};
 use crate::text::cut;

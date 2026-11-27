@@ -1,11 +1,9 @@
 //! Temporary attachments on this host, outside project checkouts.
 
 use beep_proto::SessionId;
-use super::work_folder::{self, UNUSED, WorkRoot, idle, prune};
-use super::Agents;
+use super::{live::Live, work_folder::{self, UNUSED, WorkRoot, idle}};
 use crate::{fs::paths, lock};
 use anyhow::{Context, Result, bail};
-use beep_proto::node::agent::Status;
 use beep_proto::watched;
 use beep_proto::AGENT_FILE_CHUNK;
 use serde::{Deserialize, Serialize};
@@ -14,14 +12,17 @@ use std::{
     fs::{self, File},
     io::{ErrorKind, Read},
     path::{Component, Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::Mutex,
     time::{Duration, SystemTime},
 };
-use tokio_util::task::AbortOnDropHandle;
+use tokio::sync::watch;
 use uuid::Uuid;
 
+mod maintain;
+
+pub(crate) use maintain::maintain;
+
 const DAY: Duration = Duration::from_secs(24 * 60 * 60);
-const SWEEP_EVERY: Duration = Duration::from_secs(60 * 60);
 /// In a session's attachment folder: when the session last ended.
 const ENDED: &str = "ended";
 const DRAFT: &str = "draft";
@@ -40,59 +41,6 @@ pub(super) fn folder() -> Option<PathBuf> {
 
 pub(super) fn is_draft(agent: &str, session: &SessionId) -> bool {
     agent == DRAFT && Uuid::parse_str(session.as_ref()).is_ok()
-}
-
-/// Cleanup runs hourly from the first hour on, so sessions are back after a
-/// restart, and stops with the node.
-pub(crate) fn maintain(agents: Arc<Agents>) -> AbortOnDropHandle<()> {
-    AbortOnDropHandle::new(tokio::spawn(async move {
-        let start = tokio::time::Instant::now() + SWEEP_EVERY;
-        let mut every = tokio::time::interval_at(start, SWEEP_EVERY);
-        every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
-        loop {
-            every.tick().await;
-            let (running, folders) = sessions(&agents);
-            let done = tokio::task::spawn_blocking(move || -> Result<()> {
-                let now = SystemTime::now();
-
-                for folder in folders {
-                    prune(&work_folder::uploads(&folder), now)?;
-                }
-
-                let _writing = lock(&WRITING);
-
-                if let Some(cache) = folder() {
-                    sweep(&cache, now, &running)?;
-                }
-
-                Ok(())
-            })
-            .await;
-
-            if let Err(e) = done.unwrap_or_else(|e| Err(e.into())) {
-                log::warn!("could not clean temporary attachments: {e:#}");
-            }
-        }
-    }))
-}
-
-/// The attachment owners of the sessions still running, and the folders
-/// every known session works in.
-fn sessions(agents: &Agents) -> (HashSet<String>, HashSet<PathBuf>) {
-    let mut running = HashSet::new();
-    let mut folders = HashSet::new();
-
-    for session in agents.session_map().values() {
-        watched::read(&session.live, |live| {
-            if live.status() != Status::Ended {
-                running.insert(owner(&live.info.agent, &live.info.id));
-            }
-            folders.insert(PathBuf::from(&live.info.cwd));
-        });
-    }
-
-    (running, folders)
 }
 
 /// Marks the session's attachments to go a day from now unless it runs again.
@@ -116,11 +64,11 @@ pub(super) fn write(
     offset: u64,
     size: u64,
     data: &[u8],
-    running: Option<&super::Session>,
+    running: Option<&watch::Receiver<Live>>,
 ) -> Result<String> {
     let _writing = lock(&WRITING);
 
-    if running.is_some_and(|session| watched::read(&session.live, |live| live.closing)) {
+    if running.is_some_and(|live| watched::read(live, |live| live.closing)) {
         bail!("the session is closed; its attachments were removed");
     }
 

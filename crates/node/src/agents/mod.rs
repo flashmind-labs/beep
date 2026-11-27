@@ -126,7 +126,7 @@ host! {
         kinds: watch::Sender<Arc<Vec<AgentKind>>>,
         /// The adapters the node installs itself.
         adapters: installs::Installs,
-        sessions: sessions::Sessions,
+        pub(crate) sessions: sessions::Sessions,
         /// Serializes changes to a stored session against resuming it, one
         /// lock for each session by the agent's own id; see `store_of`.
         session_store: Mutex<HashMap<SessionId, std::sync::Weak<AsyncMutex<()>>>>,

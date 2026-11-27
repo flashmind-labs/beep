@@ -1,7 +1,8 @@
 //! The transcript and state of a session: entries, spend and questions.
 
 use super::{
-    CLAUDE_RATE_LIMIT, Live, MAX_ENTRIES, MAX_ENTRY, TurnTokens,
+    Live, TurnTokens,
+    limits::{CLAUDE_RATE_LIMIT, MAX_ENTRIES, MAX_ENTRY},
     content::{cut, detail},
     tools::CodexChild,
 };

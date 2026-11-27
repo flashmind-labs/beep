@@ -15,11 +15,11 @@ use std::{
 };
 use tokio::sync::watch;
 
-pub(super) type Map = HashMap<SessionId, Arc<Session>>;
+pub(crate) type Map = HashMap<SessionId, Arc<Session>>;
 
 /// The node's sessions.
 #[derive(Default)]
-pub(super) struct Sessions {
+pub(crate) struct Sessions {
     map: watch::Sender<Arc<Map>>,
     /// The starts that hold an id and have no session yet. Locked for each
     /// reservation and insert, so an id is checked and taken in one step.
@@ -43,6 +43,11 @@ impl Sessions {
     /// The sessions now. A later change does not show in it.
     pub(super) fn read(&self) -> Arc<Map> {
         watched::read_sent(&self.map, Arc::clone)
+    }
+
+    /// The map as it changes, for what follows the sessions.
+    pub(crate) fn subscribe(&self) -> watch::Receiver<Arc<Map>> {
+        self.map.subscribe()
     }
 
     /// Takes the id for a new session, or the agent's `resume`

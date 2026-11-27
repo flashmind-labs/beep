@@ -160,7 +160,7 @@ impl Actor {
             ),
             _ => (StopReason::Other, None),
         };
-        let tokens = super::turns::reported_tokens(
+        let tokens = super::tokens::reported_tokens(
             idle.meta.as_ref(),
             idle.usage.as_ref().map(|usage| usage.total_tokens),
         );

@@ -1,3 +1,4 @@
+use super::super::limits::MAX_ENTRIES;
 use super::*;
 use beep_proto::node::agent::SessionInfo;
 use serde_json::json;

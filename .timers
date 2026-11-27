@@ -170,7 +170,7 @@ crates/node/src/agents/skill_library/follow.rs | follow | sleep#1 | debounce | l
 crates/node/src/agents/skill_library/follow.rs | follow | sleep_until#1 | retry | tries a failed skill fetch again after 15 min
 crates/node/src/agents/skills/follow.rs | follow | interval#1 | outside | looks at skill files every 2 min only when no watcher runs
 crates/node/src/agents/skills/follow.rs | follow | sleep_until#1 | retry | tries a machine that did not answer again after 5 s
-crates/node/src/agents/uploads.rs | maintain | interval_at#1 | outside | hourly cleanup of old upload files on disk
+crates/node/src/agents/uploads/maintain.rs | maintain | interval_at#1 | outside | hourly cleanup of old upload files on disk
 crates/node/src/files/sync/peer.rs | pull | sleep#1 | retry | pulls from the peer again after a pause
 crates/node/src/files/sync/project/apply.rs | blob_from | sleep_until#1 | pace | flushes a write batch once it is old enough
 crates/node/src/files/sync/project/apply.rs | blob_from | sleep_until#2 | ui | publishes file progress every 500 ms

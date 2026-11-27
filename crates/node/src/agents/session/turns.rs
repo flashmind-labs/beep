@@ -1,20 +1,19 @@
 //! A session's turns: prompts, steers, stops and compaction.
 
 use super::{
-    MAX_RUNNING_TOOLS,
-    actor::{Actor, PendingSteer, Reply, Stopping, Turn, stop_reason},
+    actor::{Actor, HeldEnd, PendingSteer, Reply, Stopping, Turn, stop_reason},
+    tokens::turn_tokens,
+    types::MAX_RUNNING_TOOLS,
 };
-use crate::agents::{acp::{self, Prompt}, compaction::{COMPACT_PROMPT, COMPACTED_ENTRY, TurnEnd, summary_note}, image_files, live::{TurnFiles, TurnMade, TurnTokens, TurnWorktrees}, made_files, worktrees};
-use crate::text::cut;
+use crate::agents::{acp::{self, Prompt}, compaction::{COMPACT_PROMPT, COMPACTED_ENTRY, TurnEnd, summary_note}, image_files, live::{TurnFiles, TurnMade, TurnWorktrees}, made_files, worktrees};
 use agent_client_protocol::{
     Agent, ConnectionTo,
     v1::schema::{CancelNotification, PromptResponse, SessionId, SessionUpdate, ToolCallStatus},
 };
 use anyhow::Result;
 use beep_proto::node::agent::{AlertKind, EntryKind, State, Status, StopReason};
-use beep_proto::node::usage::{MAX_MODEL_NAME, MAX_TURN_MODELS, ModelTokens};
 use beep_proto::watched;
-use beep_proto::{MAX_AGENT_IMAGES, MAX_AGENT_IMAGES_TOTAL, ModelId};
+use beep_proto::{MAX_AGENT_IMAGES, MAX_AGENT_IMAGES_TOTAL};
 use futures::FutureExt;
 use serde_json::Value;
 use std::{
@@ -27,13 +26,6 @@ use tokio::task::spawn_blocking;
 /// How long a turn's end waits for running subagents that send nothing
 /// before it alerts anyway: a Codex subagent may never say it ended.
 pub(super) const SUBAGENTS_QUIET: Duration = Duration::from_secs(30 * 60);
-
-/// A turn's end, held while subagents it started run.
-pub(super) struct HeldEnd {
-    pub(super) ended: AlertKind,
-    /// When it alerts without word from the subagents.
-    pub(super) due: tokio::time::Instant,
-}
 
 impl Actor {
     /// Marks the running turn as stopping for the user, at once, and gives
@@ -635,45 +627,6 @@ impl Actor {
             live.info.state.queued_messages = messages;
         });
     }
-}
-
-/// The tokens a turn used: `_meta.quota` as claude-agent-acp and
-/// codex-acp give it, `token_count.totalTokens` with `model_usage` rows by
-/// model, else the response's own `usage`, which any agent may send.
-/// Nothing from an agent that says neither.
-pub(super) fn turn_tokens(done: &PromptResponse) -> TurnTokens {
-    reported_tokens(
-        done.meta.as_ref(),
-        done.usage.as_ref().map(|usage| usage.total_tokens),
-    )
-}
-
-pub(super) fn reported_tokens(
-    meta: Option<&serde_json::Map<String, Value>>,
-    usage: Option<u64>,
-) -> TurnTokens {
-    let total = |count: &Value| count.get("totalTokens").and_then(Value::as_u64);
-    let quota = meta.and_then(|meta| meta.get("quota"));
-    let models = quota
-        .and_then(|quota| quota.get("model_usage"))
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|row| {
-            Some(ModelTokens {
-                model: ModelId::new(cut(row.get("model")?.as_str()?, MAX_MODEL_NAME)),
-                tokens: total(row.get("token_count")?)?,
-            })
-        })
-        .filter(|row| row.tokens > 0)
-        .take(MAX_TURN_MODELS)
-        .collect();
-    let total = quota
-        .and_then(|quota| quota.get("token_count"))
-        .and_then(total)
-        .or(usage)
-        .unwrap_or(0);
-    TurnTokens { total, models }
 }
 
 /// The steers waiting, as one prompt: their words in order and their

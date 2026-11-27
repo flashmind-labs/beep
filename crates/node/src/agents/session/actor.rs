@@ -1,8 +1,8 @@
 //! The session's task: the ACP connection, its replies and the agent's events.
 
 use super::{
-    Answered, Command, EVENTS, NODE_STOPPED, Order, STDERR_LINES,
-    turns::{HeldEnd, turn_tokens},
+    tokens::turn_tokens,
+    types::{Answered, Command, EVENTS, NODE_STOPPED, Order, STDERR_LINES},
 };
 use crate::agents::{acp::{self, AsyncTask, ModelSwitch, Offered, Prompt}, alerts::AlertHub, checkouts::Checkouts, compaction::{Compactor, TurnEnd}, launch::{AgentIn, AgentOut, Running, Started}, live::{Live, TurnTokens}, made_files};
 use crate::known::known;
@@ -223,6 +223,13 @@ pub(super) struct Node {
     pub(super) running: Option<crate::occupancy::Running>,
 }
 
+/// A turn's end, held while subagents it started run.
+pub(super) struct HeldEnd {
+    pub(super) ended: AlertKind,
+    /// When it alerts without word from the subagents.
+    pub(super) due: tokio::time::Instant,
+}
+
 pub(super) struct Actor {
     pub(super) live: watch::Sender<Live>,
     pub(super) node: Node,
@@ -421,7 +428,7 @@ pub(super) struct Inputs<'a> {
     pub(super) stderr: &'a mut mpsc::Receiver<String>,
     /// The agent, whose bridge says when its CLI started.
     pub(super) running: &'a mut Running,
-    pub(super) processes: &'a super::Processes,
+    pub(super) processes: &'a crate::agents::processes::Processes,
 }
 
 impl Actor {
@@ -429,11 +436,11 @@ impl Actor {
         mut self,
         agent: Started,
         mut orders: crate::actor::Receiver<Order>,
-        processes: Arc<super::Processes>,
+        processes: Arc<crate::agents::processes::Processes>,
         opening: Opening,
-        kept: super::Kept,
+        kept: super::types::Kept,
     ) {
-        let _cleanup = super::super::processes::Cleanup(processes.clone());
+        let _cleanup = crate::agents::processes::Cleanup(processes.clone());
         let _watch = processes.watch(self.live.subscribe());
         // Kills the agent's whole process group however the task ends,
         // aborted with its session included; `stop` below is the gentle way.
@@ -492,7 +499,7 @@ impl Actor {
                 );
                 let continuation = interrupted.then(|| {
                     Prompt::from(crate::tags::context(
-                        super::CONTINUE,
+                        super::types::CONTINUE,
                     ))
                 });
                 continuation
@@ -604,7 +611,7 @@ impl Actor {
         (stdin, stdout): (AgentIn, AgentOut),
         stderr: &mut mpsc::Receiver<String>,
         running: &mut Running,
-        processes: &super::Processes,
+        processes: &crate::agents::processes::Processes,
         orders: &mut crate::actor::Receiver<Order>,
         opening: Opening,
     ) -> Result<End> {

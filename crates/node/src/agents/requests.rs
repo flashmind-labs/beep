@@ -358,7 +358,7 @@ pub async fn serve_sessions(
                     offset,
                     size,
                     &data,
-                    running.as_deref(),
+                    running.as_ref().map(|session| &session.live),
                 )?;
                 Ok(SessionsReply::Written { path })
             };

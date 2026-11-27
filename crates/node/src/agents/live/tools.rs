@@ -1,8 +1,10 @@
 //! Tool calls, the subagents they start and what they show.
 
 use super::{
-    ARTIFACT_TOOL, EDIT_KINDS, Live, MAX_ENTRY, MAX_FILES, MAX_LINE, MAX_STEPS, SKILL_TOOL,
+    Live,
     content::{cut, image_picture, parent_tool},
+    limits::{ARTIFACT_TOOL, EDIT_KINDS, MAX_ENTRY, MAX_FILES, MAX_LINE, MAX_STEPS, SKILL_TOOL},
+    state::{BeepCall, Sent, ToolCall},
 };
 use crate::calls::Tool as BeepTool;
 use crate::logs::found::folder_place::call_folder;
@@ -18,56 +20,11 @@ use beep_proto::{AgentToolCall, node::agent::EntryKind};
 use serde_json::{Map, Value};
 use std::{borrow::Cow, path::Path};
 
-#[derive(Debug, Default)]
-pub(super) struct ToolCall {
-    /// Its entry, counted from the start of the session.
-    pub(super) entry: u64,
-    pub(super) title: String,
-    pub(super) kind: ToolKind,
-    pub(super) status: ToolCallStatus,
-    pub(super) paths: Vec<String>,
-    /// What it showed, already cut to an entry's length.
-    pub(super) output: String,
-    /// The image lines of the pictures it showed.
-    pub(super) pictures: Vec<String>,
-    /// The subagent's tool call this one ran in, whose entry shows it.
-    pub(super) parent: Option<ToolCallId>,
-    /// The calls a subagent this tool started ran, in order.
-    pub(super) steps: Vec<ToolCallId>,
-    /// The subagent it started, when the call says it starts one.
-    pub(super) subagent: Option<Subagent>,
-    /// A call to the node's own `beep` server, titled from its arguments.
-    pub(super) beep: Option<BeepCall>,
-    /// Its command went to the background and still runs, though the call
-    /// itself completed.
-    pub(super) backgrounded: bool,
-    /// The skill a Claude Code `Skill` call loads.
-    pub(super) skill: Option<String>,
-    /// How far the files a `send_files` call sends have gone.
-    pub(super) sent: Option<Sent>,
-    pub(super) details: AgentToolCall,
-}
-
-/// The bytes a `send_files` call has sent, of all it sends. Its entry
-/// shows them as `[sent] <done> <total>` while it runs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Sent {
-    pub(crate) done: u64,
-    pub(crate) total: u64,
-}
-
 /// The name a call carries: its own, else the one in its metadata.
 fn tool_name(name: Option<&str>, meta: Option<&Map<String, Value>>) -> Option<String> {
     name.filter(|name| !name.is_empty())
         .map(|name| cut(name, 240))
         .or_else(|| tool_details::name(meta))
-}
-
-/// A `beep` server call and its arguments as far as they have come.
-#[derive(Debug)]
-pub(super) struct BeepCall {
-    pub(super) tool: BeepTool,
-    pub(super) input: Option<Value>,
 }
 
 /// A Codex subagent among a session's entries, whose steps are read from

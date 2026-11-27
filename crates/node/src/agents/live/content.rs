@@ -1,6 +1,6 @@
 //! Reading what the agent sends: pictures, cut text and thoughts.
 
-use super::MAX_LINE;
+use super::limits::MAX_LINE;
 pub(crate) use crate::text::cut;
 pub(super) use crate::text::push_cut;
 use crate::logs::picture::{Picture, data_url, picture_of};

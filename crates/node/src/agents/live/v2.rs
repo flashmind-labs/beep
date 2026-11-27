@@ -2,8 +2,10 @@
 //! the session actor; presentation snapshots reuse the existing tool renderer.
 
 use super::{
-    Live, MAX_ENTRIES, MAX_ENTRY, MAX_LAST_MESSAGE, MAX_PLAN,
+    Live,
     content::{cut, push_cut},
+    limits::{MAX_ENTRIES, MAX_ENTRY, MAX_LAST_MESSAGE, MAX_PLAN},
+    state::Message,
 };
 use agent_client_protocol::{schema::MaybeUndefined, v1::schema as v1, v2::schema as v2};
 use beep_proto::{
@@ -11,24 +13,6 @@ use beep_proto::{
     node::agent::{EntryKind, PlanStatus},
 };
 use serde_json::Value;
-use std::collections::HashMap;
-
-#[derive(Debug, Default)]
-pub(super) struct Projection {
-    messages: HashMap<v2::MessageId, Message>,
-    tools: HashMap<v2::ToolCallId, v2::ToolCallUpdate>,
-    terminals: HashMap<v2::TerminalId, (u64, v2::TerminalUpdate)>,
-    pending: Option<u64>,
-    last_agent: Option<u64>,
-    pruned: u64,
-    deferred: Vec<v2::SessionUpdate>,
-}
-
-#[derive(Debug)]
-struct Message {
-    entry: u64,
-    optimistic: bool,
-}
 
 impl Live {
     pub(crate) fn v2_submitted(&mut self) {

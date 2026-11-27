@@ -1,7 +1,7 @@
 //! The commands an agent runs in the background, from its `async_task_*`
 //! updates, and the tool calls that started them.
 
-use super::{AutonomousTurn, Live, MAX_LINE, MAX_TASKS, content::cut, tools::ToolCall};
+use super::{AutonomousTurn, Live, content::cut, limits::{MAX_LINE, MAX_TASKS}, state::ToolCall};
 use crate::agents::acp::AsyncTask;
 use agent_client_protocol::v1::schema::{Meta, ToolCallId};
 use beep_proto::node::agent::{Status, Task, TaskState};

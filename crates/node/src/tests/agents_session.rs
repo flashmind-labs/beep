@@ -2,6 +2,9 @@
 #![cfg_attr(windows, allow(dead_code, unused_imports))]
 
 use super::*;
+use super::types::{MAX_QUEUED, MAX_QUEUED_BYTES};
+use beep_proto::ModelId;
+use beep_proto::node::agent::{AnswerOption, Effort};
 use super::{
     orders::{choose, queue_room},
     turns::take_steers,
@@ -2476,7 +2479,7 @@ async fn an_explicit_close_refuses_late_uploads_before_the_agent_stops() {
         0,
         1,
         b"x",
-        Some(&session),
+        Some(&session.live),
     )
     .unwrap_err();
     assert!(error.to_string().contains("session is closed"), "{error:#}");

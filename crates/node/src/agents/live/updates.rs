@@ -1,10 +1,13 @@
 //! Applying the agent's `session/update` notifications.
 
 use super::{
-    ARTIFACT_TOOL, EDIT_KINDS, Live, MAX_COMMANDS, MAX_COMPACTIONS, MAX_DESCRIPTION, MAX_ENTRY,
-    MAX_LAST_MESSAGE, MAX_LINE, MAX_PLAN, MAX_THOUGHT, OpenThought, TurnFiles, TurnMade, TurnWorktrees,
+    Live, OpenThought, TurnFiles, TurnMade, TurnWorktrees,
     content::{cut, image_picture, push_cut, replayed, thought_line},
-    tools::ToolCall,
+    limits::{
+        ARTIFACT_TOOL, EDIT_KINDS, MAX_COMMANDS, MAX_COMPACTIONS, MAX_DESCRIPTION, MAX_ENTRY,
+        MAX_LAST_MESSAGE, MAX_LINE, MAX_PLAN, MAX_THOUGHT,
+    },
+    state::ToolCall,
 };
 use crate::agents::{compaction::{CLAUDE_CONTINUATION, COMPACTED_ENTRY, MAX_SUMMARY, summary_note}, image_files};
 use crate::logs::picture::Picture;

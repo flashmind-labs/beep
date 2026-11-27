@@ -1,8 +1,7 @@
 //! The search index reads a session when its activity or metadata changes.
 //! Failed reads back off. Notifications start a pass without skipping a wait.
 
-use super::Conversation;
-use beep_proto::SessionId;
+use beep_proto::{SessionId, node::agent::SearchSession};
 use std::{collections::HashMap, time::Duration};
 use tokio::{
     sync::Notify,
@@ -15,6 +14,14 @@ pub(super) const PASS_GAP: Duration = Duration::from_secs(60);
 /// often up to `RETRY_MOST`.
 const RETRY_FIRST: Duration = Duration::from_secs(30);
 const RETRY_MOST: Duration = Duration::from_secs(600);
+
+/// A session as the index last read it.
+#[derive(PartialEq, Eq)]
+pub(super) struct Conversation {
+    pub(super) id: SessionId,
+    pub(super) last_activity: u64,
+    pub(super) metadata: SearchSession,
+}
 
 /// What the indexer knows of each session in this run, by identity.
 #[derive(Default)]

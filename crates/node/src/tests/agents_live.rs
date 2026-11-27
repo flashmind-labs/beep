@@ -1,4 +1,5 @@
 use super::content::{replayed, thought_line};
+use super::limits::*;
 use super::*;
 use crate::agents::{compaction::COMPACTED_ENTRY, image_files};
 use crate::text::cut;
@@ -1557,7 +1558,7 @@ fn a_running_file_send_shows_the_bytes_sent_until_it_ends() {
         "status": "in_progress", "_meta": {"claudeCode": {"toolName": "mcp__beep__files"}},
         "rawInput": {"action": "send", "machine": "build-box", "paths": ["app.apk"]}
     })));
-    let sent = tools::Sent {
+    let sent = state::Sent {
         done: 400,
         total: 1200,
     };

@@ -1,4 +1,4 @@
-use super::AgentKind;
+use crate::agents::kinds::AgentKind;
 use agent_client_protocol::v1::schema::McpServer;
 use anyhow::{Context, Result};
 use serde::Serialize;

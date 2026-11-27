@@ -12,7 +12,7 @@ use beep_proto::{
     node::agent::{EntryKind, IndexRow, SearchHit, SearchSession, SessionInfo},
 };
 use futures::{StreamExt, stream};
-use schedule::{Due, Pacer, Schedule};
+use schedule::{Conversation, Due, Pacer, Schedule};
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
@@ -59,13 +59,6 @@ enum Pass {
     /// Stopped after saving some pages: the next pass goes on.
     Partial,
     Failed,
-}
-
-#[derive(PartialEq, Eq)]
-struct Conversation {
-    id: SessionId,
-    last_activity: u64,
-    metadata: SearchSession,
 }
 
 impl SearchIndex {
