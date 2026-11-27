@@ -144,13 +144,13 @@ crates/node/src/agents/follow/sources.rs | observe_external | sleep_until#1 | de
 crates/node/src/agents/follow/sources.rs | watch_event_sources | sleep#1 | debounce | waits 400 ms for summary requests to settle
 crates/node/src/agents/installs.rs | install_adapters | sleep#1 | outside | hourly detection of installed adapters; woken early by events
 crates/node/src/agents/lsp/mod.rs | query_definition | sleep#1 | retry | repeats a language server definition call once
-crates/node/src/agents/mcp/children.rs | wait_for_settled | sleep#1 | deadline | bounds how long a wait on a child lasts
-crates/node/src/agents/mcp/children.rs | wait_for_settled | sleep#2 | compat | rereads a remote child's view every 5 s for nodes before 0.8.25, which send no settle notes
-crates/node/src/agents/mcp/devices.rs | drive | sleep#1 | pace | lets the screen settle before the screenshot
-crates/node/src/agents/mcp/devices.rs | view | sleep#1 | pace | pause after each input sent to a device
-crates/node/src/agents/mcp/devices.rs | view | sleep_until#1 | deadline | ends an idle device view
-crates/node/src/agents/mcp/machines.rs | show_sent | sleep#1 | pace | shows send progress at most once a second
-crates/node/src/agents/mcp/peer_tools.rs | sync_project | sleep_until#1 | deadline | bounds the wait for a project sync to settle
+crates/node/src/tools/children.rs | wait_for_settled | sleep#1 | deadline | bounds how long a wait on a child lasts
+crates/node/src/tools/children.rs | wait_for_settled | sleep#2 | compat | rereads a remote child's view every 5 s for nodes before 0.8.25, which send no settle notes
+crates/node/src/tools/devices.rs | drive | sleep#1 | pace | lets the screen settle before the screenshot
+crates/node/src/tools/devices.rs | view | sleep#1 | pace | pause after each input sent to a device
+crates/node/src/tools/devices.rs | view | sleep_until#1 | deadline | ends an idle device view
+crates/node/src/tools/machines.rs | show_sent | sleep#1 | pace | shows send progress at most once a second
+crates/node/src/tools/peer_tools.rs | sync_project | sleep_until#1 | deadline | bounds the wait for a project sync to settle
 crates/node/src/agents/moving/dial.rs | poll_target | sleep#1 | compat | asks a move target every 2 to 10 s for nodes before 0.8.28, which cannot follow
 crates/node/src/agents/moving/dial.rs | watch_target | sleep#1 | retry | follows a lost target again after 5 s
 crates/node/src/agents/moving/source.rs | target_outcome | sleep#1 | retry | asks the target for the outcome again after 500 ms
