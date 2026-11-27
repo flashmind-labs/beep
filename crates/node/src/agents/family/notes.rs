@@ -115,7 +115,6 @@ impl Agents {
             .ok_or_else(|| format!("{} {}.", super::NO_AGENT, note.id))?;
         let session = self
             .sessions
-
             .get(parent)
             .ok_or_else(|| format!("There is no session {parent} here."))?;
         let id = format!("{}@{}", kid.id, kid.name);

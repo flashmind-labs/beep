@@ -147,7 +147,6 @@ async fn follow(
     let mut presence = agents.occupancy.presence().subscribe();
     let mut live = agents
         .sessions
-
         .get(&request.session)
         .map(|session| session.live.clone());
     // A Claude Code session started outside Beep is found once, and the
@@ -337,7 +336,6 @@ async fn follow(
         if live.is_none() {
             live = agents
                 .sessions
-
                 .get(&request.session)
                 .map(|session| session.live.clone());
         }

@@ -446,7 +446,6 @@ pub async fn serve_sessions(
         SessionsRequest::Commands { session } => SessionsReply::Commands {
             commands: agents
                 .sessions
-
                 .get(&session)
                 .map(|found| found.commands())
                 .unwrap_or_default(),
