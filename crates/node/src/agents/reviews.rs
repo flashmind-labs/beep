@@ -301,7 +301,7 @@ async fn follow(agents: Arc<Agents>, session: Arc<Session>) {
 
     // A reviewer is temporary: its harness's own files go with it, so no
     // session list finds it on disk afterwards.
-    if let Err(e) = agents.delete_session(&session.agent, &id).await {
+    if let Err(e) = agents.delete.delete_session(&session.agent, &id).await {
         log::warn!("reviewer {id} not deleted: {e:#}");
         agents.sessions.remove(std::slice::from_ref(&id));
     }

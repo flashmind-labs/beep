@@ -15,10 +15,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::{
-        Notify,
-        mpsc::{UnboundedReceiver, UnboundedSender},
-    },
+    sync::Notify,
     time::Instant,
 };
 use tokio_util::task::AbortOnDropHandle;
@@ -83,38 +80,6 @@ impl Links {
             .filter(|kid| kid.parent == *name && !kid.pending())
             .cloned()
             .collect()
-    }
-}
-
-/// A background child that closed for good.
-pub(in crate::agents) struct Closed {
-    pub(super) agent: String,
-    pub(super) id: SessionId,
-}
-
-/// Where closed background children report, and the end that deletes them,
-/// taken once by the upkeep.
-pub(in crate::agents) struct Tidy {
-    pub(super) tx: UnboundedSender<Closed>,
-    rx: Mutex<Option<UnboundedReceiver<Closed>>>,
-}
-
-impl Default for Tidy {
-    fn default() -> Self {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-
-        Self {
-            tx,
-            rx: Mutex::new(Some(rx)),
-        }
-    }
-}
-
-impl Tidy {
-    /// The receiver of the closed background children, for the one task that
-    /// deletes them.
-    pub(in crate::agents) fn take(&self) -> Option<UnboundedReceiver<Closed>> {
-        crate::lock(&self.rx).take()
     }
 }
 

@@ -183,7 +183,7 @@ impl Agents {
                 .all(|session| session.info().state.status == Status::Ended),
             "close the session before moving it"
         );
-        self.check_closed_files(which, &agent_id, ours.is_some())
+        self.delete.check_closed_files(which, &agent_id, ours.is_some())
             .await?;
         let harness = Harness::try_from(which).map_err(|_| anyhow::anyhow!("unsupported agent"))?;
         let file = self

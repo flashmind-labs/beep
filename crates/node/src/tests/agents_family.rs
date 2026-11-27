@@ -1976,7 +1976,7 @@ async fn a_note_the_parents_node_refuses_is_not_sent_again() {
 #[tokio::test]
 async fn a_background_child_that_closes_is_handed_to_the_deleter_at_once() {
     let rig = Rig::new();
-    let mut closed = rig.agents.closed.take().expect("the deleter's end");
+    let mut closed = rig.agents.delete.take_closed().expect("the deleter's end");
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
     let who = rig.agents.who_of(&parent);
     let mut link = rig.agents.link_for(&parent, &who).expect("within limits");

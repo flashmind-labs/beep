@@ -165,7 +165,7 @@ impl Agents {
         };
 
         if link.background {
-            self.tidy_when_closed(session);
+            self.delete.tidy_when_closed(session);
         }
 
         let Some(peer) = link.machine else {

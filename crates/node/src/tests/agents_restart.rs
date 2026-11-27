@@ -928,25 +928,25 @@ async fn a_saved_assistant_chat_still_names_its_folder_to_delete() {
 
     // Only the main chat of an assistant conversation takes its folder with it.
     assert_eq!(
-        agents.conversation_of(&SessionId::from("main-1")),
+        agents.delete.conversation_of(&SessionId::from("main-1")),
         Some(std::path::PathBuf::from("/home/user/.beep/assistant/main-1"))
     );
-    assert_eq!(agents.conversation_of(&SessionId::from("thread-1")), None);
-    assert_eq!(agents.conversation_of(&SessionId::from("plain-1")), None);
+    assert_eq!(agents.delete.conversation_of(&SessionId::from("thread-1")), None);
+    assert_eq!(agents.delete.conversation_of(&SessionId::from("plain-1")), None);
 
     // A chat started in another's folder shares it: neither takes it while
     // the other is there, and the last of them does.
     let mut guest = kept("main-2", true, None);
     guest.info.cwd = "/home/user/.beep/assistant/main-1".into();
     agents.reopen.keep_saved(vec![kept("main-1", true, None), guest]);
-    assert_eq!(agents.conversation_of(&SessionId::from("main-1")), None);
-    assert_eq!(agents.conversation_of(&SessionId::from("main-2")), None);
+    assert_eq!(agents.delete.conversation_of(&SessionId::from("main-1")), None);
+    assert_eq!(agents.delete.conversation_of(&SessionId::from("main-2")), None);
     agents.reopen.forget_saved(&SessionId::from("main-2"));
     assert_eq!(
-        agents.conversation_of(&SessionId::from("main-1")),
+        agents.delete.conversation_of(&SessionId::from("main-1")),
         Some(std::path::PathBuf::from("/home/user/.beep/assistant/main-1"))
     );
-    assert_eq!(agents.conversation_of(&SessionId::from("gone-1")), None);
+    assert_eq!(agents.delete.conversation_of(&SessionId::from("gone-1")), None);
     agents.shutdown().await;
 }
 

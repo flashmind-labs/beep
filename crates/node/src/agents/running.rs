@@ -311,8 +311,8 @@ impl Agents {
                 }
             };
             let background_children = async {
-                if let Some(closed) = agents.closed.take() {
-                    agents.delete_closed_background(closed).await;
+                if let Some(closed) = agents.delete.take_closed() {
+                    agents.delete.delete_closed_background(closed).await;
                 }
             };
             tokio::join!(harness_checks, background_children);

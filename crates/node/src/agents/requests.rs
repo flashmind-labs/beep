@@ -497,7 +497,7 @@ pub async fn serve_sessions(
             .await
             .map_or_else(failed, |()| SessionsReply::Deleted {}),
         SessionsRequest::DeleteSession { agent, session } => agents
-            .delete_session(&agent, &session)
+            .delete.delete_session(&agent, &session)
             .await
             .map_or_else(failed, |()| SessionsReply::Deleted {}),
         SessionsRequest::Models { agent } => match agents.models(&agent).await {

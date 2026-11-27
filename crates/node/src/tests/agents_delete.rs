@@ -1,5 +1,6 @@
 use super::*;
 use crate::agents::Parts;
+use crate::agents::Agents;
 use crate::agents::{AgentKind, Begin};
 use std::{
     collections::BTreeMap,
@@ -131,7 +132,7 @@ async fn a_deleted_session_leaves_the_listing_kept_from_before() {
     };
 
     assert!(listed().await.contains(&CODEX_ID.to_owned()));
-    m.agents.delete_session("codex", &SessionId::from(CODEX_ID)).await.unwrap();
+    m.agents.delete.delete_session("codex", &SessionId::from(CODEX_ID)).await.unwrap();
 
     assert!(!listed().await.contains(&CODEX_ID.to_owned()));
 }
@@ -139,20 +140,20 @@ async fn a_deleted_session_leaves_the_listing_kept_from_before() {
 #[tokio::test]
 async fn each_harness_deletes_only_its_own_session() {
     let m = Machine::new();
-    m.agents.delete_session("claude", &SessionId::from(CLAUDE_ID)).await.unwrap();
+    m.agents.delete.delete_session("claude", &SessionId::from(CLAUDE_ID)).await.unwrap();
     assert!(!m.claude(CLAUDE_ID) && !m.side(CLAUDE_ID));
     assert!(m.claude(CLAUDE_OTHER) && m.side(CLAUDE_OTHER));
     assert!(m.codex(CODEX_ID) && m.pi("p1"));
 
-    m.agents.delete_session("codex", &SessionId::from(CODEX_ID)).await.unwrap();
+    m.agents.delete.delete_session("codex", &SessionId::from(CODEX_ID)).await.unwrap();
     assert!(!m.codex(CODEX_ID) && m.codex(CODEX_OTHER));
 
-    m.agents.delete_session("pi", &SessionId::from("p1")).await.unwrap();
+    m.agents.delete.delete_session("pi", &SessionId::from("p1")).await.unwrap();
     assert!(!m.pi("p1") && m.pi("p2"));
     assert!(m.claude(CLAUDE_OTHER) && m.codex(CODEX_OTHER));
     assert!(m.has("outside.jsonl"));
 
-    let err = m.agents.delete_session("pi", &SessionId::from("p1")).await.unwrap_err();
+    let err = m.agents.delete.delete_session("pi", &SessionId::from("p1")).await.unwrap_err();
     assert!(err.to_string().contains("no pi session"), "{err}");
 }
 
@@ -164,9 +165,9 @@ async fn a_deleted_session_is_no_longer_listed() {
         stores.find(Agent::Codex, &SessionId::from(CODEX_ID)).is_some()
     };
     assert!(listed(&m));
-    m.agents.delete_session("codex", &SessionId::from(CODEX_ID)).await.unwrap();
+    m.agents.delete.delete_session("codex", &SessionId::from(CODEX_ID)).await.unwrap();
     assert!(!listed(&m));
-    m.agents.delete_session("claude", &SessionId::from(CLAUDE_ID)).await.unwrap();
+    m.agents.delete.delete_session("claude", &SessionId::from(CLAUDE_ID)).await.unwrap();
     let left = m
         .agents
         .listings.external()
@@ -189,7 +190,7 @@ async fn a_running_session_is_refused_and_an_ended_one_is_forgotten() {
         .start(&kind("claude"), Some("/"), begin)
         .await.expect("a session");
     for id in [session.id.clone(), SessionId::from(CLAUDE_ID)] {
-        let err = m.agents.delete_session("claude", &id).await.unwrap_err();
+        let err = m.agents.delete.delete_session("claude", &id).await.unwrap_err();
         assert!(err.to_string().contains("still runs"), "{err}");
     }
 
@@ -199,7 +200,7 @@ async fn a_running_session_is_refused_and_an_ended_one_is_forgotten() {
 
     session.close().await;
     m.agents
-        .delete_session("claude", &session.id)
+        .delete.delete_session("claude", &session.id)
         .await
         .unwrap();
     assert!(!m.claude(CLAUDE_ID) && !m.side(CLAUDE_ID));
@@ -221,7 +222,7 @@ async fn a_session_another_process_has_recently_written_is_refused() {
         .expect("a new modification time");
     let err = m
         .agents
-        .delete_session("claude", &SessionId::from(CLAUDE_ID))
+        .delete.delete_session("claude", &SessionId::from(CLAUDE_ID))
         .await
         .unwrap_err();
     assert!(err.to_string().contains("terminal or IDE"), "{err}");
@@ -243,7 +244,7 @@ async fn an_id_that_walks_out_of_the_store_is_refused() {
             "x\0y",
             "p1/../p2",
         ] {
-            let err = m.agents.delete_session(agent, &SessionId::from(id)).await.unwrap_err();
+            let err = m.agents.delete.delete_session(agent, &SessionId::from(id)).await.unwrap_err();
             assert!(
                 err.to_string().contains("not a session id"),
                 "{id:?}: {err}"
@@ -276,13 +277,13 @@ async fn sessions_kept_in_a_database_are_refused() {
     let m = Machine::new();
 
     for agent in ["flsh", "opencode"] {
-        let err = m.agents.delete_session(agent, &SessionId::from("ses_1")).await.unwrap_err();
+        let err = m.agents.delete.delete_session(agent, &SessionId::from("ses_1")).await.unwrap_err();
         assert!(err.to_string().contains("database"), "{err}");
     }
 
     let err = m
         .agents
-        .delete_session("example", &SessionId::from("ses_1"))
+        .delete.delete_session("example", &SessionId::from("ses_1"))
         .await
         .unwrap_err();
     assert!(err.to_string().contains("no agent"), "{err}");
@@ -430,4 +431,45 @@ async fn a_process_that_ends_on_the_request_is_not_waited_out() {
         .unwrap();
 
     assert!(!child.wait().await.unwrap().success());
+}
+
+#[tokio::test]
+async fn the_receiver_of_closed_children_is_taken_once() {
+    let agents = Agents::new(Parts::default());
+
+    assert!(agents.delete.take_closed().is_some());
+    assert!(agents.delete.take_closed().is_none());
+}
+
+#[tokio::test]
+async fn a_background_child_that_closes_for_good_is_deleted_by_its_own_receiver() {
+    let m = Machine::new();
+    let session = m
+        .agents
+        .start(&kind("claude"), Some("/"), Begin { resume: Some(SessionId::from(CLAUDE_ID)), ..Begin::default() })
+        .await
+        .expect("a session");
+    assert_eq!(m.agents.sessions.list().len(), 1);
+    m.agents.delete.tidy_when_closed(&session);
+    let closed = m.agents.delete.take_closed().expect("the receiver");
+    session.close().await;
+
+    let deleting = m.agents.delete.delete_closed_background(closed);
+    let gone = async {
+        while !m.agents.sessions.list().is_empty() {
+            tokio::task::yield_now().await;
+        }
+    };
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::select! {
+            () = deleting => {}
+            () = gone => {}
+        }
+    })
+    .await
+    .expect("the closed child is deleted");
+
+    assert!(m.agents.sessions.list().is_empty());
+    assert!(!m.claude(CLAUDE_ID), "its transcript went with it");
 }

@@ -139,16 +139,16 @@ host! {
         pub(crate) reach: Arc<reach::Reach>,
         /// The sessions that started sessions, and the children on other machines.
         pub(crate) links: Arc<family::links::Links>,
-        /// The background children that closed for good, to delete.
-        closed: family::links::Tidy,
         /// The reviews reviewers handed in, and the reviewers running.
         pub(crate) reviews: Arc<reviews::kept::Reviews>,
         /// The search index, once the mesh opened it.
-        pub(crate) search: search::Opener,
+        pub(crate) search: Arc<search::Opener>,
         /// The sessions kept across the last stop, and whether they were resumed.
         pub reopen: Arc<reopen::Reopen>,
         /// What the node has read of the folders it lists sessions in.
         pub listings: Arc<listings::Listings>,
+        /// Deletes ended sessions and the background children that closed.
+        pub(crate) delete: Arc<delete::Delete>,
     }
 
     /// What an `Agents` is made of that the node decides before it exists.
@@ -180,16 +180,26 @@ host! {
             let reviews = Arc::new(reviews::kept::Reviews::new(events.clone(), sessions.clone()));
             let reopen = Arc::new(reopen::Reopen::new(sessions.clone(), links.clone()));
             let images = Arc::<Images>::default();
+            let search = Arc::new(search::Opener::new(parts.search));
+
+            let listings = Arc::new(listings::Listings::new(
+                sessions.clone(),
+                parts.occupancy.clone(),
+                images.clone(),
+                events.clone(),
+                reviews.clone(),
+                reopen.clone(),
+            ));
 
             Self {
-                listings: Arc::new(listings::Listings::new(
+                delete: Arc::new(delete::Delete::new(
                     sessions.clone(),
-                    parts.occupancy.clone(),
-                    images.clone(),
-                    events.clone(),
-                    reviews.clone(),
                     reopen.clone(),
+                    listings.clone(),
+                    parts.occupancy.clone(),
+                    search.clone(),
                 )),
+                listings,
                 events: events.clone(),
                 usage: Arc::new(usage::Usage::new(catalog.clone())),
                 occupancy: parts.occupancy.clone(),
@@ -199,7 +209,7 @@ host! {
                 reach: Arc::new(reach::Reach::new(parts.folders, sessions.clone(), parts.occupancy.clone())),
                 sessions,
                 catalog,
-                search: search::Opener::new(parts.search),
+                search,
                 sources: Mutex::default(),
                 images,
                 alerts: Arc::default(),
@@ -207,7 +217,6 @@ host! {
                 lsp: lsp::Pool::default(),
                 ci: Arc::default(),
                 moves: moving::Moves::default(),
-                closed: family::links::Tidy::default(),
             }
         }
     }

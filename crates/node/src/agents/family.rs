@@ -9,15 +9,14 @@
 //! cannot get around them.
 
 use beep_proto::SessionId;
-use super::{Agents, Begin, Session, live::{Live, Mark}, session::{Command, ended_for_good}};
+use super::{Agents, Begin, Session, live::{Live, Mark}, session::Command};
 use crate::known::known;
 use beep_proto::AgentAccount;
 use beep_proto::node::agent::{ParentLink, Persona, SessionInfo, Status};
 use beep_proto::watched;
 use iroh::EndpointId;
 use std::{str::FromStr, sync::Arc, time::Duration};
-use futures::{StreamExt, stream::FuturesUnordered};
-use tokio::sync::{mpsc::UnboundedReceiver, watch};
+use tokio::sync::watch;
 
 mod changes;
 pub(crate) mod links;
@@ -28,7 +27,7 @@ mod remote;
 
 
 pub(crate) use links::{ChildNote, ChildStart, RemoteKid, Review, Waiting, Who};
-use links::{Closed, MAX_CHILDREN, MAX_DEPTH, Root, is_child_of};
+use links::{MAX_CHILDREN, MAX_DEPTH, Root, is_child_of};
 pub(crate) use links::NO_AGENT;
 
 /// How long the count of a root's agents on another machine may take.
@@ -267,38 +266,6 @@ impl Agents {
 
         session.named_info().await?;
         Ok(session)
-    }
-
-    /// Deletes a background child that closed for good, all those that did
-    /// together. One that cannot be deleted is still dropped from the node's
-    /// sessions.
-    pub(super) async fn delete_closed_background(&self, mut closed: UnboundedReceiver<Closed>) {
-        let mut deleting = FuturesUnordered::new();
-
-        loop {
-            tokio::select! {
-                Some(Closed { agent, id }) = closed.recv() => deleting.push(async move {
-                    if let Err(e) = self.delete_session(&agent, &id).await {
-                        log::warn!("background child {id} was not deleted: {e:#}");
-                        self.sessions.remove(std::slice::from_ref(&id));
-                    }
-                }),
-                Some(()) = deleting.next() => crate::events::open_changed(),
-                else => return,
-            }
-        }
-    }
-
-    /// Has `session`, a background child, say when it closes for good.
-    pub(super) fn tidy_when_closed(&self, session: &Session) {
-        let (closed, mut live) = (self.closed.tx.clone(), session.live.clone());
-        let (agent, id) = (session.agent.clone(), session.id.clone());
-        let task = tokio::spawn(async move {
-            if watched::wait_for(&mut live, ended_for_good).await.is_ok() {
-                let _ = closed.send(Closed { agent, id });
-            }
-        });
-        session.keep(task);
     }
 
     /// Puts `session`, which came from another machine, in its family

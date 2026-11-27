@@ -1,16 +1,117 @@
 //! Deleting an ended session: the agent's own files and the node's record.
 
-use beep_proto::SessionId;
-use super::{Agents};
+use super::{
+    listings::Listings,
+    reopen::Reopen,
+    search::Opener,
+    session::{Session, ended_for_good},
+    sessions::{self, Sessions},
+};
 use crate::logs::found::Agent;
+use crate::occupancy::Occupancy;
 use crate::text::valid_id;
 use anyhow::{Context, Result, bail, ensure};
+use beep_proto::SessionId;
 use beep_proto::node::agent::{SessionInfo, Status};
 use beep_proto::watched;
-use std::path::PathBuf;
-use tokio::task::spawn_blocking;
+use futures::{StreamExt, stream::FuturesUnordered};
+use std::{path::PathBuf, sync::{Arc, Mutex}};
+use tokio::{
+    sync::mpsc::{UnboundedReceiver, UnboundedSender},
+    task::spawn_blocking,
+};
 
-impl Agents {
+/// A background child that closed for good.
+pub(super) struct Closed {
+    agent: String,
+    pub(super) id: SessionId,
+}
+
+/// Where closed background children report, and the end that deletes them,
+/// taken once by the upkeep.
+struct Tidy {
+    tx: UnboundedSender<Closed>,
+    rx: Mutex<Option<UnboundedReceiver<Closed>>>,
+}
+
+impl Default for Tidy {
+    fn default() -> Self {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
+        Self {
+            tx,
+            rx: Mutex::new(Some(rx)),
+        }
+    }
+}
+
+/// Deletes ended sessions, the agent's files and the node's record of them,
+/// and the background children that closed for good.
+pub(crate) struct Delete {
+    closed: Tidy,
+    sessions: Arc<Sessions>,
+    reopen: Arc<Reopen>,
+    listings: Arc<Listings>,
+    occupancy: Occupancy,
+    search: Arc<Opener>,
+}
+
+impl Delete {
+    pub(crate) fn new(
+        sessions: Arc<Sessions>,
+        reopen: Arc<Reopen>,
+        listings: Arc<Listings>,
+        occupancy: Occupancy,
+        search: Arc<Opener>,
+    ) -> Self {
+        Self {
+            closed: Tidy::default(),
+            sessions,
+            reopen,
+            listings,
+            occupancy,
+            search,
+        }
+    }
+
+    /// The receiver of the closed background children, for the one task that
+    /// deletes them; `None` once taken.
+    pub(super) fn take_closed(&self) -> Option<UnboundedReceiver<Closed>> {
+        crate::lock(&self.closed.rx).take()
+    }
+
+    /// Deletes a background child that closed for good, all those that did
+    /// together. One that cannot be deleted is still dropped from the node's
+    /// sessions.
+    pub(super) async fn delete_closed_background(&self, mut closed: UnboundedReceiver<Closed>) {
+        let mut deleting = FuturesUnordered::new();
+
+        loop {
+            tokio::select! {
+                Some(Closed { agent, id }) = closed.recv() => deleting.push(async move {
+                    if let Err(e) = self.delete_session(&agent, &id).await {
+                        log::warn!("background child {id} was not deleted: {e:#}");
+                        self.sessions.remove(std::slice::from_ref(&id));
+                    }
+                }),
+                Some(()) = deleting.next() => crate::events::open_changed(),
+                else => return,
+            }
+        }
+    }
+
+    /// Has `session`, a background child, say when it closes for good.
+    pub(super) fn tidy_when_closed(&self, session: &Session) {
+        let (closed, mut live) = (self.closed.tx.clone(), session.live.clone());
+        let (agent, id) = (session.agent.clone(), session.id.clone());
+        let task = tokio::spawn(async move {
+            if watched::wait_for(&mut live, ended_for_good).await.is_ok() {
+                let _ = closed.send(Closed { agent, id });
+            }
+        });
+        session.keep(task);
+    }
+
     /// Deletes session `id` of the harness `agent`, the agent's own id or
     /// this node's. It refuses one that runs here, ends the process that has it open,
     /// and the harnesses that keep sessions in a database. The agent's
@@ -29,7 +130,7 @@ impl Agents {
 
         ensure!(valid_id(id.as_ref()), "{id:?} is not a session id");
         let conversation = self.conversation_of(id);
-        let agent_id = match self.get(id) {
+        let agent_id = match sessions::find_session(&self.sessions.read(), id) {
             Some(ours) => {
                 ensure!(ours.agent == agent, "session {id} runs {}", ours.agent);
                 watched::read(&ours.live, |live| live.agent_session.clone())
@@ -42,7 +143,8 @@ impl Agents {
         }
 
         let records: Vec<(SessionId, bool)> = self
-            .session_map()
+            .sessions
+            .read()
             .iter()
             .filter(|(key, session)| {
                 session.agent == agent
