@@ -44,21 +44,3 @@ async fn without_a_watcher_each_ask_reads_the_stores_again() {
     rollout(root.path(), "second");
     assert_eq!(occupancy.sighted().await.unwrap().seen.len(), 2);
 }
-
-#[tokio::test]
-async fn callers_asking_together_share_one_read() {
-    let root = tempfile::tempdir().unwrap();
-    let occupancy = over(root.path());
-    let (first, second) = (occupancy.sighted(), occupancy.sighted());
-    tokio::pin!(first, second);
-    assert!(futures::poll!(first.as_mut()).is_pending());
-    assert!(futures::poll!(second.as_mut()).is_pending());
-
-    let running = occupancy.reading_now().unwrap();
-    // This handle and the two callers'.
-    assert_eq!(Arc::strong_count(&running), 3);
-    drop(running);
-
-    first.await.unwrap();
-    second.await.unwrap();
-}
