@@ -55,6 +55,7 @@ async fn a_system_change_reaches_a_hub_only_while_its_forward_is_held() {
     drop(forward);
     tokio::task::yield_now().await;
     system().changed(topic.clone());
+    tokio::task::yield_now().await;
     while let Ok(change) = changes.try_recv() {
         assert_ne!(change.topic, topic);
     }
