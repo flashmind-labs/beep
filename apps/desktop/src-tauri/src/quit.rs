@@ -7,13 +7,16 @@ use std::{
         Arc, Condvar, Mutex, MutexGuard, PoisonError,
         atomic::{AtomicBool, Ordering},
     },
-    thread,
     time::{Duration, Instant},
 };
+
+#[cfg(desktop)]
+use std::thread;
 
 #[cfg(target_os = "macos")]
 use std::sync::OnceLock;
 
+#[cfg(desktop)]
 type Waiter = Box<dyn FnOnce() + Send>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -116,6 +119,7 @@ impl Drop for StopGuard {
 enum Phase {
     #[default]
     Running,
+    #[cfg(desktop)]
     Stopping {
         stopped: Arc<Stopped>,
         deadline: Instant,
@@ -196,6 +200,7 @@ impl Quitting {
 
         enum Pending {
             Start,
+            #[cfg(desktop)]
             Wait(Arc<Stopped>, Instant),
             Done,
         }
@@ -206,6 +211,7 @@ impl Quitting {
 
             match prev {
                 Phase::Running => Pending::Start,
+                #[cfg(desktop)]
                 Phase::Stopping {
                     stopped, deadline, ..
                 } => Pending::Wait(stopped, deadline),
@@ -220,6 +226,7 @@ impl Quitting {
                 start(stopped.clone());
                 stopped.wait(deadline);
             }
+            #[cfg(desktop)]
             Pending::Wait(stopped, deadline) => {
                 stopped.wait(deadline);
             }
