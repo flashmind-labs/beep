@@ -119,3 +119,23 @@ fn a_burst_reaches_the_host_as_its_newest_update() {
     assert_eq!(received.len(), 1);
     assert_eq!(received[0].data, serde_json::json!({ "rows": 3 }));
 }
+
+#[test]
+fn a_query_first_answer_does_not_reach_the_host() {
+    let events = WindowOutbox::default();
+    let topics = vec![wanted("agents", None, None)];
+    let heard = Arc::new(Heard::default());
+    let mut reader = Reader::new(heard.clone().sink());
+    assert!(reader.follow(&events, interests(&topics)));
+
+    let mut answer = update("m1", NodeTopic::new("agents"));
+    answer.query = Some(7);
+    answer.initial = true;
+    events.dispatch(answer);
+    let received = Mutex::new(Vec::new());
+    heard.take(&topics, |publication| {
+        received.lock().unwrap().push(publication)
+    });
+
+    assert!(received.lock().unwrap().is_empty());
+}

@@ -79,6 +79,11 @@ struct Heard {
 impl Heard {
     fn sink(self: Arc<Self>) -> Sink {
         Arc::new(move |update: Update| {
+            // A query's first answer is one window's filtered view, not the topic's state.
+            if update.initial && update.query.is_some() {
+                return true;
+            }
+
             let key = (
                 update.machine_id.clone(),
                 update.topic.clone(),
