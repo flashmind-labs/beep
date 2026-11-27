@@ -67,7 +67,7 @@ pub(crate) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
 
             // agy opens every conversation when it starts, which touches an
             // empty `-wal`: only one holding writes counts.
-            let wal_at = std::fs::metadata(super::common::wal_path(&path))
+            let wal_at = std::fs::metadata(super::wal_path(&path))
                 .ok()
                 .filter(|meta| meta.len() > 0)
                 .and_then(|meta| meta.modified().ok())

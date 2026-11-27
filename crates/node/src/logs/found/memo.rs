@@ -36,6 +36,12 @@ fn stamp_of(file: &Path) -> Option<Stamp> {
         .and_then(|meta| Stamp::try_from(meta).ok())
 }
 
+pub(crate) fn wal_path(path: &Path) -> PathBuf {
+    let mut wal = path.as_os_str().to_owned();
+    wal.push("-wal");
+    PathBuf::from(wal)
+}
+
 fn non_empty_stamp_of(file: &Path) -> Option<Stamp> {
     stamp_of(file).filter(|stamp| stamp.len > 0)
 }
@@ -104,7 +110,7 @@ impl<V: Clone> Memo<V> {
         database: &Path,
         read: impl FnOnce() -> Result<V, E>,
     ) -> Result<V, E> {
-        let wal = super::common::wal_path(database);
+        let wal = wal_path(database);
         let stamps = vec![stamp_of(database), non_empty_stamp_of(&wal)];
         self.read_with_stamps(database, stamps, |_| read())
     }

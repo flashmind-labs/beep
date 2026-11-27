@@ -208,12 +208,6 @@ pub(crate) fn is_jsonl(path: &Path) -> bool {
     path.extension().is_some_and(|ext| ext == "jsonl")
 }
 
-pub(crate) fn wal_path(path: &Path) -> PathBuf {
-    let mut wal = path.as_os_str().to_owned();
-    wal.push("-wal");
-    PathBuf::from(wal)
-}
-
 pub(super) fn header_sessions(
     dir: &Path,
     depth: usize,
