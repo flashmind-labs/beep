@@ -14,6 +14,8 @@ export interface LogShell {
   why: string | null;
   starting: boolean;
   log: boolean;
+  /// Earlier entries remain above this slice, so a short slice anchors to the bottom while they load.
+  partial: boolean;
   question: AgentQuestion | null;
   questionKey: string | null;
   answering: boolean;
@@ -31,7 +33,7 @@ export function AgentLogShell({ value, log }: { value: LogShell; log: LogWindow 
   const allow = question?.options.findIndex(option => option.allow) ?? -1;
   // A choice (nothing in it allows) has no deny: its way out is Cancel, which stops the turn.
   const deny = allow < 0 ? -1 : question?.options.findIndex(option => !option.allow) ?? -1;
-  return <><div className="dagmain">
+  return <><div className={value.partial ? "dagmain partial" : "dagmain"}>
     {value.why && <div className="dmuted" data-log-part="why">{value.why}</div>}
     {value.log ? <div className="dcoderlog" ref={log.attach}><TranscriptLog log={log} /></div> : value.starting && <div className="dmuted" data-log-part="starting"><Spinner /> Starting the agent…</div>}
     {question && <div className="dcard dcoder" data-log-part="card">

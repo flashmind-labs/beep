@@ -804,10 +804,7 @@ mod reference {
         request: &FollowSession,
     ) -> Result<(SessionSnapshot, SessionUpdate)> {
         let snapshot = retained(snapshot)?;
-        let initial_start = snapshot
-            .cursor
-            .next
-            .saturating_sub(u64::from(request.last.clamp(1, MAX_TRANSCRIPT)));
+        let initial_start = initial_start(&snapshot.entries, snapshot.earlier, request.last);
         if let Some(previous) = previous {
             if snapshot.earlier <= previous.cursor.next && previous.earlier < snapshot.cursor.next {
                 let snapshot = window(snapshot, previous.earlier)?;
@@ -1014,4 +1011,48 @@ async fn callers_asking_during_a_store_read_share_it() {
 
     first.await.unwrap();
     second.await.unwrap();
+}
+
+#[test]
+fn initial_snapshot_counts_tool_and_thought_runs_as_single_rows() {
+    let turn = |n: usize| {
+        let mut items = vec![
+            Entry::new(EntryKind::User, format!("prompt {n}")),
+            Entry::new(EntryKind::Thought, format!("thought {n}")),
+        ];
+        items.extend((0..35).map(|step| Entry::new(EntryKind::Tool, format!("tool {n}:{step}"))));
+        items.push(Entry::new(EntryKind::Agent, format!("reply {n}")));
+        items
+    };
+
+    // Six tool-heavy turns (228 raw entries) are 18 folded rows, so `last: 65`
+    // includes the whole session (`earlier == 0`) in one initial snapshot.
+    let short: Vec<_> = (0..6).flat_map(turn).collect();
+    assert_eq!(short.len(), 228);
+    let mut short_snap = page(0, &[]);
+    short_snap.entries = short;
+    short_snap.cursor.next = 228;
+    let mut req = request(None);
+    req.last = 65;
+    let (_, update) = next_update(short_snap, None, &req).unwrap();
+    let SessionUpdate::Snapshot(snap) = update else {
+        panic!("expected snapshot");
+    };
+    assert_eq!(snap.earlier, 0);
+    assert_eq!(snap.entries.len(), 228);
+
+    // Three folded rows from the tail (`prompt`, `thought + 35 tools`, `reply`)
+    // keep the entire progress run intact without pulling in earlier turns.
+    let two_turns: Vec<_> = (0..2).flat_map(turn).collect();
+    let mut two_snap = page(0, &[]);
+    two_snap.entries = two_turns;
+    two_snap.cursor.next = 76;
+    req.last = 3;
+    let (_, update) = next_update(two_snap, None, &req).unwrap();
+    let SessionUpdate::Snapshot(snap) = update else {
+        panic!("expected snapshot");
+    };
+    assert_eq!(snap.earlier, 38);
+    assert_eq!(snap.entries.len(), 38);
+    assert_eq!(snap.entries[0].kind, EntryKind::User);
 }

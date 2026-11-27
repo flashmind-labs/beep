@@ -12,8 +12,9 @@ use beep_proto::SessionId;
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{
-        Entry, EntryPatch, ExternalSession, FOLLOW_READERS_FULL, FollowControl, FollowSession,
-        SessionCursor, SessionPatch, SessionSnapshot, SessionSource, SessionUpdate, Status,
+        Entry, EntryKind, EntryPatch, ExternalSession, FOLLOW_READERS_FULL, FollowControl,
+        FollowSession, SessionCursor, SessionPatch, SessionSnapshot, SessionSource, SessionUpdate,
+        Status,
     },
 };
 use beep_proto::watched;
@@ -38,6 +39,9 @@ use tokio::{
 /// several sessions. A refused reader hears `FOLLOW_READERS_FULL`.
 static READERS: Semaphore = Semaphore::const_new(128);
 const RETAINED_ENTRIES: usize = 5000;
+/// Most raw entries read for an opening view when consecutive tool and thought
+/// entries fold into single progress rows.
+const INITIAL_ENTRIES: usize = 1000;
 // Leave room for source metadata inside the transport's 8 MiB frame limit.
 const RETAINED_BYTES: usize = 4 * 1024 * 1024;
 /// The most all readers' cached windows take together. Past it the least
@@ -295,11 +299,11 @@ async fn follow(
     let mut exit = None;
     // Where the reader's held entries start, once it holds some.
     let mut held = None;
-    // A newly opened view gets the newest page at once; later updates read
-    // enough to validate and patch what the reader holds.
+    // A newly opened view reads enough entries to cover `last` folded rows at
+    // once; later updates read the full retained window to validate and patch.
     let mut retained = match &request.after {
         Some(_) => RETAINED_ENTRIES,
-        None => usize::try_from(request.last.clamp(1, MAX_TRANSCRIPT))?,
+        None => INITIAL_ENTRIES,
     };
 
     loop {
@@ -854,16 +858,45 @@ fn assemble(encoded: Vec<Encoded>, previous: Vec<u8>, length: usize) -> Vec<u8> 
     wire
 }
 
+/// Earliest position needed to show `last` folded rows from the tail of `entries`.
+/// Consecutive `Thought` and `Tool` entries fold into one progress row in the UI.
+fn initial_start(entries: &[Entry], earlier: u64, last: u32) -> u64 {
+    let limit = usize::try_from(last.clamp(1, MAX_TRANSCRIPT)).unwrap_or(usize::MAX);
+    let mut rows = 0usize;
+    let mut in_progress = false;
+    let mut start = entries.len();
+
+    for (index, entry) in entries.iter().enumerate().rev() {
+        if entries.len() - index > INITIAL_ENTRIES {
+            break;
+        }
+
+        let progress = matches!(entry.kind, EntryKind::Thought | EntryKind::Tool);
+
+        if progress && in_progress {
+            start = index;
+            continue;
+        }
+
+        if rows == limit {
+            break;
+        }
+
+        rows += 1;
+        in_progress = progress;
+        start = index;
+    }
+
+    earlier.saturating_add(u64::try_from(start).unwrap_or(u64::MAX))
+}
+
 fn next_update(
     snapshot: SessionSnapshot,
     mut previous: Option<Window>,
     request: &FollowSession,
 ) -> Result<(Window, SessionUpdate)> {
     let (mut window, unchanged) = retain(snapshot, previous.as_mut())?;
-    let initial_start = window
-        .cursor
-        .next
-        .saturating_sub(u64::from(request.last.clamp(1, MAX_TRANSCRIPT)));
+    let initial_start = initial_start(&window.entries, window.earlier, request.last);
 
     if let Some(prev) = previous {
         let held = prev.cursor.clone();

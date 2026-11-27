@@ -154,6 +154,23 @@ test("a short log sits at the bottom while older pages arrive above it", async (
   await expect.poll(() => body.evaluate(el => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeLessThan(2);
 });
 
+test("a complete short log sits at the top of the session body", async ({ page }) => {
+  const short = { ...view, entries: [{ kind: "user", text: "First prompt" }, { kind: "agent", text: "First reply" }], earlier: 0, turns: 1 };
+  await page.setViewportSize({ width: 1280, height: 1200 });
+  await openDesktop(page, false, { agent_view: short });
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), session);
+  const body = page.locator("#agbody");
+
+  await expect(body).toContainText("First reply");
+  const box = await body.evaluate(el => {
+    const bodyRect = el.getBoundingClientRect();
+    const main = el.querySelector(".dagmain")!.getBoundingClientRect();
+    return { topOffset: main.top - bodyRect.top, bottomSlack: bodyRect.bottom - main.bottom };
+  });
+  expect(box.topOffset).toBeLessThan(30);
+  expect(box.bottomSlack).toBeGreaterThan(400);
+});
+
 test("a big log is placed once, before it paints, with one older read at most", async ({ page }) => {
   await openDesktop(page, false, { agent_view: view });
   await serveOlder(page);

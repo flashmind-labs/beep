@@ -100,7 +100,7 @@ export function drawAgentBody(keep?: string, polled = false, older: boolean | "p
     : AG.note ? { text: AG.note, tone: "error" }
     : !AG.sig && p.entries.length ? { text: connectingNote(s.machine_name || "the machine"), tone: "connecting" } : null;
   const retry = !!(AG.readError && AG.note === AG.readError && !AG.link.lost && AG.note !== "gone");
-  const shell = { why, starting: s.status === "starting", log: !!units,
+  const shell = { why, starting: s.status === "starting", log: !!units, partial: !!units && p.earlier > 0,
     question: question ? { ...question, options: question.options.map(option => ({ ...option })) } : null,
     questionKey: question ? questionKey(question, openOf(s)) : null,
     answering: !!question && question.id === AG.answering,

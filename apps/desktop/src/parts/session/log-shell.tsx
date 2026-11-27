@@ -24,7 +24,7 @@ function sameNote(a: LogShell["note"], b: LogShell["note"]) {
 }
 
 function sameShell(a: LogShell, b: LogShell) {
-  return a.why === b.why && a.starting === b.starting && a.log === b.log && sameQuestion(a.question, b.question)
+  return a.why === b.why && a.starting === b.starting && a.log === b.log && a.partial === b.partial && sameQuestion(a.question, b.question)
     && a.questionKey === b.questionKey && a.answering === b.answering
     && a.error === b.error && a.external === b.external && a.switchModel === b.switchModel && sameNote(a.note, b.note) && a.retry === b.retry;
 }
