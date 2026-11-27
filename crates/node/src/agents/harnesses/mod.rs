@@ -35,6 +35,9 @@ use tokio::{sync::OnceCell, time::timeout};
 /// How long the newest versions found are kept before being looked up
 /// again.
 const LATEST_FOR: Duration = Duration::from_secs(55 * 60);
+/// How long a full harness probe (versions and sign-ins) is reused when
+/// `refresh` is false.
+const REPORT_FOR: Duration = Duration::from_secs(5 * 60);
 /// How long a registry lookup may take.
 const NPM_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long a sign-in status command may take.
@@ -52,6 +55,8 @@ struct Saved {
     harnesses: HashMap<String, HarnessConfig>,
     /// flsh's own, written to its config before it starts.
     flsh: Option<FlshSettings>,
+    /// Bumped on every `set`, so cached harness reports re-probe after settings change.
+    version: u64,
 }
 
 impl Settings {
@@ -72,10 +77,14 @@ impl Settings {
                 "unset"
             },
         );
-        *lock(&self.0) = Saved {
-            harnesses,
-            flsh: settings.flsh,
-        };
+        let mut saved = lock(&self.0);
+        saved.harnesses = harnesses;
+        saved.flsh = settings.flsh;
+        saved.version = saved.version.wrapping_add(1);
+    }
+
+    fn version(&self) -> u64 {
+        lock(&self.0).version
     }
 
     /// The settings now, as `set` took them.
@@ -204,12 +213,40 @@ fn expand_home(path: &str) -> String {
 #[derive(Default)]
 pub(super) struct Latest {
     found: Mutex<LatestFound>,
+    /// Last full harness probe, reused while fresh when `refresh` is false.
+    report: Mutex<Option<CachedReport>>,
+    /// Serializes full harness probes so concurrent callers share one probe.
+    probing: AsyncMutex<()>,
     /// flsh publishes releases outside npm.
     flsh: beep_mesh::machine::releases::ToolReleases,
     /// One update at a time: two installs of one package would race.
     updating: AsyncMutex<()>,
     /// npm's global folders, looked up once.
     npm_global: OnceCell<Option<install::NpmGlobal>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ReportKey {
+    settings_version: u64,
+    kinds: Vec<(String, String)>,
+}
+
+impl ReportKey {
+    fn of(kinds: &[AgentKind], settings: &Settings) -> Self {
+        Self {
+            settings_version: settings.version(),
+            kinds: kinds
+                .iter()
+                .map(|kind| (kind.name.clone(), kind.program.clone()))
+                .collect(),
+        }
+    }
+}
+
+struct CachedReport {
+    key: ReportKey,
+    report: HarnessReport,
+    at: Instant,
 }
 
 #[derive(Default)]
@@ -221,6 +258,24 @@ struct LatestFound {
 }
 
 impl Latest {
+    fn cached_report(&self, key: &ReportKey, ttl: Duration) -> Option<HarnessReport> {
+        let cached = lock(&self.report);
+        let entry = cached.as_ref()?;
+        (entry.key == *key && entry.at.elapsed() < ttl).then(|| entry.report.clone())
+    }
+
+    fn store_report(&self, key: ReportKey, report: HarnessReport) {
+        *lock(&self.report) = Some(CachedReport {
+            key,
+            report,
+            at: Instant::now(),
+        });
+    }
+
+    /// Drops any cached harness probe so the next report re-probes CLIs and sign-ins.
+    pub(super) fn invalidate_report(&self) {
+        *lock(&self.report) = None;
+    }
     /// What the node knows of npm: whether it is there, and its global
     /// folders.
     async fn npm(&self) -> install::Npm {
@@ -393,14 +448,27 @@ fn npm_packages(found: &[Found]) -> Vec<&'static str> {
         .collect()
 }
 
-/// What the node finds of every harness, with the newest versions looked
-/// up again when `refresh` says so.
+/// What the node finds of every harness, with the newest versions and
+/// sign-in status looked up again when `refresh` says so or the cached
+/// report is stale.
 pub(super) async fn report(
     kinds: &[AgentKind],
     settings: &Settings,
     latest: &Latest,
     refresh: bool,
 ) -> HarnessReport {
+    let key = ReportKey::of(kinds, settings);
+
+    if !refresh && let Some(cached) = latest.cached_report(&key, REPORT_FOR) {
+        return cached;
+    }
+
+    let _probe = latest.probing.lock().await;
+
+    if !refresh && let Some(cached) = latest.cached_report(&key, REPORT_FOR) {
+        return cached;
+    }
+
     let found = found(kinds);
     let npm = latest.npm().await;
     let packages = npm_packages(&found);
@@ -438,10 +506,12 @@ pub(super) async fn report(
             info
         })
         .collect();
-    HarnessReport {
+    let report = HarnessReport {
         harnesses,
         checked_at,
-    }
+    };
+    latest.store_report(key, report.clone());
+    report
 }
 
 /// One harness as the node finds it, its sign-in read with `config`'s
@@ -567,7 +637,9 @@ pub(super) async fn update(kinds: &[AgentKind], latest: &Latest, agent: &str) ->
         .find(|found| found.agent == agent)
         .with_context(|| format!("this node knows no agent {agent}"))?;
     let steps = update_steps(&found, &latest.npm().await);
-    install::run(&install::Processes, agent, &steps, UPDATE_TIMEOUT).await
+    let result = install::run(&install::Processes, agent, &steps, UPDATE_TIMEOUT).await;
+    latest.invalidate_report();
+    result
 }
 
 #[cfg(test)]

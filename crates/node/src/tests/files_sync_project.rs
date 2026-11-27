@@ -1280,3 +1280,46 @@ async fn local_edits_are_kept_while_the_checkout_moves_under_the_hold() {
     assert_eq!(fs::read(target.join("tracked")).unwrap(), b"peer edit");
     peer.close().await;
 }
+
+#[test]
+fn failed_scan_retries_back_off_to_the_cap_and_reset_on_recovery() {
+    use super::fetch::RETRY;
+    use super::task::next_scan_retry;
+
+    let mut wait = RETRY;
+    wait = next_scan_retry(wait, true);
+    assert_eq!(wait, RETRY * 2);
+    wait = next_scan_retry(wait, true);
+    assert_eq!(wait, RETRY * 4);
+    for _ in 0..16 {
+        wait = next_scan_retry(wait, true);
+    }
+    assert_eq!(wait, Duration::from_secs(10 * 60));
+    assert_eq!(next_scan_retry(wait, false), RETRY);
+}
+
+#[tokio::test]
+async fn apply_does_not_overwrite_or_repeat_a_failed_unmarked_scan() {
+    let mut project = Project::new(&["a.txt", "b.txt"]).await;
+    // Removing the marker along with files causes the scan to refuse syncing.
+    fs::remove_file(project.path(MARKER)).unwrap();
+    fs::remove_file(project.path("a.txt")).unwrap();
+    fs::remove_file(project.path("b.txt")).unwrap();
+
+    project.task.scan(Reason::Retry).await;
+    assert!(project.task.scan_failed);
+    let error_after_scan = project.task.error.clone();
+    assert!(
+        error_after_scan
+            .as_deref()
+            .is_some_and(|msg| msg.starts_with("scanning failed:")),
+        "{error_after_scan:?}"
+    );
+
+    // Calling apply while scan_failed is already true keeps the error intact and stays failed.
+    project.task.apply().await;
+    assert!(project.task.scan_failed);
+    assert_eq!(project.task.error, error_after_scan);
+    assert_eq!(project.task.shared.status().error, error_after_scan);
+    project.stop().await;
+}

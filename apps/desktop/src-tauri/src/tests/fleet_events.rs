@@ -1156,3 +1156,70 @@ async fn a_wait_keeps_its_topic_subscribed_while_no_view_wants_it() {
     assert!(nothing_wanted(&[], held));
     assert!(wanted_topics(&snapshots, &[], &[id], id).is_empty());
 }
+
+#[test]
+fn interest_diffs_ring_only_newly_wanted_controller_views() {
+    let machine = iroh::SecretKey::generate().public();
+    let base = vec![
+        interest("home", None),
+        interest("machines", None),
+        Interest {
+            machine: Some(machine.to_string()),
+            topic: Topic::parse("agent.sess-1").unwrap(),
+        },
+    ];
+    let switched_session = vec![
+        interest("home", None),
+        interest("machines", None),
+        Interest {
+            machine: Some(machine.to_string()),
+            topic: Topic::parse("agent.sess-2").unwrap(),
+        },
+    ];
+    assert_eq!(
+        newly_wanted_topics(&base, &switched_session),
+        (Vec::new(), false)
+    );
+
+    // Removing an interest does not trigger redraws.
+    let narrowed = vec![interest("home", None)];
+    assert_eq!(newly_wanted_topics(&base, &narrowed), (Vec::new(), false));
+
+    // Adding a single view topic plus telemetry only rings that topic and telemetry.
+    let added = vec![
+        interest("home", None),
+        interest("machines", None),
+        interest("accounts", None),
+        interest("telemetry", None),
+    ];
+    assert_eq!(
+        newly_wanted_topics(&base, &added),
+        (vec![Topic::new("accounts")], true)
+    );
+}
+
+#[test]
+fn mesh_key_routing_skips_unrelated_keys_and_targets_affected_topics() {
+    assert!(mesh_key_topics(&Key::NoticeRead("dev".into())).is_empty());
+    assert!(mesh_key_topics(&Key::Editor).is_empty());
+    assert_eq!(
+        mesh_key_topics(&Key::Project("org/repo".into())),
+        ["projects"]
+    );
+    assert_eq!(
+        mesh_key_topics(&Key::Sync("org/repo".into())),
+        ["projects", "sync"]
+    );
+    assert_eq!(
+        mesh_key_topics(&Key::Harness("claude".into())),
+        ["accounts"]
+    );
+    assert_eq!(
+        mesh_key_topics(&Key::MachineName("dev".into())),
+        ["machines"]
+    );
+    assert_eq!(
+        mesh_key_topics(&Key::Terminal("term-1".into())),
+        ["terminals"]
+    );
+}

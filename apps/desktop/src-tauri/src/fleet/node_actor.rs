@@ -13,7 +13,7 @@ use beep_mesh::{
     },
 };
 use beep_proto::{
-    AgentModels, CustomAgent, SessionId, ToolUpdate,
+    AgentModels, CustomAgent, SessionId, SyncthingPlace, ToolUpdate,
     node::{
         agent::{ReviewRun, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest},
         device::{
@@ -462,6 +462,8 @@ pub(crate) struct Projections {
     pub(crate) devices: Arc<Projected<EndpointId, Vec<Device>>>,
     pub(crate) reviews: Arc<Projected<(EndpointId, SessionId), Vec<ReviewRun>>>,
     pub(crate) search: Arc<Projected<EndpointId, String>>,
+    /// Syncthing places of a project, cached across sync progress redraws.
+    pub(crate) syncthing: Arc<Projected<String, Vec<SyncthingPlace>>>,
     /// What nodes without the `tool-updates` topic answer to the check call.
     pub(crate) tool_updates: Arc<Projected<EndpointId, Vec<ToolUpdate>>>,
     pub(crate) tool_pushes: ToolPushes,
@@ -578,7 +580,7 @@ impl Default for Projections {
                 Duration::from_secs(5),
             ),
             harnesses: Projected::new(
-                Duration::from_secs(60),
+                Duration::from_secs(300),
                 Duration::from_millis(500),
                 Duration::from_secs(8),
             ),
@@ -602,6 +604,11 @@ impl Default for Projections {
                 Duration::from_millis(450),
                 Duration::from_secs(4),
             ),
+            syncthing: Projected::new(
+                Duration::from_secs(300),
+                Duration::from_millis(500),
+                Duration::from_secs(8),
+            ),
             tool_updates: Projected::new(
                 Duration::from_secs(300),
                 Duration::from_millis(500),
@@ -624,6 +631,14 @@ impl Projections {
 
     pub(crate) fn forget_models_of(&self, agent: &str) {
         self.models.forget_where(|(_, a)| a == agent);
+    }
+
+    pub(crate) fn forget_syncthing(&self, project: &str) {
+        self.syncthing.forget(&project.to_owned());
+    }
+
+    pub(crate) fn forget_all_syncthing(&self) {
+        self.syncthing.forget_where(|_| true);
     }
 }
 

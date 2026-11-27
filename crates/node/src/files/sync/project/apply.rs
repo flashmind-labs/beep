@@ -131,8 +131,9 @@ impl Task {
         // A merge may set this off long after the last scan; the folder
         // may have been swapped or unmounted since.
         let checked = match self.check_root().await {
-            // A scan writes the marker again if the folder is whole.
-            Ok(Checked::Unmarked(_)) => {
+            // A scan writes the marker again if the folder is whole; skip
+            // when a scan already failed so it does not run twice in a row.
+            Ok(Checked::Unmarked(_)) if !self.scan_failed => {
                 self.scan(Reason::Checkout).await;
                 self.check_root().await
             }

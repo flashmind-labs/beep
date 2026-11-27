@@ -11,7 +11,7 @@ use super::{
     view_signal::{Change, Interest, Update, ring},
 };
 use crate::error::{DesktopError, Result};
-use beep_mesh::Snapshots;
+use beep_mesh::{Key, Snapshots};
 use beep_proto::node::events::{self, CallReply, Operation, Topic};
 use beep_proto::watched;
 use iroh::EndpointId;
@@ -249,6 +249,62 @@ fn topics_for(interests: &[Interest], machine: EndpointId, local: EndpointId) ->
 /// The node topic of the tools it found a newer release of.
 const TOOL_UPDATES: &str = "tool-updates";
 
+/// Controller view topics drawn by `views`. `machine-details` follows `machines`.
+const VIEW_TOPICS: [&str; 10] = [
+    "home",
+    "machines",
+    "tools",
+    "projects",
+    "sync",
+    "usage",
+    "accounts",
+    "forge",
+    "terminals",
+    "moves",
+];
+
+fn wants_view_topic(interests: &[Interest], name: &str) -> bool {
+    let topic = Topic::new(name);
+    interests.iter().any(|interest| interest.wants_view(&topic))
+}
+
+/// Controller view topics newly demanded by `after` that `before` did not already
+/// cover, plus whether `telemetry` became newly demanded.
+fn newly_wanted_topics(before: &[Interest], after: &[Interest]) -> (Vec<Topic>, bool) {
+    let added = VIEW_TOPICS
+        .into_iter()
+        .filter(|name| !wants_view_topic(before, name) && wants_view_topic(after, name))
+        .map(Topic::new)
+        .collect();
+    let telemetry = !wants_view_topic(before, "telemetry") && wants_view_topic(after, "telemetry");
+    (added, telemetry)
+}
+
+/// Controller topics affected when a replicated mesh state `key` changes.
+fn mesh_key_topics(key: &Key) -> &'static [&'static str] {
+    match key {
+        Key::Project(_) | Key::Group(_) | Key::Pin(_) | Key::ProjectSkills(_) => &["projects"],
+        Key::Sync(_) | Key::ProjectSync => &["projects", "sync"],
+        Key::Credential(_) | Key::Harness(_) | Key::Flsh | Key::Unmoved(_) => &["accounts"],
+        Key::MachineName(_) | Key::Temporary(_) | Key::Observer(_) => &["machines"],
+        Key::Terminal(_) => &["terminals"],
+        Key::SessionMove(_) => &["moves", "home"],
+        Key::SkillSync
+        | Key::Assistant
+        | Key::Editor
+        | Key::Docker
+        | Key::Dictation
+        | Key::InstructionVersion(_)
+        | Key::NoticeRead(_)
+        | Key::SkillLibrary(_)
+        | Key::SkillLibraryCheck(_)
+        | Key::SkillLibraryChecker(_)
+        | Key::Team(_)
+        | Key::Contact(_)
+        | Key::Other(_) => &[],
+    }
+}
+
 fn mesh_is_open(mesh: &watch::Receiver<MeshState>) -> bool {
     watched::read(mesh, |opened| matches!(opened, MeshState::Open(_)))
 }
@@ -306,7 +362,7 @@ async fn run(
     commands: Commands,
 ) {
     let mut mesh = fleet.reach.opened();
-    let mut members = fleet.mesh().map(|mesh| mesh.updates());
+    let mut mesh_changes = fleet.mesh().map(|mesh| mesh.changes());
     let mut status = fleet.status.changes();
     let mut holds = fleet.reach.snapshots().holds();
     let mut local = beep_node::events::system().subscribe();
@@ -408,12 +464,20 @@ async fn run(
         }
 
         if materialized != interests {
-            ring(&app, Change::Topic(Topic::new("*")));
-            app.state::<WindowOutbox>().publish_views(
-                fleet.me,
-                Topic::new("telemetry"),
-                telemetry(&fleet),
-            );
+            let (added, telemetry_added) = newly_wanted_topics(&materialized, &interests);
+
+            for topic in added {
+                ring(&app, Change::Topic(topic));
+            }
+
+            if telemetry_added {
+                app.state::<WindowOutbox>().publish_views(
+                    fleet.me,
+                    Topic::new("telemetry"),
+                    telemetry(&fleet),
+                );
+            }
+
             materialized = interests.clone();
         }
 
@@ -425,20 +489,40 @@ async fn run(
                 command_workers.clear(); subscriptions.clear(); workers.abort_all();
                 app.state::<WindowOutbox>().keep_only(fleet.me);
                 fleet.reach.snapshots().reconcile(&BTreeMap::new());
-                members = fleet.mesh().map(|mesh| mesh.updates());
+                fleet.projections().forget_all_syncthing();
+                mesh_changes = fleet.mesh().map(|mesh| mesh.changes());
                 beep_node::events::system().changed(Topic::new("projects"));
                 beep_node::events::system().changed(Topic::new("accounts"));
             },
-            changed = async { match &mut members { Some(members) => members.changed().await, None => std::future::pending().await } } => {
-                if changed.is_err() { members = None; }
-                beep_node::events::system().changed(Topic::new("projects"));
-                beep_node::events::system().changed(Topic::new("accounts"));
+            changed = async { match &mut mesh_changes { Some(changes) => changes.recv().await, None => std::future::pending().await } } => {
+                match changed {
+                    Ok(key) => {
+                        match &key {
+                            Key::Project(name) | Key::Sync(name) => fleet.projections().forget_syncthing(name),
+                            Key::ProjectSync => fleet.projections().forget_all_syncthing(),
+                            _ => {}
+                        }
+                        for &topic in mesh_key_topics(&key) {
+                            beep_node::events::system().changed(Topic::new(topic));
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        fleet.projections().forget_all_syncthing();
+                        for topic in ["projects", "accounts", "machines", "sync"] {
+                            beep_node::events::system().changed(Topic::new(topic));
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        mesh_changes = None;
+                    }
+                }
             },
             changed = status.changed() => {
                 if changed.is_err() { return; }
                 let current = watched::read_and_update(&mut status, |status| *status);
 
                 if current.machines != revision.machines {
+                    fleet.projections().forget_all_syncthing();
                     beep_node::events::system().changed(Topic::new("machines"));
                     beep_node::events::system().changed(Topic::new("accounts"));
                 }
@@ -457,7 +541,7 @@ async fn run(
                 Ok(change) if change.topic.name() == "sync" => {
                     ring(&app, Change::Sync { moving: true });
                 },
-                Ok(change) if matches!(change.topic.name(), "machines" | "tools" | "projects" | "home" | "usage" | "accounts") => {
+                Ok(change) if matches!(change.topic.name(), "machines" | "tools" | "projects" | "home" | "usage" | "accounts" | "terminals" | "moves") => {
                     ring(&app, Change::Topic(change.topic));
                 },
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {

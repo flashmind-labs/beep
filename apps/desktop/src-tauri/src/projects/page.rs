@@ -3,15 +3,15 @@
 use crate::{
     error::{DesktopError, Result},
     fleet::{
-        Machines, files as direct,
+        Fleet, Machines, files as direct,
         projects::{FleetState, desk},
         session_lists::{ListId, SessionLists, SessionRow},
         session_mirror::SessionMirror,
-        view_signal::View,
+        view_signal::{Change, View, ring},
     },
 };
 use beep_fleet::Session;
-use beep_proto::{ProjectMachine, SyncthingPlace};
+use beep_proto::{ProjectMachine, SyncthingPlace, node::events::Topic};
 use serde::Serialize;
 use serde_json::json;
 use std::{collections::BTreeSet, sync::Arc};
@@ -123,7 +123,7 @@ pub(crate) async fn page_views(app: &AppHandle, page: Page) -> Vec<View> {
             views.extend(View::new(
                 "project_syncthing",
                 args,
-                desk.syncthing(&project).await,
+                syncthing_places(app, &project).await,
             ));
             views
         });
@@ -133,6 +133,39 @@ pub(crate) async fn page_views(app: &AppHandle, page: Page) -> Vec<View> {
         .into_iter()
         .flatten()
         .collect()
+}
+
+fn same_syncthing(a: &[SyncthingPlace], b: &[SyncthingPlace]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(left, right)| {
+            left.machine_id == right.machine_id
+                && left.folder == right.folder
+                && left.label == right.label
+        })
+}
+
+async fn syncthing_places(app: &AppHandle, project: &str) -> Vec<SyncthingPlace> {
+    let fleet = app.state::<Arc<Fleet>>().inner().clone();
+    let session = app.state::<Arc<Session>>().inner().clone();
+    let name = project.to_owned();
+    let app_notify = app.clone();
+    fleet
+        .projections()
+        .syncthing
+        .read_or_default(
+            name.clone(),
+            Vec::new,
+            |a, b| same_syncthing(a, b),
+            move || {
+                ring(&app_notify, Change::Topic(Topic::new("sync")));
+                ring(&app_notify, Change::Topic(Topic::new("projects")));
+            },
+            move || async move {
+                let desk = desk(&session).await?;
+                Ok(desk.syncthing(&name).await)
+            },
+        )
+        .await
 }
 
 /// `project_sync_detail` of each of `names` that no page follows, which `page_views` pushes for
@@ -211,6 +244,7 @@ pub async fn project_machines(
 #[tauri::command]
 pub async fn project_add_to_machine(
     fleet: FleetState<'_>,
+    machines: Machines<'_>,
     project: String,
     machine_id: String,
     folder: String,
@@ -219,6 +253,7 @@ pub async fn project_add_to_machine(
         .await?
         .add_to_machine(&project, &machine_id, &folder)
         .await?;
+    machines.projections().forget_syncthing(&project);
     Ok(added.folder)
 }
 
@@ -228,6 +263,7 @@ pub async fn project_add_to_machine(
 #[tauri::command]
 pub async fn project_change_folder(
     fleet: FleetState<'_>,
+    machines: Machines<'_>,
     project: String,
     machine_id: String,
     folder: String,
@@ -236,6 +272,7 @@ pub async fn project_change_folder(
         .await?
         .change_folder(&project, &machine_id, &folder)
         .await?;
+    machines.projections().forget_syncthing(&project);
     Ok(changed.folder)
 }
 
@@ -278,6 +315,7 @@ pub async fn project_remove_from_machine(
     let removed = desk
         .remove_from_machine(&project, &machine_id, delete_folder.unwrap_or(false))
         .await?;
+    machines.projections().forget_syncthing(&project);
     cache.place_removed(&app);
     let read = cache.ticket();
     cache.project_list(&app, read, desk.imported().await);
@@ -286,9 +324,6 @@ pub async fn project_remove_from_machine(
 
 /// The machines on which Syncthing keeps `project`'s folder in step.
 #[tauri::command]
-pub async fn project_syncthing(
-    fleet: FleetState<'_>,
-    project: String,
-) -> Result<Vec<SyncthingPlace>> {
-    Ok(desk(&fleet).await?.syncthing(&project).await)
+pub async fn project_syncthing(app: AppHandle, project: String) -> Result<Vec<SyncthingPlace>> {
+    Ok(syncthing_places(&app, &project).await)
 }

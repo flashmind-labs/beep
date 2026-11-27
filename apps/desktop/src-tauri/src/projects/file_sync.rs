@@ -4,7 +4,10 @@
 
 use crate::{
     error::Result,
-    fleet::projects::{FleetState, desk},
+    fleet::{
+        Machines,
+        projects::{FleetState, desk},
+    },
     store::kept,
     store::view_cache::{View, ViewCache},
 };
@@ -34,13 +37,18 @@ pub async fn project_git_auto_recovery(
 #[tauri::command]
 pub async fn project_syncthing_mode(
     fleet: FleetState<'_>,
+    machines: Machines<'_>,
     project: String,
     enabled: Option<bool>,
 ) -> Result<Option<bool>> {
-    Ok(desk(&fleet)
+    let result = desk(&fleet)
         .await?
         .project_syncthing_mode(&project, enabled)
-        .await?)
+        .await?;
+    if enabled.is_some() {
+        machines.projections().forget_syncthing(&project);
+    }
+    Ok(result)
 }
 
 #[tauri::command]
@@ -89,14 +97,19 @@ pub async fn syncthing_in_use(fleet: FleetState<'_>) -> Result<bool> {
 #[tauri::command]
 pub async fn project_syncthing_files(
     fleet: FleetState<'_>,
+    machines: Machines<'_>,
     machine_id: String,
     folder: String,
     enabled: Option<bool>,
 ) -> Result<beep_proto::node::sync::SyncthingFiles> {
-    Ok(desk(&fleet)
+    let result = desk(&fleet)
         .await?
         .syncthing_files(&machine_id, &folder, enabled)
-        .await?)
+        .await?;
+    if enabled.is_some() {
+        machines.projections().forget_all_syncthing();
+    }
+    Ok(result)
 }
 
 /// One machine's sync of one project.

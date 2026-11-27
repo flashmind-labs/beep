@@ -118,6 +118,7 @@ fn openable(path: &Path) -> bool {
 #[allow(clippy::too_many_arguments)]
 pub async fn import_project(
     fleet: FleetState<'_>,
+    machines: Machines<'_>,
     repo: String,
     machine_id: Option<String>,
     folder: Option<String>,
@@ -149,6 +150,7 @@ pub async fn import_project(
     if let Some(enabled) = syncthing_files {
         desk.project_syncthing_mode(&imported.project, Some(enabled))
             .await?;
+        machines.projections().forget_syncthing(&imported.project);
     }
 
     Ok(imported.into())

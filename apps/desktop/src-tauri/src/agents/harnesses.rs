@@ -44,6 +44,7 @@ pub async fn harness_settings_save(
         .save_harness_settings(&machine_id, &agent, settings)
         .await?;
     if let Some(machine) = machines.member(&machine_id) {
+        machines.projections().harnesses.forget(&machine);
         direct::models_changed(&app, &machines, machine);
     }
     Ok(())
@@ -104,15 +105,18 @@ pub async fn harness_settings_all(
 #[tauri::command]
 pub async fn harness_settings_save_all(
     fleet: FleetState<'_>,
+    machines: Machines<'_>,
     from_machine: String,
     agent: String,
     settings: HarnessSettings,
     include_program: bool,
 ) -> Result<u32> {
-    Ok(desk(&fleet)
+    let saved = desk(&fleet)
         .await?
         .save_harness_settings_all(&from_machine, &agent, settings, include_program)
-        .await?)
+        .await?;
+    machines.projections().harnesses.forget_where(|_| true);
+    Ok(saved)
 }
 
 /// When the nodes compact `agent`'s sessions; null is the default.

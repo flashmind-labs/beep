@@ -144,6 +144,16 @@ impl DeleteTimer {
     }
 }
 
+/// Next retry wait after a scan finishes: backs off up to `MAX_RETRY` while
+/// scanning still fails, and resets to `RETRY` once a scan succeeds.
+pub(super) fn next_scan_retry(retry: Duration, scan_failed: bool) -> Duration {
+    if scan_failed {
+        (retry * 2).min(MAX_RETRY)
+    } else {
+        RETRY
+    }
+}
+
 /// Runs the project until it stops: scans the folder when the watcher says
 /// it changed (or on a timer), records the edits in the list, then applies
 /// the list to the folder. Pulls from peers merge into the list from their
@@ -298,15 +308,17 @@ pub(in crate::files::sync) async fn run(
             }
             () = shared.merged.notified() => {
                 // While only a change clears a Git wait, a merge that left
-                // the list as it was cannot.
-                if !task.waits_for_change() || list.has_changed().unwrap_or(true) {
+                // the list as it was cannot; a broken root still waits on its scan.
+                if !task.scan_failed && (!task.waits_for_change() || list.has_changed().unwrap_or(true)) {
                     retry = RETRY;
                     apply = true;
                 }
             }
             Ok(()) = peer_commits.changed() => {
-                retry = RETRY;
-                apply = true;
+                if !task.scan_failed {
+                    retry = RETRY;
+                    apply = true;
+                }
             }
             // A Git wait is cleared by a change; edits thrown away by hand
             // are not one, so it is still checked now and then.
@@ -317,8 +329,10 @@ pub(in crate::files::sync) async fn run(
             () = sleep_until(last_scan + retry), if task.scan_failed => {
                 task.scan(Reason::Retry).await;
                 last_scan = Instant::now();
-                retry = if task.scan_failed { (retry * 2).min(MAX_RETRY) } else { RETRY };
-                apply = true;
+                retry = next_scan_retry(retry, task.scan_failed);
+                if !task.scan_failed {
+                    apply = true;
+                }
             }
             () = sleep_until(task.saved_at + SAVE_EVERY), if unsaved => {}
             changed = peers.changed() => {
@@ -345,7 +359,7 @@ pub(in crate::files::sync) async fn run(
             list.mark_unchanged();
             task.apply().await;
 
-            if task.pending == 0 {
+            if task.pending == 0 && !task.scan_failed {
                 retry = RETRY;
             }
             // Pulls that failed on the Git wait dial again now, not after

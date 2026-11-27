@@ -220,3 +220,34 @@ async fn claude_sign_in_respects_signed_out_status() {
     assert_eq!(read.account, None);
     assert_eq!(read.plan, None);
 }
+
+#[test]
+fn cached_harness_reports_reuse_when_fresh_and_miss_on_settings_or_invalidation() {
+    let latest = Latest::default();
+    let settings = Settings::default();
+    let kinds = vec![kind("claude")];
+    let first_key = ReportKey::of(&kinds, &settings);
+    let sample = HarnessReport {
+        harnesses: Vec::new(),
+        checked_at: 42,
+    };
+
+    latest.store_report(first_key.clone(), sample.clone());
+    assert_eq!(
+        latest.cached_report(&first_key, REPORT_FOR),
+        Some(sample.clone())
+    );
+    assert_eq!(latest.cached_report(&first_key, Duration::ZERO), None);
+
+    // Updating settings bumps the key so the next report re-probes.
+    settings.set(AgentSettings::default());
+    let updated_key = ReportKey::of(&kinds, &settings);
+    assert_ne!(first_key, updated_key);
+    assert_eq!(latest.cached_report(&updated_key, REPORT_FOR), None);
+
+    // Explicit invalidation (e.g. after updating a harness) drops the cached report.
+    latest.store_report(updated_key.clone(), sample.clone());
+    assert_eq!(latest.cached_report(&updated_key, REPORT_FOR), Some(sample));
+    latest.invalidate_report();
+    assert_eq!(latest.cached_report(&updated_key, REPORT_FOR), None);
+}
