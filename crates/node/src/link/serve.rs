@@ -36,7 +36,7 @@ use std::{
     collections::BTreeSet,
     future::Future,
     path::Path,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::watch;
@@ -525,16 +525,20 @@ impl Peers {
     /// the offers goes elsewhere.
     pub async fn new(bound: Bound) -> Self {
         let Bound { offers, own, team } = bound;
-        let inner = Arc::new_cyclic(|inner| Inner {
+        let inner = Arc::new(Inner {
             own,
             team,
             offers: Mutex::new(offers),
             later: watch::channel(BTreeSet::new()).0,
             active: Mutex::new(None),
             follower: Mutex::new(None),
-            _following: AbortOnDropHandle::new(tokio::spawn(from_mesh::run(inner.clone()))),
+            _following: OnceLock::new(),
             serve_protocol: serve_stream,
         });
+        // Started once the node exists, which it upgrades to read.
+        let following = tokio::spawn(from_mesh::run(Arc::downgrade(&inner)));
+        inner._following.set(AbortOnDropHandle::new(following)).ok();
+
         Self { inner }
     }
 }

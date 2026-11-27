@@ -40,7 +40,7 @@ use std::{
     collections::BTreeSet,
     fmt::Write,
     path::Path,
-    sync::{Arc, Mutex, MutexGuard, Weak},
+    sync::{Arc, Mutex, MutexGuard, OnceLock, Weak},
     time::Duration,
 };
 use tokio::{
@@ -104,7 +104,7 @@ pub(super) struct Inner {
     /// by `leave`.
     pub(super) follower: Mutex<Option<AbortOnDropHandle<()>>>,
     /// Watches the mesh and the transfers to start the follower.
-    pub(super) _following: AbortOnDropHandle<()>,
+    pub(super) _following: OnceLock<AbortOnDropHandle<()>>,
     /// Serves a stream once its protocol is known: set by the node's
     /// router, which this module does not import.
     pub(super) serve_protocol: ServeProtocol,
