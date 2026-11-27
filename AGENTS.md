@@ -55,7 +55,7 @@ reference in the issue. Use `just reports`, `just report <reference>` and
 | `crates/proto` | Wire types, framing and the lenient MessagePack reader |
 | `crates/plugins` | Plugin runtime and host API |
 | `crates/report`, `crates/server` | Report collection and redaction, and the report receiver |
-| `apps/desktop/src` | React UI by feature, with tested logic in `*-state.ts` |
+| `apps/desktop/src` | React UI in layers: `shell` (windows and routers), `screens`, `parts`, `stores` (tested logic in `*-state.ts`), `ui` |
 | `apps/desktop/src-tauri/src` | Tauri commands and mesh integration |
 
 ## Mesh and sync
