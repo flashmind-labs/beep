@@ -706,9 +706,8 @@ async fn a_session_goes_by_the_agents_id_and_ends_with_the_node() {
     assert_eq!(ended.state.error.as_deref(), Some(session::NODE_STOPPED));
 }
 
-/// A regression guard rather than a test of one fix: it passes before the
-/// owners were split too. No owner or task of the node holds the
-/// composition or an upper owner once the node stopped.
+/// A regression guard rather than a test of one fix: no owner or task of the
+/// node holds the composition or an upper owner once the node stopped.
 #[cfg(unix)]
 #[tokio::test]
 async fn nothing_holds_an_owner_once_the_node_stopped_and_agents_is_dropped() {

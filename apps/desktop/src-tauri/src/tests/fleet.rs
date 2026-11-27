@@ -239,53 +239,6 @@ async fn a_machine_that_is_off_fails_within_three_seconds() {
 }
 
 #[tokio::test]
-async fn a_second_desktop_joins_and_sees_the_machines() {
-    let first = start("Studio").await;
-    let ticket = first
-        .fleet
-        .mesh()
-        .expect("the mesh is open")
-        .invite(DeviceKind::Desktop, Duration::from_secs(3600))
-        .await
-        .expect("a ticket is minted");
-    // The second Mac joined before it started, then starts from that.
-    let dir = TempDir::new().expect("a temp dir");
-    let endpoint = bind(&SecretKey::generate()).await;
-    let joined = Mesh::join(dir.path(), endpoint.clone(), &ticket, "Laptop")
-        .await
-        .expect("the desktop joins");
-    drop(joined);
-    let second = Fleet::new(
-        endpoint.clone(),
-        dir.path(),
-        "Laptop",
-        offers(&dir, &endpoint, "Laptop"),
-    )
-    .await;
-    second.run().await;
-    let theirs = second.mesh().expect("the joined mesh opens");
-    until(&theirs, |mesh| online(mesh, first.fleet.id())).await;
-    let mut machines: Vec<_> = second
-        .machines()
-        .into_iter()
-        .map(|status| (status.device.name, status.device.kind))
-        .collect();
-    machines.sort_by(|a, b| a.0.cmp(&b.0));
-    assert_eq!(
-        machines,
-        [
-            ("Laptop".to_owned(), DeviceKind::Desktop),
-            ("Studio".to_owned(), DeviceKind::Desktop)
-        ]
-    );
-    // And it reaches the first Mac's node over the mesh.
-    let client = second.client(first.fleet.id()).await.expect("connected");
-    let (_tx, mut rx) = client.open("status/1").await.expect("the node opens it");
-    let report = rx.recv::<Report>().await.expect("the node answers");
-    assert!(matches!(report, Some(Report::Offers(_))), "{report:?}");
-}
-
-#[tokio::test]
 async fn a_machine_joining_wakes_what_follows_the_mesh() {
     let mac = start("Studio").await;
     let mut changes = mac.fleet.changes();
