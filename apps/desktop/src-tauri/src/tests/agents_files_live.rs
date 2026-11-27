@@ -176,7 +176,10 @@ fn a_change_reads_again_only_the_places_of_sessions_working_in_its_folder() {
     held.placed
         .insert((machine, "elsewhere".into()), "/srv/two".into());
 
-    assert_eq!(held.places_in(machine, "/srv/one"), std::slice::from_ref(&here));
+    assert_eq!(
+        held.places_in(machine, "/srv/one"),
+        std::slice::from_ref(&here)
+    );
     assert_eq!(
         held.places_in(machine, "/srv/one/.worktrees/fix/src"),
         [here]
