@@ -142,7 +142,7 @@ host! {
         /// The background children that closed for good, to delete.
         closed: family::links::Tidy,
         /// The reviews reviewers handed in, and the reviewers running.
-        reviews: reviews::kept::Reviews,
+        pub(crate) reviews: Arc<reviews::kept::Reviews>,
         /// The search index, when the node opened one.
         pub(crate) search: Option<Arc<search::SearchIndex>>,
         /// The sessions kept across the last stop, and whether they were resumed.
@@ -181,7 +181,7 @@ host! {
                 usage: Arc::new(usage::Usage::new(catalog.clone())),
                 catalog,
                 occupancy: parts.occupancy.clone(),
-                reviews: reviews::kept::Reviews::new(events),
+                reviews: Arc::new(reviews::kept::Reviews::new(events, sessions.clone())),
                 links: Arc::new(family::links::Links::new(parts.mesh)),
                 reach: Arc::new(reach::Reach::new(parts.folders, sessions.clone(), parts.occupancy.clone())),
                 sessions,

@@ -47,8 +47,7 @@ impl Agents {
     /// The id a session goes by in links: the agent's own when it has one,
     /// which outlives a restart.
     pub(crate) fn name_of(session: &Session) -> SessionId {
-        watched::read(&session.live, |live| live.agent_session.clone())
-            .unwrap_or_else(|| session.id.clone())
+        session.link_name()
     }
 
     /// The calling session `session` of this node, and who it is to its

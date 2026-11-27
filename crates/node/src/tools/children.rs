@@ -354,7 +354,7 @@ impl Reach<'_> {
 
     async fn status(&self, id: &str) -> Result<Reply, String> {
         // A review's id: its reviewer is gone once it is done.
-        if let Some(run) = self.agents.review_for(self.who, &ChildId::from(id).session) {
+        if let Some(run) = self.agents.reviews.review_for(self.who, &ChildId::from(id).session) {
             return Ok(super::review::standing(run));
         }
 

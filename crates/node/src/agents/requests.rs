@@ -556,14 +556,14 @@ pub async fn serve_sessions(
             Ok(run) => SessionsReply::Review { run },
             Err(message) => SessionsReply::Error { message },
         },
-        SessionsRequest::Review { id } => match agents.review(&id) {
+        SessionsRequest::Review { id } => match agents.reviews.review(&id) {
             Some(run) => SessionsReply::Review { run },
             None => SessionsReply::Error {
                 message: format!("there is no review {id}"),
             },
         },
         SessionsRequest::Reviews { session } => SessionsReply::Reviews {
-            runs: agents.reviews_of(&session),
+            runs: agents.reviews.reviews_of(&session),
         },
         SessionsRequest::InstallAdapters {} => {
             agents.catalog.install_adapters_now();

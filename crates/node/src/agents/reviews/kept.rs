@@ -3,7 +3,8 @@
 use crate::agents::family::Who;
 use beep_proto::SessionId;
 use beep_proto::node::agent::ReviewRun;
-use std::{collections::VecDeque, sync::Mutex};
+use crate::agents::sessions::Sessions;
+use std::{collections::VecDeque, sync::{Arc, Mutex}};
 use tokio::sync::Notify;
 use tokio_util::task::AbortOnDropHandle;
 
@@ -13,6 +14,7 @@ const MAX_REVIEWS: usize = 64;
 pub(crate) struct Reviews {
     pub(super) kept: Mutex<VecDeque<Kept>>,
     pub(super) events: crate::events::Hub,
+    pub(super) sessions: Arc<Sessions>,
     /// Woken when a review changes, for the callers that wait on one.
     pub(super) changed: Notify,
 }
@@ -29,15 +31,16 @@ pub(super) struct Kept {
 
 impl Default for Reviews {
     fn default() -> Self {
-        Self::new(crate::events::system().clone())
+        Self::new(crate::events::system().clone(), Arc::default())
     }
 }
 
 impl Reviews {
-    pub(crate) fn new(events: crate::events::Hub) -> Self {
+    pub(crate) fn new(events: crate::events::Hub, sessions: Arc<Sessions>) -> Self {
         Self {
             kept: Mutex::default(),
             events,
+            sessions,
             changed: Notify::new(),
         }
     }

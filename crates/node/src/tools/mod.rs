@@ -186,11 +186,11 @@ impl Backend for Served {
     }
 
     fn reviewer(&self, session: &SessionId) -> bool {
-        self.node.agents.is_reviewer(session)
+        self.node.agents.reviews.is_reviewer(session)
     }
 
     fn assistant(&self, session: &SessionId) -> bool {
-        self.node.agents.is_assistant(session)
+        self.node.agents.reviews.is_assistant(session)
     }
 
     fn team(&self, session: &SessionId) -> bool {

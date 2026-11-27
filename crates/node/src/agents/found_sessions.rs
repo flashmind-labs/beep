@@ -267,7 +267,7 @@ impl Agents {
             !session
                 .taken_over
                 .as_ref()
-                .is_some_and(|id| self.is_reviewer(id))
+                .is_some_and(|id| self.reviews.is_reviewer(id))
                 && !(session.taken_over.is_none()
                     && session.pid.is_some_and(|pid| starting.contains(&pid)))
         });

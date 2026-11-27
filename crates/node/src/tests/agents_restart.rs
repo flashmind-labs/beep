@@ -503,7 +503,7 @@ async fn begin_assistant_lists_as_assistant() {
     let listed = agents.sessions.list();
     assert_eq!(listed.len(), 1);
     assert!(listed[0].assistant);
-    assert!(agents.is_assistant(&listed[0].id));
+    assert!(agents.reviews.is_assistant(&listed[0].id));
     agents.shutdown().await;
 }
 
@@ -532,7 +532,7 @@ async fn assistant_survives_restart() {
     let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
-    assert!(after.is_assistant(&SessionId::from("held-1")));
+    assert!(after.reviews.is_assistant(&SessionId::from("held-1")));
     after.shutdown().await;
 }
 
@@ -546,7 +546,7 @@ async fn a_fresh_start_in_the_home_folder_is_no_assistant() {
         .start(&kind, None, begin("hello"))
         .await.expect("the session starts");
 
-    assert!(!agents.is_assistant(&home.id));
+    assert!(!agents.reviews.is_assistant(&home.id));
     agents.shutdown().await;
 }
 
@@ -583,7 +583,7 @@ async fn an_ended_assistant_stays_the_assistant_after_a_restart() {
         .resume(&kind, &SessionId::from("held-1"), None, None)
         .await
         .expect("taken over");
-    assert!(after.is_assistant(&resumed.id));
+    assert!(after.reviews.is_assistant(&resumed.id));
     assert_eq!(resumed.info().title, title);
     after.shutdown().await;
 }
@@ -612,7 +612,7 @@ async fn a_saved_session_in_the_home_folder_keeps_its_saved_flag() {
         .resume(&kind, &SessionId::from("held-1"), None, None)
         .await
         .expect("taken over");
-    assert!(!agents.is_assistant(&resumed.id));
+    assert!(!agents.reviews.is_assistant(&resumed.id));
     agents.shutdown().await;
 }
 

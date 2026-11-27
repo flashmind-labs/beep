@@ -5,7 +5,7 @@
 //! stopped; the review stays here for the caller and the desktops.
 
 use beep_proto::SessionId;
-use super::{Agents, Begin, Session, family::{ChildStart, Review, Who}, live::Live, session::Command, unix_now};
+use super::{Agents, Begin, Session, sessions::find_session, family::{ChildStart, Review, Who}, live::Live, session::Command, unix_now};
 use crate::known::known;
 use beep_proto::ModelId;
 use beep_proto::node::agent::{
@@ -13,7 +13,7 @@ use beep_proto::node::agent::{
 };
 use beep_proto::watched;
 use house::HouseRules;
-use kept::Kept;
+use kept::{Kept, Reviews};
 use std::sync::Arc;
 use tokio_util::task::AbortOnDropHandle;
 
@@ -23,13 +23,6 @@ pub(crate) const MAX_FINDINGS: usize = 30;
 pub(crate) const NUDGE: &str = "Call submit_review with your findings.";
 
 impl Agents {
-    pub(crate) fn review_snapshots(&self) -> Vec<ReviewRun> {
-        crate::lock(&self.reviews.kept)
-            .iter()
-            .map(|kept| kept.run.clone())
-            .collect()
-    }
-
     /// Starts a reviewer as `order` says and gives its review as it starts.
     pub(crate) async fn start_review(
         self: &Arc<Self>,
@@ -113,15 +106,24 @@ impl Agents {
         });
         Ok(run)
     }
+}
+
+impl Reviews {
+    pub(crate) fn review_snapshots(&self) -> Vec<ReviewRun> {
+        crate::lock(&self.kept)
+            .iter()
+            .map(|kept| kept.run.clone())
+            .collect()
+    }
 
     /// The review `id`.
     pub(crate) fn review(&self, id: &SessionId) -> Option<ReviewRun> {
-        self.reviews.with(id, |kept| kept.run.clone())
+        self.with(id, |kept| kept.run.clone())
     }
 
     /// The review `id`, when `who` asked for it.
     pub(crate) fn review_for(&self, who: &Who, id: &SessionId) -> Option<ReviewRun> {
-        self.reviews
+        self
             .with(id, |kept| {
                 (kept.parent.as_ref() == Some(who)).then(|| kept.run.clone())
             })
@@ -133,7 +135,7 @@ impl Agents {
     pub(crate) async fn review_ended(&self, who: &Who, id: &SessionId) -> Option<ReviewRun> {
         loop {
             // Made before the read, so a change in between wakes it.
-            let changed = self.reviews.changed.notified();
+            let changed = self.changed.notified();
             let run = self.review_for(who, id)?;
 
             if !run.running() {
@@ -146,11 +148,11 @@ impl Agents {
 
     /// The reviews of `session`'s work, by its id here or the agent's.
     pub(crate) fn reviews_of(&self, session: &SessionId) -> Vec<ReviewRun> {
-        let names: Vec<SessionId> = match self.get(session) {
-            Some(found) => vec![found.id.clone(), Self::name_of(&found)],
+        let names: Vec<SessionId> = match find_session(&self.sessions.read(), session) {
+            Some(found) => vec![found.id.clone(), found.link_name()],
             None => vec![session.clone()],
         };
-        crate::lock(&self.reviews.kept)
+        crate::lock(&self.kept)
             .iter()
             .filter(|kept| {
                 let parent = kept.parent.as_ref().map(|who| &who.session);
@@ -164,12 +166,12 @@ impl Agents {
 
     /// Whether `session` is a reviewer this node runs.
     pub(crate) fn is_reviewer(&self, session: &SessionId) -> bool {
-        self.get(session).is_some_and(|session| session.reviewer)
+        find_session(&self.sessions.read(), session).is_some_and(|session| session.reviewer)
     }
 
     /// Whether `session` is the home assistant this node runs.
     pub(crate) fn is_assistant(&self, session: &SessionId) -> bool {
-        self.get(session).is_some_and(|session| session.assistant)
+        find_session(&self.sessions.read(), session).is_some_and(|session| session.assistant)
     }
 
     /// Takes the review the reviewer `session` handed in; one handed in
@@ -179,12 +181,11 @@ impl Agents {
         session: &SessionId,
         review: SubmittedReview,
     ) -> Result<(), String> {
-        let id = self
-            .get(session)
+        let id = find_session(&self.sessions.read(), session)
             .filter(|session| session.reviewer)
             .map(|session| session.id.clone())
             .ok_or_else(|| "This session is no reviewer.".to_owned())?;
-        self.reviews
+        self
             .with(&id, |kept| match &kept.run.error {
                 Some(why) => Err(format!("The review is over: {why}")),
                 None => {
@@ -195,14 +196,14 @@ impl Agents {
             .unwrap_or_else(|| Err("This session is no reviewer.".to_owned()))
     }
 
-    fn submitted(&self, id: &SessionId) -> bool {
-        self.reviews
+    pub(super) fn submitted(&self, id: &SessionId) -> bool {
+        self
             .with(id, |kept| kept.run.review.is_some())
             .unwrap_or(false)
     }
 
-    fn fail_review(&self, id: &SessionId, why: String) {
-        self.reviews.with(id, |kept| kept.run.error = Some(why));
+    pub(super) fn fail_review(&self, id: &SessionId, why: String) {
+        self.with(id, |kept| kept.run.error = Some(why));
     }
 }
 
@@ -267,13 +268,13 @@ async fn follow(agents: Arc<Agents>, session: Arc<Session>) {
     let mut nudged = false;
 
     loop {
-        let submitted = agents.submitted(&id);
+        let submitted = agents.reviews.submitted(&id);
         let next = watched::read_and_update(&mut live, |live| step(live, submitted, nudged));
 
         match next {
             Step::Wait => {
                 if live.changed().await.is_err() {
-                    agents.fail_review(&id, "The reviewer is gone.".to_owned());
+                    agents.reviews.fail_review(&id, "The reviewer is gone.".to_owned());
                     break;
                 }
             }
@@ -284,13 +285,13 @@ async fn follow(agents: Arc<Agents>, session: Arc<Session>) {
                     .order(Command::Prompt(NUDGE.to_owned().into()))
                     .await
                 {
-                    agents.fail_review(&id, format!("The reviewer could not be nudged: {e}"));
+                    agents.reviews.fail_review(&id, format!("The reviewer could not be nudged: {e}"));
                     break;
                 }
             }
             Step::Done => break,
             Step::Fail(why) => {
-                agents.fail_review(&id, why);
+                agents.reviews.fail_review(&id, why);
                 break;
             }
         }

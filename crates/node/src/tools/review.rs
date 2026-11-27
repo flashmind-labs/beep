@@ -86,6 +86,7 @@ async fn run_review(node: &Node, request: &Request) -> Result<Reply, String> {
         Some(id) => {
             let trimmed = id.trim();
             agents
+                .reviews
                 .review_for(&who, &Into::<SessionId>::into(trimmed))
                 .ok_or_else(|| format!("You have no review {trimmed}."))?
         }
@@ -123,10 +124,10 @@ pub(crate) async fn waited(
     who: &crate::agents::family::Who,
     run: ReviewRun,
 ) -> ReviewView {
-    match timeout(WAIT_LIMIT, agents.review_ended(who, &run.id)).await {
+    match timeout(WAIT_LIMIT, agents.reviews.review_ended(who, &run.id)).await {
         Ok(ended) => ReviewView::from(ended.unwrap_or(run)),
         Err(_) => {
-            let mut view = ReviewView::from(agents.review_for(who, &run.id).unwrap_or(run));
+            let mut view = ReviewView::from(agents.reviews.review_for(who, &run.id).unwrap_or(run));
             view.note = Some(format!(
                 "Still reviewing after {} seconds. Call review with this id to check again.",
                 WAIT_LIMIT.as_secs()
@@ -159,7 +160,7 @@ fn submit_review(node: &Node, request: &Request) -> Result<Reply, String> {
         ));
     }
 
-    node.agents.submit_review(&request.session, review)?;
+    node.agents.reviews.submit_review(&request.session, review)?;
 
     Ok(ok("Submitted. The review is done: end your turn."))
 }

@@ -180,6 +180,13 @@ async fn follow_parent(mut parent: watch::Receiver<Live>, orders: crate::actor::
 }
 
 impl Session {
+    /// The id the session goes by in links: the agent's own when it has one,
+    /// which outlives a restart.
+    pub(crate) fn link_name(&self) -> SessionId {
+        watched::read(&self.live, |live| live.agent_session.clone())
+            .unwrap_or_else(|| self.id.clone())
+    }
+
     pub(super) fn start(start: Start<'_>) -> Result<Self> {
         Self::start_within(start, STOP_WITHIN)
     }

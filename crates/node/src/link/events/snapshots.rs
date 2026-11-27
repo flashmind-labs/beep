@@ -617,7 +617,7 @@ impl Snapshots {
                             })))
                         }
                         Source::Reviews => Ok(Value::Sessions(Box::new(SessionsReply::Reviews {
-                            runs: offers.agents.review_snapshots(),
+                            runs: offers.agents.reviews.review_snapshots(),
                         }))),
                         Source::Missing => Ok(Value::Missing),
                         Source::Resources(resources) => Ok(Value::Resources(resources)),
