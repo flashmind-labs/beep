@@ -203,7 +203,7 @@ async fn a_running_session_is_refused_and_an_ended_one_is_forgotten() {
         .unwrap();
     assert!(!m.claude(CLAUDE_ID) && !m.side(CLAUDE_ID));
     assert!(m.agents.sessions.list().is_empty(), "the node's record is gone");
-    assert!(m.agents.open_sessions().is_empty(), "and not reopened");
+    assert!(m.agents.reopen.open_sessions().is_empty(), "and not reopened");
 }
 
 #[tokio::test]

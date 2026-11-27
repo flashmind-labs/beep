@@ -173,7 +173,7 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         // It lists as ended from the store; what the source saved of it
         // keeps its name and its place under its chat.
         if let Some(saved) = kept_here(&arrival, &folders.new, env.mesh.me()) {
-            env.agents.keep_arrived(saved);
+            env.agents.reopen.keep_arrived(saved);
         }
 
         return Ok(());

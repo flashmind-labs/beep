@@ -7,7 +7,7 @@ use super::{
     types::Error,
 };
 use crate::{
-    agents::Agents,
+    agents::Reopen,
     lock,
     protocol::{Protocol, Session},
     machine::service::{self, Restart},
@@ -43,15 +43,15 @@ type Waiting = Arc<Mutex<Option<AbortOnDropHandle<()>>>>;
 /// `update/1`: what `beep-node update` does, asked by the caller. Only the
 /// CLI's node offers it.
 pub struct Updates {
-    agents: Arc<Agents>,
+    reopen: Arc<Reopen>,
     /// Outlives the connection that asked for it.
     waiting: Waiting,
 }
 
 impl Updates {
-    pub fn new(agents: Arc<Agents>) -> Self {
+    pub fn new(reopen: Arc<Reopen>) -> Self {
         Self {
-            agents,
+            reopen,
             waiting: Waiting::default(),
         }
     }
@@ -63,14 +63,14 @@ impl Protocol for Updates {
     }
 
     fn serve(&self, tx: LinkTx, rx: LinkRx) -> Session {
-        Box::pin(serve(tx, rx, self.agents.clone(), self.waiting.clone()))
+        Box::pin(serve(tx, rx, self.reopen.clone(), self.waiting.clone()))
     }
 }
 
 async fn serve(
     mut tx: LinkTx,
     mut rx: LinkRx,
-    agents: Arc<Agents>,
+    reopen: Arc<Reopen>,
     waiting: Waiting,
 ) -> anyhow::Result<()> {
     let Some(request) = rx.recv::<update::Request>().await? else {
@@ -90,7 +90,7 @@ async fn serve(
         return tx.finish().await;
     }
 
-    let (event, restart) = match remote(&agents, now, channel).await {
+    let (event, restart) = match remote(&reopen, now, channel).await {
         Ok(Remote { event, restart }) => (event, restart),
         Err(e) => {
             // With its causes, as one line.
@@ -117,7 +117,7 @@ async fn serve(
 
     let limit = Duration::from_secs(if now { 0 } else { WAIT_MINUTES * 60 });
     let restart = tokio::spawn(async move {
-        let restarted = agents
+        let restarted = reopen
             .restart_when_idle(limit, async {
                 match next {
                     Next::Service(restart) => {
@@ -173,7 +173,7 @@ fn next(restart: Restart, exe: PathBuf, unix: bool) -> Option<Next> {
     }
 }
 
-async fn remote(agents: &Agents, now: bool, channel: ReleaseChannel) -> Result<Remote, Error> {
+async fn remote(reopen: &Reopen, now: bool, channel: ReleaseChannel) -> Result<Remote, Error> {
     let base = base();
     let client = client()?;
     let Newest { current, latest } = newest(&client, &base, channel).await?;
@@ -201,7 +201,7 @@ async fn remote(agents: &Agents, now: bool, channel: ReleaseChannel) -> Result<R
     let next = next(restart, exe, cfg!(unix));
     let note = if next.is_none() {
         not_restarting
-    } else if !now && agents.until_idle().now_or_never().is_none() {
+    } else if !now && reopen.until_idle().now_or_never().is_none() {
         format!(
             "New prompts can still start. It restarts when sessions are idle, or after {WAIT_MINUTES} minutes."
         )

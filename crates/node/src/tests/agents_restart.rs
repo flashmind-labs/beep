@@ -98,7 +98,7 @@ async fn an_update_waits_for_the_turn_and_the_next_prompt_goes_after() {
     let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let session = queued_during_a_turn(&agents, &kind, dir.path()).await;
     let mut live = session.live.clone();
-    let idle = agents.until_idle();
+    let idle = agents.reopen.until_idle();
     tokio::pin!(idle);
     assert!(futures::poll!(&mut idle).is_pending());
     let question = watched::read(&live, |live| live.info.question.clone())
@@ -131,7 +131,7 @@ async fn an_update_restarts_once_the_busy_session_closes() {
         .await.expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.status() == Status::Asking).await;
-    let restarted = agents.restart_when_idle(Duration::from_secs(600), async {});
+    let restarted = agents.reopen.restart_when_idle(Duration::from_secs(600), async {});
     tokio::pin!(restarted);
     assert!(
         futures::poll!(&mut restarted).is_pending(),
@@ -160,11 +160,11 @@ async fn an_interrupted_turn_continues_before_queued_prompts() {
         .await
         .expect("queued");
     assert_eq!(
-        before.open_sessions()[0].held[0].text,
+        before.reopen.open_sessions()[0].held[0].text,
         crate::tags::context(CONTINUE)
     );
     before.shutdown().await;
-    let stopped = before.open_sessions();
+    let stopped = before.reopen.open_sessions();
     assert_eq!(
         stopped[0]
             .held
@@ -195,7 +195,7 @@ async fn a_held_session_resumes_after_the_restart_with_its_prompt() {
     let before = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let _session = queued_during_a_turn(&before, &kind, dir.path()).await;
     before.shutdown().await;
-    let stopped = before.open_sessions();
+    let stopped = before.reopen.open_sessions();
     assert_eq!(stopped.len(), 1);
     assert_eq!(stopped[0].session, "held-1");
     assert_eq!(stopped[0].title.as_deref(), Some("first"));
@@ -233,7 +233,7 @@ async fn a_session_resumed_without_a_replay_keeps_its_transcript() {
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
     before.shutdown().await;
-    let mut stopped = before.open_sessions();
+    let mut stopped = before.reopen.open_sessions();
     assert_eq!(stopped.len(), 1);
     stopped[0].started_at = 100;
     stopped[0].last_activity = 200;
@@ -275,7 +275,7 @@ async fn a_session_the_agent_replays_keeps_a_timestamp_snapshot() {
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
     before.shutdown().await;
-    let stopped = before.open_sessions();
+    let stopped = before.reopen.open_sessions();
     assert_eq!(stopped.len(), 1);
     assert!(!stopped[0].transcript.is_empty(), "{stopped:?}");
 }
@@ -413,15 +413,15 @@ async fn a_resumed_session_goes_back_to_the_model_it_ran_on() {
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
     before.shutdown().await;
-    let stopped = before.open_sessions();
+    let stopped = before.reopen.open_sessions();
     assert_eq!(stopped[0].model, Some(ModelId::new("deep")));
     // Kept for a take-over after it ended, across the restart note.
     let noted = Agents::new(Parts::default());
-    noted.keep_saved(before.saved_sessions());
-    let saved = noted.saved(&SessionId::from("held-1")).expect("saved across the note");
+    noted.reopen.keep_saved(before.reopen.saved_sessions());
+    let saved = noted.reopen.saved(&SessionId::from("held-1")).expect("saved across the note");
     assert_eq!(saved.info.model, Some(ModelId::new("deep")));
     assert_eq!(
-        noted.created_worktrees(&SessionId::from("held-1")),
+        noted.reopen.created_worktrees(&SessionId::from("held-1")),
         vec!["/srv/app/.worktrees/fix".to_owned()]
     );
 
@@ -463,7 +463,7 @@ async fn recovery_context_keeps_the_title_even_when_the_adapter_renames_it() {
     })
     .await;
     before.shutdown().await;
-    let stopped = before.open_sessions();
+    let stopped = before.reopen.open_sessions();
     let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
@@ -526,7 +526,7 @@ async fn assistant_survives_restart() {
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
     before.shutdown().await;
-    let stopped = before.open_sessions();
+    let stopped = before.reopen.open_sessions();
     assert!(stopped[0].assistant);
 
     let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
@@ -571,13 +571,13 @@ async fn an_ended_assistant_stays_the_assistant_after_a_restart() {
     session.close().await;
     until(&mut live, |live| live.status() == Status::Ended).await;
     let title = session.info().title;
-    let note = Reopen::new(before.open_sessions(), Vec::new(), before.saved_sessions());
+    let note = Reopen::new(before.reopen.open_sessions(), Vec::new(), before.reopen.saved_sessions());
     assert!(note.sessions.is_empty(), "closed, so not reopened");
     note.save(dir.path()).expect("the note writes");
     before.shutdown().await;
 
     let after = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
-    after.keep_saved(Reopen::read(dir.path()).saved);
+    after.reopen.keep_saved(Reopen::read(dir.path()).saved);
     after.catalog.settings_arrived();
     let resumed = after
         .resume(&kind, &SessionId::from("held-1"), None, None)
@@ -595,7 +595,7 @@ async fn a_saved_session_in_the_home_folder_keeps_its_saved_flag() {
     let kind = adapter(&dir.path().join("log"));
     let home = dirs::home_dir().expect("a home folder");
     let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
-    agents.keep_saved(vec![SavedSession {
+    agents.reopen.keep_saved(vec![SavedSession {
         info: SessionInfo {
             id: "held-1".into(),
             agent: "fake".into(),
@@ -637,7 +637,7 @@ fn an_ended_assistant_kept_from_before_is_still_the_assistant() {
     thread.named = true;
     let mut task = kept("task", false, false);
     task.info.title = Some("An older name".into());
-    agents.keep_saved(vec![
+    agents.reopen.keep_saved(vec![
         kept("chat", true, false),
         task,
         kept("review", true, true),
@@ -769,7 +769,7 @@ async fn a_saved_session_keeps_what_it_goes_on_with_and_not_its_state() {
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
 
-    let saved = agents.saved(&SessionId::from("held-1")).expect("saved");
+    let saved = agents.reopen.saved(&SessionId::from("held-1")).expect("saved");
     assert_eq!(saved.info.cwd, session.info().cwd);
     assert!(saved.info.assistant);
     assert_eq!(saved.info.turns, 0);
@@ -797,7 +797,7 @@ async fn a_refiled_session_is_saved_and_reopened_in_its_new_folder() {
     assert!(live.has_changed().expect("the state is kept"));
     assert_eq!(session.info().cwd, "/srv/refiled");
     assert_eq!(agents.sessions.list()[0].cwd, "/srv/refiled");
-    let saved = agents.saved(&SessionId::from("held-1")).expect("saved");
+    let saved = agents.reopen.saved(&SessionId::from("held-1")).expect("saved");
     assert_eq!(saved.info.cwd, "/srv/refiled");
     agents.shutdown().await;
 }
@@ -838,7 +838,7 @@ async fn a_reopened_session_takes_the_title_the_agent_sends_after_loading() {
         .await.expect("starts");
     until(&mut session.live.clone(), |live| live.info.turns == 1).await;
     before.shutdown().await;
-    let stopped = before.open_sessions();
+    let stopped = before.reopen.open_sessions();
     assert_eq!(stopped[0].title.as_deref(), Some("explain lifetimes"));
 
     let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
@@ -871,7 +871,7 @@ async fn a_reopened_session_keeps_its_title_when_the_agent_titles_a_prompt() {
         .await.expect("starts");
     until(&mut session.live.clone(), |live| live.info.turns == 1).await;
     before.shutdown().await;
-    let stopped = before.open_sessions();
+    let stopped = before.reopen.open_sessions();
 
     let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
@@ -920,7 +920,7 @@ async fn a_saved_assistant_chat_still_names_its_folder_to_delete() {
         mode: None,
         background: false,
     };
-    agents.keep_saved(vec![
+    agents.reopen.keep_saved(vec![
         kept("main-1", true, None),
         kept("thread-1", true, Some(link)),
         kept("plain-1", false, None),
@@ -938,14 +938,29 @@ async fn a_saved_assistant_chat_still_names_its_folder_to_delete() {
     // the other is there, and the last of them does.
     let mut guest = kept("main-2", true, None);
     guest.info.cwd = "/home/user/.beep/assistant/main-1".into();
-    agents.keep_saved(vec![kept("main-1", true, None), guest]);
+    agents.reopen.keep_saved(vec![kept("main-1", true, None), guest]);
     assert_eq!(agents.conversation_of(&SessionId::from("main-1")), None);
     assert_eq!(agents.conversation_of(&SessionId::from("main-2")), None);
-    agents.forget_saved(&SessionId::from("main-2"));
+    agents.reopen.forget_saved(&SessionId::from("main-2"));
     assert_eq!(
         agents.conversation_of(&SessionId::from("main-1")),
         Some(std::path::PathBuf::from("/home/user/.beep/assistant/main-1"))
     );
     assert_eq!(agents.conversation_of(&SessionId::from("gone-1")), None);
     agents.shutdown().await;
+}
+
+/// Built from the owners below it: every field is a value of a lower type.
+#[test]
+fn reopen_is_built_from_sessions_and_links_alone() {
+    let crate::agents::reopen::Reopen {
+        saved,
+        reopened,
+        sessions,
+        links,
+    } = crate::agents::reopen::Reopen::new(Arc::default(), Arc::default());
+    let _: &std::sync::Mutex<Vec<SavedSession>> = &saved;
+    let _: &tokio::sync::watch::Sender<bool> = &reopened;
+    let _: &Arc<crate::agents::sessions::Sessions> = &sessions;
+    let _: &Arc<crate::agents::family::links::Links> = &links;
 }

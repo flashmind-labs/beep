@@ -814,7 +814,7 @@ async fn a_parent_that_ends_with_the_node_leaves_its_children_to_resume() {
     until(&child, |live| live.info.turns == 1).await;
     // The node stops: both end with it, and both are to come back.
     rig.agents.shutdown().await;
-    let open = rig.agents.open_sessions();
+    let open = rig.agents.reopen.open_sessions();
     assert_eq!(open.len(), 2, "{open:?}");
 }
 
@@ -871,7 +871,7 @@ async fn the_link_survives_a_restart_and_the_family_still_stops_together() {
     let child = child_of(&rig.agents, &parent, "kid", "work", rig.dir.path()).await;
     until(&child, |live| live.info.turns == 1).await;
     let before = child.info().parent.expect("a link");
-    let noted = serde_json::to_string(&rig.agents.open_sessions()).expect("the note writes");
+    let noted = serde_json::to_string(&rig.agents.reopen.open_sessions()).expect("the note writes");
     rig.agents.shutdown().await;
 
     let noted: Vec<OpenSession> = serde_json::from_str(&noted).expect("the note reads");
@@ -938,8 +938,8 @@ async fn a_thread_started_as_a_persona_hears_its_instructions_and_keeps_its_name
     assert!(prompt.contains("beep-context"), "{prompt}");
 
     // Kept over a restart.
-    let noted = serde_json::to_string(&rig.agents.open_sessions()).expect("the note writes");
-    let saved = rig.agents.saved_sessions();
+    let noted = serde_json::to_string(&rig.agents.reopen.open_sessions()).expect("the note writes");
+    let saved = rig.agents.reopen.saved_sessions();
     assert!(saved.iter().any(|kept| kept.info.persona.as_ref() == Some(&persona)));
     rig.agents.shutdown().await;
     let noted: Vec<OpenSession> = serde_json::from_str(&noted).expect("the note reads");
@@ -1087,7 +1087,7 @@ async fn a_resumed_child_with_nothing_to_do_reads_idle() {
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
     let child = child_of(&rig.agents, &parent, "kid", "work", rig.dir.path()).await;
     until(&child, |live| live.info.turns == 1).await;
-    let noted = rig.agents.open_sessions();
+    let noted = rig.agents.reopen.open_sessions();
     rig.agents.shutdown().await;
 
     let after = Agents::new(Parts { kinds: vec![rig.top.clone(), rig.kid.clone()], ..Parts::default() });
@@ -1535,7 +1535,7 @@ async fn sessions_are_listed_while_the_open_note_waits_on_the_children() {
         let noting = scope.spawn(move || {
             let me = std::fs::read_link("/proc/thread-self").expect("the thread's /proc entry");
             tx.send(me).expect("the test waits for it");
-            agents.open_sessions()
+            agents.reopen.open_sessions()
         });
         let task = rx.recv().expect("the noting thread starts");
         let deadline = Instant::now() + Duration::from_secs(10);

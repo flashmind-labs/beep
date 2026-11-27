@@ -357,7 +357,7 @@ impl Agents {
     /// as, which its agent's files lack.
     pub(super) fn mark_kept(&self, sessions: &mut [ExternalSession]) {
         let kept: HashMap<SessionId, SavedSession> = self
-            .saved_sessions()
+            .reopen.saved_sessions()
             .into_iter()
             .map(|saved| (saved.info.id.clone(), saved))
             .collect();
@@ -558,7 +558,7 @@ impl Agents {
         // It goes on as it was: under its parent, and in the mode it was held
         // to, so a resume is no way round the limits or the mode. One that
         // ended before the node restarted goes on as saved.
-        let before = self.saved(id);
+        let before = self.reopen.saved(id);
         let (ended, held) = match &ours {
             Some(session) => watched::read(&session.live, |live| {
                 (Some(live.agent_session.clone()), live.held.clone())

@@ -164,7 +164,7 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
         }
     }));
     let mut transfers = offers.transfers.subscribe();
-    let reopened = offers.agents.until_reopened();
+    let reopened = offers.agents.reopen.until_reopened();
     tokio::pin!(reopened);
     let mut waiting_reopen = true;
 
@@ -326,7 +326,7 @@ impl Applied {
                             return None;
                         };
 
-                        if !offers.agents.reopened()
+                        if !offers.agents.reopen.reopened()
                             || !self.specs.contains_key(&Key::Sync(name.clone()))
                         {
                             return None;

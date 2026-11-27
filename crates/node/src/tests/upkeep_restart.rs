@@ -8,9 +8,9 @@ async fn an_update_can_wait_for_idle() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let agents = Arc::new(Agents::new(Parts::default()));
     let listening = {
-        let (dir, agents) = (dir.path().to_path_buf(), agents.clone());
+        let (dir, reopen) = (dir.path().to_path_buf(), agents.reopen.clone());
         tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
-            async move { listen(&dir, agents).await },
+            async move { listen(&dir, reopen).await },
         ))
     };
     // Bound before the update asks: it waits for the socket.
@@ -37,7 +37,7 @@ async fn a_host_marks_sessions_reopened_and_notes_what_is_open() {
         }))
     };
     // No note and no settings: moves stop waiting at once.
-    timeout(Duration::from_secs(20), agents.until_reopened())
+    timeout(Duration::from_secs(20), agents.reopen.until_reopened())
         .await
         .expect("reopened without waiting for settings");
     keeping.abort();

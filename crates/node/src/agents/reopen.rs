@@ -1,25 +1,38 @@
 //! What the node keeps of its sessions across a stop: the note the next
 //! start resumes from, and whether it has done so.
 
-use super::{acp::Prompt, family::RemoteKid};
+use super::{acp::Prompt, family::{RemoteKid, links::Links}, sessions::Sessions};
 use beep_proto::{AccountName, SessionId};
 use beep_proto::{
     ModelId,
     node::agent::{Effort, Entry, ParentLink, Persona, SessionDevice, SessionInfo},
 };
 use serde::{Deserialize, Serialize};
-use std::{path::PathBuf, sync::Mutex};
+use std::{path::PathBuf, sync::{Arc, Mutex}};
 use tokio::sync::watch;
 
 /// The sessions kept from before the last stop, and whether they were
 /// resumed.
 #[derive(Default)]
-pub(crate) struct Reopen {
+pub struct Reopen {
     /// What sessions were, ended ones too, from the restart note.
     pub(super) saved: Mutex<Vec<SavedSession>>,
     /// Set once the sessions open before the last stop have been resumed, or
     /// there were none.
     pub(super) reopened: watch::Sender<bool>,
+    pub(super) sessions: Arc<Sessions>,
+    /// The remote children a restart keeps.
+    pub(super) links: Arc<Links>,
+}
+
+impl Reopen {
+    pub(crate) fn new(sessions: Arc<Sessions>, links: Arc<Links>) -> Self {
+        Self {
+            sessions,
+            links,
+            ..Self::default()
+        }
+    }
 }
 
 /// What the node keeps of a session, also after it ended, so it goes on as

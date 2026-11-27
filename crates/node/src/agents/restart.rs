@@ -2,7 +2,7 @@
 //! `OpenSession` by the agent's own id, with the prompts that still waited.
 
 use beep_proto::SessionId;
-use super::{AgentKind, Agents, Begin, acp::Prompt, checkout, moving, reopen::{OpenSession, SavedSession}, session::{CONTINUE, Command, NODE_STOPPED, Session}};
+use super::{AgentKind, Agents, Begin, acp::Prompt, checkout, moving, reopen::{OpenSession, Reopen, SavedSession}, session::{CONTINUE, Command, NODE_STOPPED, Session}, sessions::find_session};
 use crate::logs::found::Agent;
 use anyhow::{Context, Result};
 use beep_proto::watched;
@@ -41,12 +41,13 @@ impl OpenSession {
     }
 }
 
-impl Agents {
+impl Reopen {
     /// Finishes once no session runs a turn or waits for an answer.
     pub(crate) async fn until_idle(&self) {
         loop {
             let mut busy: Vec<_> = self
-                .session_map()
+                .sessions
+                .read()
                 .values()
                 .map(|session| session.live.clone())
                 .collect();
@@ -81,7 +82,8 @@ impl Agents {
     /// its review ends with the node.
     pub(crate) fn open_sessions(&self) -> Vec<OpenSession> {
         let sessions: Vec<Arc<Session>> = self
-            .session_map()
+            .sessions
+            .read()
             .values()
             .filter(|session| !session.reviewer)
             .cloned()
@@ -100,34 +102,34 @@ impl Agents {
     /// kept from before. Reviewers are kept too, so one taken over after a
     /// restart is still known as one.
     pub(crate) fn saved_sessions(&self) -> Vec<SavedSession> {
-        let sessions: Vec<Arc<Session>> = self.session_map().values().cloned().collect();
+        let sessions: Vec<Arc<Session>> = self.sessions.read().values().cloned().collect();
         let now: Vec<SavedSession> = sessions
             .iter()
             .filter_map(|session| Self::saved_of(session))
             .collect();
-        kept_with(&mut crate::lock(&self.reopen.saved), now, |kept| &kept.info.id)
+        kept_with(&mut crate::lock(&self.saved), now, |kept| &kept.info.id)
     }
 
     /// Takes the sessions kept in the note from before the node started.
     pub(crate) fn keep_saved(&self, saved: Vec<SavedSession>) {
-        *crate::lock(&self.reopen.saved) = saved;
+        *crate::lock(&self.saved) = saved;
     }
 
     /// Keeps `saved`, a session that came from another machine ended, as
     /// one that ended here.
     pub(crate) fn keep_arrived(&self, saved: SavedSession) {
-        kept_with(&mut crate::lock(&self.reopen.saved), vec![saved], |kept| &kept.info.id);
+        kept_with(&mut crate::lock(&self.saved), vec![saved], |kept| &kept.info.id);
         crate::events::open_changed();
     }
 
     /// What session `id`, by the agent's own id, is: from its state when it
     /// is here, else as kept from before.
     pub(crate) fn saved(&self, id: &SessionId) -> Option<SavedSession> {
-        if let Some(saved) = self.get(id).and_then(|session| Self::saved_of(&session)) {
+        if let Some(saved) = find_session(&self.sessions.read(), id).and_then(|session| Self::saved_of(&session)) {
             return Some(saved);
         }
 
-        crate::lock(&self.reopen.saved)
+        crate::lock(&self.saved)
             .iter()
             .rfind(|kept| kept.info.id == *id)
             .cloned()
@@ -136,7 +138,7 @@ impl Agents {
     /// Drops what was kept of session `id`, by the agent's own id, once it
     /// is deleted.
     pub(super) fn forget_saved(&self, id: &SessionId) {
-        crate::lock(&self.reopen.saved).retain(|kept| kept.info.id != *id);
+        crate::lock(&self.saved).retain(|kept| kept.info.id != *id);
     }
 
     /// The linked worktrees session `id` created, as `saved` gives them.
@@ -234,6 +236,31 @@ impl Agents {
         })
     }
 
+    /// Waits until the sessions that were open before the last stop run
+    /// again, so a move does not look for a session that is about to come
+    /// back.
+    pub(crate) async fn until_reopened(&self) {
+        // An error means the node is gone, which also ends the wait.
+        let _ = watched::wait_for(&mut self.reopened.subscribe(), |done| *done).await;
+    }
+
+    /// Whether the sessions open before the last stop run again, or there
+    /// were none. Until then a session may be about to come back, so one
+    /// that does not run is not yet one that ended.
+    pub fn reopened(&self) -> bool {
+        watched::read_sent(&self.reopened, |done| *done)
+    }
+
+    /// What it takes to start session `id` again, as it runs now.
+    pub(crate) fn open_session(&self, id: &SessionId) -> Option<OpenSession> {
+        let session = find_session(&self.sessions.read(), id)?;
+        let mut open = Self::as_it_runs(&session, Keep::Moving)?;
+        open.kids = self.links.kids_to_keep(&open.session);
+        Some(open)
+    }
+}
+
+impl Agents {
     /// Resumes `sessions`, once the user's settings for the agents came or
     /// after `SETTINGS_WAIT`.
     pub(crate) async fn reopen(&self, sessions: Vec<OpenSession>) {
@@ -266,29 +293,6 @@ impl Agents {
         }
 
         self.reopen.reopened.send_replace(true);
-    }
-
-    /// Waits until the sessions that were open before the last stop run
-    /// again, so a move does not look for a session that is about to come
-    /// back.
-    pub(crate) async fn until_reopened(&self) {
-        // An error means the node is gone, which also ends the wait.
-        let _ = watched::wait_for(&mut self.reopen.reopened.subscribe(), |done| *done).await;
-    }
-
-    /// Whether the sessions open before the last stop run again, or there
-    /// were none. Until then a session may be about to come back, so one
-    /// that does not run is not yet one that ended.
-    pub fn reopened(&self) -> bool {
-        watched::read_sent(&self.reopen.reopened, |done| *done)
-    }
-
-    /// What it takes to start session `id` again, as it runs now.
-    pub(crate) fn open_session(&self, id: &SessionId) -> Option<OpenSession> {
-        let session = self.get(id)?;
-        let mut open = Self::as_it_runs(&session, Keep::Moving)?;
-        open.kids = self.links.kids_to_keep(&open.session);
-        Some(open)
     }
 
     pub(crate) async fn reopen_one(&self, open: OpenSession) -> Result<()> {

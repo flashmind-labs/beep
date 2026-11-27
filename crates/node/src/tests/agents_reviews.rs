@@ -177,6 +177,7 @@ async fn a_submitted_review_stays_with_the_parent_and_the_reviewer_goes() {
     );
     assert!(
         rig.agents
+            .reopen
             .open_sessions()
             .iter()
             .all(|open| open.depth() == 0),

@@ -827,7 +827,7 @@ async fn the_source_sends_what_it_saved_of_the_session_with_its_checkout() {
     use beep_proto::node::agent::SessionInfo;
 
     let source = source("");
-    source.agents.keep_saved(vec![SavedSession {
+    source.agents.reopen.keep_saved(vec![SavedSession {
         info: SessionInfo {
             id: ID.into(),
             title: Some("Plan the week".into()),

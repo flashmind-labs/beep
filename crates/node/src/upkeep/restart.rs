@@ -124,9 +124,9 @@ impl Reopen {
     /// What `agents` and the terminals have open now.
     pub(crate) fn now(agents: &Agents) -> Self {
         Self::new(
-            agents.open_sessions(),
+            agents.reopen.open_sessions(),
             terminal::running(),
-            agents.saved_sessions(),
+            agents.reopen.saved_sessions(),
         )
     }
 
@@ -174,7 +174,7 @@ pub(crate) async fn keep(dir: &Path, agents: &Agents) {
 /// Until aborted.
 pub async fn reopen_and_keep(dir: &Path, agents: &Agents) {
     let reopen = Reopen::read(dir);
-    agents.keep_saved(reopen.saved);
+    agents.reopen.keep_saved(reopen.saved);
     terminal::reopen(dir, reopen.terminals).await;
     agents.reopen(reopen.sessions).await;
     keep(dir, agents).await;
@@ -189,20 +189,20 @@ pub fn note_on_quit(dir: &Path, agents: &Agents) -> Result<()> {
 }
 
 /// Answers updates asking the node to hold still, one at a time.
-pub(crate) async fn listen(dir: &Path, agents: Arc<Agents>) -> Result<()> {
+pub(crate) async fn listen(dir: &Path, reopen: Arc<crate::agents::Reopen>) -> Result<()> {
     let mut listener = Listener::bind(&dir.join(SOCKET))?;
 
     loop {
         let stream = listener.accept().await.context("taking an update")?;
 
-        if let Err(e) = answer(stream, &agents).await {
+        if let Err(e) = answer(stream, &reopen).await {
             log::debug!("an update's connection failed: {e:#}");
         }
     }
 }
 
 /// Tells the update once the sessions are idle.
-async fn answer(stream: Stream, agents: &Agents) -> Result<()> {
+async fn answer(stream: Stream, reopen: &crate::agents::Reopen) -> Result<()> {
     let (read, mut write) = split(stream);
     let mut lines = BufReader::new(read).lines();
 
@@ -212,7 +212,7 @@ async fn answer(stream: Stream, agents: &Agents) -> Result<()> {
 
     log::info!("an update waits for the sessions to be idle");
     tokio::select! {
-        () = agents.until_idle() => {}
+        () = reopen.until_idle() => {}
         // The update gave up.
         _ = lines.next_line() => return Ok(()),
     }

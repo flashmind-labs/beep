@@ -44,14 +44,14 @@ pub(super) async fn run(
         return Ok(());
     }
 
-    if !env.agents.reopened() {
+    if !env.agents.reopen.reopened() {
         log::info!(
             "session {}: waiting for the sessions open before the restart to resume",
             record.id
         );
     }
 
-    env.agents.until_reopened().await;
+    env.agents.reopen.until_reopened().await;
     let next = Outgoing {
         at: record.at,
         to: record.to,
@@ -147,7 +147,7 @@ async fn end(
 
     // Kept before the session closes, so a move taken back at any point
     // after finds how to start it again.
-    let open = env.agents.open_session(&record.id);
+    let open = env.agents.reopen.open_session(&record.id);
     // Worktrees sent before a restart stay noted: the target does not ask
     // for them again.
     let sent = env

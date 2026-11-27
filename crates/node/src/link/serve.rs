@@ -143,7 +143,7 @@ pub async fn serve(
     // Only the CLI updates itself; the Mac app's node updates with the app.
     #[cfg(feature = "cli")]
     {
-        let updates = crate::upkeep::update::Updates::new(offers.agents.clone());
+        let updates = crate::upkeep::update::Updates::new(offers.agents.reopen.clone());
         offers.extra.push(Arc::new(updates));
     }
     let folders = Folders::new(&shared);
@@ -244,10 +244,10 @@ pub async fn serve(
     // Logs when the async workers, or a step that hung before, stop moving.
     let _watchdog = watchdog::start();
     // `beep-node update` asks the node to hold still over another one.
-    let agents = offers.agents.clone();
+    let reopen = offers.agents.reopen.clone();
     let control_dir = state.dir.clone();
     let _control = AbortOnDropHandle::new(tokio::spawn(async move {
-        if let Err(e) = restart::listen(&control_dir, agents).await {
+        if let Err(e) = restart::listen(&control_dir, reopen).await {
             log::warn!("updates cannot wait for idle sessions: {e:#}");
         }
     }));
@@ -264,7 +264,7 @@ pub async fn serve(
     // Only then is the note kept to what is open, so a start that dies
     // before leaves it as it was.
     let reopen = Reopen::read(&state.dir);
-    offers.agents.keep_saved(reopen.saved);
+    offers.agents.reopen.keep_saved(reopen.saved);
     terminal::reopen(&state.dir, reopen.terminals).await;
     let agents = offers.agents.clone();
     let note_dir = state.dir.clone();
@@ -300,9 +300,9 @@ pub async fn serve(
     }
 
     let reopen = Reopen::new(
-        offers.agents.open_sessions(),
+        offers.agents.reopen.open_sessions(),
         terminals,
-        offers.agents.saved_sessions(),
+        offers.agents.reopen.saved_sessions(),
     );
 
     if let Err(e) = reopen.save(&state.dir) {

@@ -377,7 +377,7 @@ pub(super) async fn serve(
             // ended. A session that may still be coming back from a
             // restart, or that the source is still finishing with, counts
             // as running.
-            let mut live = !agents.reopened() || agents.runs(&id) || agents.moves.holds(&id);
+            let mut live = !agents.reopen.reopened() || agents.runs(&id) || agents.moves.holds(&id);
             // Whether the source says when it is done: not for a move still
             // settling from an earlier one, which the target asks again.
             let mut settling = false;
@@ -427,7 +427,7 @@ pub(super) async fn serve(
                     .send(&refuse("this machine does not keep the project"))
                     .await;
             };
-            let session = agents.saved(&id).map(Box::new);
+            let session = agents.reopen.saved(&id).map(Box::new);
             let reply = spawn_blocking(move || -> Result<Reply> {
                 Ok(match leaving {
                     Leaving::Project { folder, worktrees } => Reply::Checkout {
@@ -465,7 +465,7 @@ pub(super) async fn serve(
             // While the sessions come back from a restart, or the source
             // ends this one again, the target asks again: no refusal, which
             // would end the move.
-            if !agents.reopened() || agents.runs(&id) {
+            if !agents.reopen.reopened() || agents.runs(&id) {
                 return Ok(());
             }
 
@@ -509,7 +509,7 @@ pub(super) async fn serve(
         }
         Request::Files { id } => {
             // As for a worktree: the target asks again.
-            if !agents.reopened() || agents.runs(&id) {
+            if !agents.reopen.reopened() || agents.runs(&id) {
                 log::info!(
                     "session {id}: its files are asked for, but it still runs here or the sessions are not read yet; the target asks again"
                 );
@@ -594,7 +594,7 @@ async fn until_done(agents: &Agents, id: &SessionId) {
     let mut released = agents.moves.released();
 
     loop {
-        agents.until_reopened().await;
+        agents.reopen.until_reopened().await;
 
         if !(agents.runs(id) || agents.moves.holds(id)) || released.changed().await.is_err() {
             return;

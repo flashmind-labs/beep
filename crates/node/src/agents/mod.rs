@@ -96,6 +96,7 @@ host! {
     pub(crate) use moving::project_folder;
     pub use requests::serve_sessions;
     pub(crate) use requests::{TRANSCRIPT_PROTOCOL, serve_transcripts};
+    pub use reopen::Reopen;
     pub(crate) use reopen::{OpenSession, SavedSession};
     pub(crate) use session::{Answered, Asking};
     pub use session_stream::serve_session;
@@ -146,7 +147,7 @@ host! {
         /// The search index, when the node opened one.
         pub(crate) search: Option<Arc<search::SearchIndex>>,
         /// The sessions kept across the last stop, and whether they were resumed.
-        reopen: reopen::Reopen,
+        pub reopen: Arc<reopen::Reopen>,
         /// What the node has read of the folders it lists sessions in.
         listings: listings::Listings,
     }
@@ -175,16 +176,18 @@ host! {
             let events = crate::events::Hub::default();
             let sessions = Arc::new(sessions::Sessions::default());
             let catalog = Arc::new(catalog::Catalog::new(parts.kinds, parts.launch, parts.skills_dir));
+            let links = Arc::new(family::links::Links::new(parts.mesh));
 
             Self {
                 events: events.clone(),
                 usage: Arc::new(usage::Usage::new(catalog.clone())),
-                catalog,
                 occupancy: parts.occupancy.clone(),
                 reviews: Arc::new(reviews::kept::Reviews::new(events, sessions.clone())),
-                links: Arc::new(family::links::Links::new(parts.mesh)),
+                reopen: Arc::new(reopen::Reopen::new(sessions.clone(), links.clone())),
+                links,
                 reach: Arc::new(reach::Reach::new(parts.folders, sessions.clone(), parts.occupancy.clone())),
                 sessions,
+                catalog,
                 search: parts.search,
                 ..Self::default()
             }

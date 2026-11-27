@@ -75,7 +75,7 @@ impl Agents {
         let attachment_agent = agent.to_owned();
         let attachment_id = agent_id.unwrap_or_else(|| id.clone());
         let indexed = attachment_id.clone();
-        self.forget_saved(&indexed);
+        self.reopen.forget_saved(&indexed);
         spawn_blocking(move || super::uploads::remove(&attachment_agent, &attachment_id)).await??;
 
         self.sessions
@@ -109,8 +109,8 @@ impl Agents {
     /// while the other is still known here: the last of them does.
     pub(super) fn conversation_of(&self, id: &SessionId) -> Option<PathBuf> {
         let main = |info: &SessionInfo| info.assistant && info.parent.is_none();
-        let mine = self.saved(id).map(|saved| saved.info).filter(main)?;
-        let shared = self.saved_sessions().iter().any(|other| {
+        let mine = self.reopen.saved(id).map(|saved| saved.info).filter(main)?;
+        let shared = self.reopen.saved_sessions().iter().any(|other| {
             other.info.id != mine.id && main(&other.info) && other.info.cwd == mine.cwd
         });
 

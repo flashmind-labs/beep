@@ -544,7 +544,7 @@ impl Agents {
                     && let Some(title) = self
                         .get(earlier)
                         .and_then(|session| session.info().title)
-                        .or_else(|| self.saved(earlier).and_then(|saved| saved.info.title))
+                        .or_else(|| self.reopen.saved(earlier).and_then(|saved| saved.info.title))
                         .filter(|title| !title.trim().is_empty())
                 {
                     begin.title = Some(title);

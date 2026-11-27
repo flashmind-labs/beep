@@ -18,7 +18,7 @@ fn a_mac_reopens_what_was_open_and_notes_it_on_quit() {
     let agents = machine.offers().agents.clone();
     async_runtime::block_on(async {
         tokio::time::timeout(Duration::from_secs(20), async {
-            while !agents.reopened() {
+            while !agents.reopen.reopened() {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
