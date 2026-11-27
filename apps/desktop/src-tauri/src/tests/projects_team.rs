@@ -1,5 +1,5 @@
 //! The team views keep the keys the TypeScript interfaces in
-//! `src/project/team-state.ts`, `team-view.tsx` and `teamjoin.tsx` read.
+//! `src/stores/project/team-state.ts`, `src/screens/project/team-view.tsx` and `teamjoin.tsx` read.
 
 use super::*;
 use beep_proto::team::{Lane, Member, TeamRepo};

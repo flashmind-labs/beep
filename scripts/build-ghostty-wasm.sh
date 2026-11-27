@@ -10,7 +10,7 @@
 # Needs bash, curl, git, tar, xz and node.
 #
 # Run it after changing a pin or the patch, and commit the module with its
-# checksum file and the generated src/terminals/ghostty-abi.ts.
+# checksum file and the generated src/stores/terminals/ghostty-abi.ts.
 set -euo pipefail
 
 GHOSTTY_COMMIT=2166b446eece5f402809681105b377d8dd602378
@@ -122,6 +122,6 @@ git -C "$src" apply "$out/kitty-wasm.patch"
 echo "$(sha256 "$out/ghostty-vt.wasm")  ghostty-vt.wasm" > "$out/ghostty-vt.wasm.sha256"
 
 node "$repo/scripts/ghostty-abi.mjs" "$src/src/terminal/c/abi/wasm32-freestanding.json" \
-    "$repo/apps/desktop/src/terminals/ghostty-abi.ts" "$GHOSTTY_COMMIT"
+    "$repo/apps/desktop/src/stores/terminals/ghostty-abi.ts" "$GHOSTTY_COMMIT"
 
 echo "Built $out/ghostty-vt.wasm from Ghostty $GHOSTTY_COMMIT"

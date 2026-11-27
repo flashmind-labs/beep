@@ -1,4 +1,4 @@
-// Writes apps/desktop/src/terminals/ghostty-abi.ts from Ghostty's description
+// Writes apps/desktop/src/stores/terminals/ghostty-abi.ts from Ghostty's description
 // of its C ABI on wasm32 (src/terminal/c/abi/wasm32-freestanding.json), so the
 // wrapper reads enum values, struct offsets and bit fields from upstream
 // instead of copies by hand. Run by scripts/build-ghostty-wasm.sh.

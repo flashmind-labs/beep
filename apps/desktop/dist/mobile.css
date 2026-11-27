@@ -1,5 +1,5 @@
 /* The phone layout of the command center (spec: tauri-mobile). Everything is scoped to body.mobile, which
-   src/center/mobile.ts sets for a phone, a narrow window or a small touch screen; the
+   src/shell/center/mobile.tsx sets for a phone, a narrow window or a small touch screen; the
    desktop layout is untouched. Colors come from the skin. */
 
 .mb-tabs, .mb-back, .mb-set, .mb-kbdhide { display: none }

@@ -9,9 +9,9 @@ test("sandboxed diagrams load from the Tauri origin in WebKit", { skip: process.
   const desktop = new URL("../../desktop/", import.meta.url);
   const config = JSON.parse(await readFile(new URL("src-tauri/tauri.conf.json", desktop), "utf8"));
   const bundle = await build({
-    entryPoints: [fileURLToPath(new URL("src/chat/diagrams.ts", desktop))], bundle: true, format: "iife", write: false,
+    entryPoints: [fileURLToPath(new URL("src/parts/session/diagrams.tsx", desktop))], bundle: true, format: "iife", write: false,
     plugins: [{ name: "native-boundary", setup(builder) {
-      builder.onLoad({ filter: /\/chat\/media\.ts$/ }, () => ({ contents: "export const notice=()=>{};export const saveUrl=async()=>{};" }));
+      builder.onLoad({ filter: /\/parts\/session\/media\.tsx$/ }, () => ({ contents: "export const notice=()=>{};export const saveUrl=async()=>{};" }));
       builder.onLoad({ filter: /\/ui\/tauri\.ts$/ }, () => ({ contents: "export const invoke=async()=>null;" }));
     } }],
   });
