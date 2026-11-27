@@ -267,15 +267,15 @@ pub fn follow_project_run(
 
 /// What a background read of a mesh project tells its page: read the lists or the runs again.
 /// Usage that changed tells the usage pill to read it again.
-pub(crate) fn changed(app: AppHandle) -> impl Fn(Changed) + Send + Sync + 'static {
-    move |changed| match changed {
+pub(crate) fn changed(app: &AppHandle, changed: Changed) {
+    match changed {
         Changed::Project { project, read } => {
             let (lists_read, runs_read) = match read {
                 ProjectRead::Lists(lists) => (Some(lists), None),
                 ProjectRead::Runs(runs) => (None, Some(runs)),
             };
             emit(
-                &app,
+                app,
                 &LiveRow {
                     project_id: beep_fleet::project_id(&project),
                     live: Some(false),
@@ -289,12 +289,12 @@ pub(crate) fn changed(app: AppHandle) -> impl Fn(Changed) + Send + Sync + 'stati
             );
         }
         Changed::Sync => {
-            ring(&app, Change::Sync { moving: false });
+            ring(app, Change::Sync { moving: false });
         }
         Changed::Usage => {
             beep_node::events::system().changed(beep_proto::node::events::Topic::new("usage"));
             ring(
-                &app,
+                app,
                 Change::Topic(beep_proto::node::events::Topic::new("usage")),
             );
         }

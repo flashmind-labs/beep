@@ -855,14 +855,21 @@ fn setup(
         }
     });
     // What the projects pages read, kept for the run of the app.
-    app.manage(beep_fleet::Session::new(
+    let session = beep_fleet::Session::new(
         fleet.clone(),
         beep_fleet::Options {
             usage_file: Some(dir.join("usage.msgpack")),
             ..beep_fleet::Options::default()
         },
-        projects::live::changed(handle.clone()),
-    )?);
+    )?;
+    let mut changes = session.changes().expect("taken once at startup");
+    let followed = handle.clone();
+    tauri::async_runtime::spawn(async move {
+        while let Some(changed) = changes.recv().await {
+            projects::live::changed(&followed, changed);
+        }
+    });
+    app.manage(session);
     let opening = fleet.clone();
     tauri::async_runtime::spawn(async move { opening.run().await });
     app.manage(machine);
