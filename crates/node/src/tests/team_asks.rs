@@ -1,20 +1,29 @@
 use super::*;
-use crate::agents::{AgentKind, Agents, Begin, tags::{Part, parts}};
-use crate::membership::Membership;
+use crate::agents::tags::{Part, parts};
 use crate::team::asks::Answer;
 use crate::team::board::tests::{Pair, login, repo};
-use crate::team::link::TeamLink;
-use crate::tools::Node;
-use beep_mesh::Mesh;
-use beep_proto::team::{Lane, TeamMsg, TeamRecord};
-use beep_proto::watched;
+use beep_proto::team::{Lane, TeamMsg};
 use iroh::EndpointId;
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
-use tokio::sync::watch;
+use std::time::Duration;
+#[cfg(unix)]
+use {
+    crate::{
+        agents::{AgentKind, Agents, Begin},
+        membership::Membership,
+        team::link::TeamLink,
+        tools::Node,
+    },
+    beep_mesh::Mesh,
+    beep_proto::team::TeamRecord,
+    beep_proto::watched,
+    std::{collections::BTreeMap, sync::Arc},
+    tokio::sync::watch,
+};
 
 const LIMIT: &str = "team_ask is limited to 10 messages an hour";
 
 /// An ACP adapter in shell that answers each prompt at once.
+#[cfg(unix)]
 const ADAPTER: &str = r#"
 id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
 reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
@@ -30,12 +39,14 @@ done
 
 /// The node a team link delivers to: one coding agent session that idles,
 /// on a mesh of this machine alone.
+#[cfg(unix)]
 struct Landing {
     agents: Arc<Agents>,
     mesh: Membership,
     _dir: tempfile::TempDir,
 }
 
+#[cfg(unix)]
 impl Landing {
     fn new() -> Self {
         let kind = AgentKind {
@@ -237,6 +248,7 @@ async fn ask_to_person_without_session_is_needs_you_card() {
     assert_eq!(waiting, 0);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn ask_to_a_card_reaches_its_session_and_only_it_answers() {
     let landing = Landing::new();
@@ -327,6 +339,7 @@ async fn an_ask_that_was_not_delivered_is_forgotten_and_refused() {
     assert_eq!(pair.gateway.asks(|asks| asks.taken.len()), 0);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn reply_reaches_asking_session() {
     let landing = Landing::new();
@@ -533,6 +546,7 @@ async fn an_ask_id_other_than_the_generated_hex_is_refused() {
     assert_eq!(pair.gateway.asks(|asks| asks.taken.len()), 0);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn an_ask_for_the_person_is_answered_from_any_session_and_its_card_goes() {
     let pair = served().await;
