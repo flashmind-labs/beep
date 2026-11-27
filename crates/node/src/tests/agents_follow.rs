@@ -1,5 +1,7 @@
 use super::*;
 use crate::agents::Parts;
+use super::sources::{SummaryCache, source_summary};
+use std::collections::BTreeSet;
 use beep_proto::node::agent::{Entry, EntryKind};
 
 #[tokio::test]
@@ -9,15 +11,15 @@ async fn event_sources_are_shared_and_stop_with_the_last_subscription() {
         occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::locate_in(root.path()), crate::logs::found::Stores::at(Some(root.path()), None, None)),
         ..Parts::default()
     }));
-    let first = agents.watch_event_sources().await.unwrap();
-    let second = agents.watch_event_sources().await.unwrap();
+    let first = agents.bridge.watch_event_sources().await.unwrap();
+    let second = agents.bridge.watch_event_sources().await.unwrap();
     assert!(Arc::ptr_eq(&first, &second));
     let weak = Arc::downgrade(&first);
     drop(first);
     assert!(weak.upgrade().is_some());
     drop(second);
     assert!(weak.upgrade().is_none());
-    let restarted = agents.watch_event_sources().await.unwrap();
+    let restarted = agents.bridge.watch_event_sources().await.unwrap();
     assert!(!std::sync::Weak::ptr_eq(&weak, &Arc::downgrade(&restarted)));
 }
 
@@ -29,7 +31,7 @@ async fn an_external_process_exit_publishes_agent_and_summary_events() {
         occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::locate_in(root.path()), crate::logs::found::Stores::at(Some(root.path()), None, None)),
         ..Parts::default()
     }));
-    let _lease = agents.watch_event_sources().await.unwrap();
+    let _lease = agents.bridge.watch_event_sources().await.unwrap();
     let mut changes = agents.events.subscribe();
     let mut child = tokio::process::Command::new("sh")
         .args(["-c", "read message"])
@@ -37,14 +39,14 @@ async fn an_external_process_exit_publishes_agent_and_summary_events() {
         .kill_on_drop(true)
         .spawn()
         .unwrap();
-    agents.observe_external(&[beep_proto::node::agent::ExternalSession {
+    agents.bridge.observe_external(&[beep_proto::node::agent::ExternalSession {
         id: "external-example".into(),
         agent: "codex".into(),
         cwd: root.path().to_string_lossy().into_owned(),
         pid: child.id(),
         ..Default::default()
     }]);
-    assert_eq!(agents.observed_work_roots(), [root.path().to_owned()]);
+    assert_eq!(agents.bridge.observed_work_roots(), [root.path().to_owned()]);
     drop(child.stdin.take());
     timeout(Duration::from_secs(5), async {
         loop {
@@ -66,7 +68,7 @@ async fn an_external_process_exit_publishes_agent_and_summary_events() {
     .await
     .unwrap();
     child.wait().await.unwrap();
-    assert!(agents.observed_work_roots().is_empty());
+    assert!(agents.bridge.observed_work_roots().is_empty());
 }
 
 #[tokio::test]
@@ -92,7 +94,7 @@ async fn summary_cache_rescans_only_changed_harnesses_and_tracks_file_changes() 
         ..Parts::default()
     });
     let mut cache = SummaryCache::default();
-    let initial = cache.read(&agents, &BTreeSet::new()).await.unwrap();
+    let initial = cache.read(&agents.bridge, &BTreeSet::new()).await.unwrap();
     assert_eq!(initial.len(), 2);
 
     // An unrelated harness write must not walk the flsh store again.
@@ -108,7 +110,7 @@ async fn summary_cache_rescans_only_changed_harnesses_and_tracks_file_changes() 
     )
     .unwrap();
     let summary = cache
-        .read(&agents, &BTreeSet::from([Agent::Codex]))
+        .read(&agents.bridge, &BTreeSet::from([Agent::Codex]))
         .await
         .unwrap();
     assert_eq!(
@@ -124,7 +126,7 @@ async fn summary_cache_rescans_only_changed_harnesses_and_tracks_file_changes() 
     assert!(!summary.iter().any(|session| session.id == "flsh-new"));
 
     let summary = cache
-        .read(&agents, &BTreeSet::from([Agent::Flsh]))
+        .read(&agents.bridge, &BTreeSet::from([Agent::Flsh]))
         .await
         .unwrap();
     assert!(!summary.iter().any(|session| session.id == "flsh-example"));
@@ -134,14 +136,14 @@ async fn summary_cache_rescans_only_changed_harnesses_and_tracks_file_changes() 
     std::fs::rename(&codex_file, &renamed).unwrap();
     assert_eq!(
         cache
-            .read(&agents, &BTreeSet::from([Agent::Codex]))
+            .read(&agents.bridge, &BTreeSet::from([Agent::Codex]))
             .await
             .unwrap(),
         summary
     );
     std::fs::remove_file(&renamed).unwrap();
     let summary = cache
-        .read(&agents, &BTreeSet::from([Agent::Codex]))
+        .read(&agents.bridge, &BTreeSet::from([Agent::Codex]))
         .await
         .unwrap();
     assert_eq!(summary.len(), 1);
@@ -158,7 +160,7 @@ async fn cached_source_notifications_follow_file_creation_title_changes_and_remo
         ..Parts::default()
     }));
     let mut changes = agents.events.subscribe();
-    let _source = agents.watch_event_sources().await.unwrap();
+    let _source = agents.bridge.watch_event_sources().await.unwrap();
     async fn changed(changes: &mut tokio::sync::broadcast::Receiver<crate::events::Change>) {
         timeout(Duration::from_secs(5), async {
             loop {
@@ -208,7 +210,7 @@ async fn listings_follow_what_the_watcher_read_of_the_stores() {
     assert_eq!(agents.listings.sightings().await.unwrap().len(), 2);
 
     let mut changes = agents.events.subscribe();
-    let _source = agents.watch_event_sources().await.unwrap();
+    let _source = agents.bridge.watch_event_sources().await.unwrap();
     async fn summarized(changes: &mut tokio::sync::broadcast::Receiver<crate::events::Change>) {
         timeout(Duration::from_secs(5), async {
             loop {
@@ -241,18 +243,18 @@ async fn source_summaries_ignore_transcript_appends_but_notice_title_changes() {
         occupancy: crate::occupancy::Occupancy::over(Default::default(), crate::logs::found::Stores::at(Some(root.path()), None, None)),
         ..Parts::default()
     });
-    let before = source_summary(&agents).await.unwrap();
+    let before = source_summary(&agents.bridge).await.unwrap();
     assert_eq!(before.len(), 1);
     let mut writer = OpenOptions::new().append(true).open(file).unwrap();
     writeln!(writer, "{{\"type\":\"event_msg\",\"payload\":{{\"type\":\"agent_message\",\"message\":\"output\"}}}}").unwrap();
-    assert_eq!(source_summary(&agents).await.unwrap(), before);
+    assert_eq!(source_summary(&agents.bridge).await.unwrap(), before);
     std::fs::write(
         root.path().join("session_index.jsonl"),
         "{\"id\":\"example\",\"thread_name\":\"Renamed session\"}\n",
     )
     .unwrap();
     assert_eq!(
-        source_summary(&agents).await.unwrap()[0].title.as_deref(),
+        source_summary(&agents.bridge).await.unwrap()[0].title.as_deref(),
         Some("Renamed session")
     );
 }
@@ -272,7 +274,7 @@ async fn database_only_sessions_return_the_existing_transcript_error_and_refresh
         ..Parts::default()
     }));
     assert_eq!(
-        source_summary(&agents).await.unwrap()[0].title.as_deref(),
+        source_summary(&agents.bridge).await.unwrap()[0].title.as_deref(),
         Some("Original")
     );
     let link = beep_proto::node::local_link();
@@ -301,7 +303,7 @@ async fn database_only_sessions_return_the_existing_transcript_error_and_refresh
         .execute("UPDATE session_meta SET title = 'Changed'", [])
         .unwrap();
     assert_eq!(
-        source_summary(&agents).await.unwrap()[0].title.as_deref(),
+        source_summary(&agents.bridge).await.unwrap()[0].title.as_deref(),
         Some("Changed")
     );
 }

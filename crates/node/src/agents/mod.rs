@@ -15,7 +15,7 @@ host! {
     use crate::occupancy::Occupancy;
     use std::{
         path::PathBuf,
-        sync::{Arc, Mutex},
+        sync::Arc,
     };
 
     pub mod claude;
@@ -116,7 +116,6 @@ host! {
         /// Who works in which folder here, shared with sync.
         occupancy: Occupancy,
         pub events: crate::events::Hub,
-        sources: Mutex<std::sync::Weak<follow::observers::Sources>>,
         /// The agents it can start, how their adapters stand and the user's
         /// settings for them.
         pub catalog: Arc<catalog::Catalog>,
@@ -149,6 +148,8 @@ host! {
         pub listings: Arc<listings::Listings>,
         /// Deletes ended sessions and the background children that closed.
         pub(crate) delete: Arc<delete::Delete>,
+        /// The watchers of the agents' stores, while clients follow them.
+        pub(crate) bridge: Arc<follow::sources::EventBridge>,
     }
 
     /// What an `Agents` is made of that the node decides before it exists.
@@ -180,6 +181,7 @@ host! {
             let reviews = Arc::new(reviews::kept::Reviews::new(events.clone(), sessions.clone()));
             let reopen = Arc::new(reopen::Reopen::new(sessions.clone(), links.clone()));
             let images = Arc::<Images>::default();
+            let reach = Arc::new(reach::Reach::new(parts.folders, sessions.clone(), parts.occupancy.clone()));
             let search = Arc::new(search::Opener::new(parts.search));
 
             let listings = Arc::new(listings::Listings::new(
@@ -191,7 +193,16 @@ host! {
                 reopen.clone(),
             ));
 
+            let bridge = Arc::new(follow::sources::EventBridge::new(
+                events.clone(),
+                parts.occupancy.clone(),
+                listings.clone(),
+                reach.clone(),
+                sessions.clone(),
+            ));
+
             Self {
+                bridge,
                 delete: Arc::new(delete::Delete::new(
                     sessions.clone(),
                     reopen.clone(),
@@ -206,11 +217,10 @@ host! {
                 reviews,
                 reopen,
                 links,
-                reach: Arc::new(reach::Reach::new(parts.folders, sessions.clone(), parts.occupancy.clone())),
+                reach,
                 sessions,
                 catalog,
                 search,
-                sources: Mutex::default(),
                 images,
                 alerts: Arc::default(),
                 checkouts: Arc::default(),

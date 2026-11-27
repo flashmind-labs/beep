@@ -1,11 +1,19 @@
 //! Event sources for sessions on this machine.
 
-use super::{SummaryCache, observers::*, recent_deadline};
-use crate::{agents::Agents, fs::paths::real, logs::found::Agent};
+use super::observers::*;
+use crate::{
+    agents::{listings::Listings, reach::Reach, sessions::Sessions},
+    events::Hub,
+    fs::paths::real,
+    logs::found::Agent,
+    occupancy::Occupancy,
+};
 use anyhow::{Context, Result};
+use beep_proto::{SessionId, node::agent::ExternalSession};
 use std::{
+    collections::BTreeSet,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
     time::Duration,
 };
 use tokio::{
@@ -14,11 +22,41 @@ use tokio::{
     time::{Instant, sleep},
 };
 
-impl Agents {
+/// Runs the watchers of the agents' stores and of the sessions started
+/// outside Beep, while clients follow them.
+pub(crate) struct EventBridge {
+    /// The observers that run only while followers hold them; the bridge's own
+    /// view of whether they run, so the log watchers stay off while no client follows.
+    sources: Mutex<Weak<Sources>>,
+    events: Hub,
+    occupancy: Occupancy,
+    listings: Arc<Listings>,
+    reach: Arc<Reach>,
+    sessions: Arc<Sessions>,
+}
+
+impl EventBridge {
+    pub(crate) fn new(
+        events: Hub,
+        occupancy: Occupancy,
+        listings: Arc<Listings>,
+        reach: Arc<Reach>,
+        sessions: Arc<Sessions>,
+    ) -> Self {
+        Self {
+            sources: Mutex::default(),
+            events,
+            occupancy,
+            listings,
+            reach,
+            sessions,
+        }
+    }
+
     /// Work directories currently authorized for namespace-wide file subscriptions.
     pub(crate) async fn notification_roots(&self) -> Result<Vec<PathBuf>> {
         let mut work = self.reach.folders.clone();
-        work.extend(self.session_map().values().filter_map(|session| {
+        work.extend(self.sessions.read().values().filter_map(|session| {
             let info = session.info();
             (info.state.status != beep_proto::node::agent::Status::Ended)
                 .then(|| PathBuf::from(info.cwd))
@@ -48,7 +86,7 @@ impl Agents {
     }
     pub(in crate::agents) fn observe_external(
         &self,
-        sessions: &[beep_proto::node::agent::ExternalSession],
+        sessions: &[ExternalSession],
     ) {
         let Some(source) = crate::lock(&self.sources).upgrade() else {
             return;
@@ -182,13 +220,14 @@ impl Agents {
         let roots: Vec<_> = Agent::ALL
             .into_iter()
             .flat_map(|agent| {
-                self.listings.follow_roots(agent)
+                self.listings
+                    .follow_roots(agent)
                     .into_iter()
                     .map(move |path| (agent, path))
             })
             .collect();
         let hub = self.events.clone();
-        let agents = Arc::downgrade(self);
+        let bridge = Arc::downgrade(self);
         let watching = self.occupancy.watching();
         let source = spawn_blocking(move || {
             let roots = roots
@@ -207,7 +246,7 @@ impl Agents {
                 while summaries.recv().await.is_some() {
                     sleep(Duration::from_millis(400)).await;
                     while summaries.try_recv().is_ok() {}
-                    let Some(agents) = agents.upgrade() else {
+                    let Some(bridge) = bridge.upgrade() else {
                         return;
                     };
 
@@ -236,7 +275,7 @@ impl Agents {
 
                     // The read publishes before the ping, so whoever it wakes
                     // reads it.
-                    let changed = match cache.read(&agents, &stale).await {
+                    let changed = match cache.read(&bridge, &stale).await {
                         Ok(summary) => {
                             if previous.as_ref() == Some(&summary) {
                                 false
@@ -298,6 +337,97 @@ impl Agents {
         *held = Arc::downgrade(&source);
         Ok(source)
     }
+}
+
+#[derive(Debug, PartialEq)]
+pub(super) struct Summary {
+    pub(super) id: SessionId,
+    agent: String,
+    pub(super) title: Option<String>,
+    cwd: String,
+    presence: beep_proto::node::agent::Presence,
+    pid: Option<u32>,
+}
+
+/// Directory listings belong to the notification lease. Other harnesses' writes
+/// do not invalidate them; descriptions still apply current presence and folders.
+#[derive(Default)]
+pub(super) struct SummaryCache {
+    claude: Option<Vec<ExternalSession>>,
+}
+
+impl SummaryCache {
+    /// The summary of every session, after the occupancy read the stores
+    /// again for the agents in `changed`.
+    pub(super) async fn read(&mut self, bridge: &EventBridge, changed: &BTreeSet<Agent>) -> Result<Vec<Summary>> {
+        let sighted = bridge.occupancy.refresh(changed).await?;
+        let stores = bridge.listings.stores().clone();
+        let refresh_claude = self.claude.is_none() || changed.contains(&Agent::Claude);
+        let described = spawn_blocking(move || {
+            // Preserve the stores' order when activity times tie.
+            let mut seen: Vec<_> = sighted
+                .seen
+                .iter()
+                .filter(|session| session.agent != Agent::Claude)
+                .cloned()
+                .collect();
+            seen.sort_by_key(|session| std::cmp::Reverse(session.last_activity));
+            let now = std::time::SystemTime::now();
+            seen.into_iter()
+                .take(512)
+                .map(|session| stores.describe(session, now))
+                .collect::<Vec<_>>()
+        });
+        let claude = async {
+            if refresh_claude {
+                bridge
+                    .listings
+                    .external()
+                    .list(512, None, bridge.sessions.owned())
+                    .await
+                    .map(Some)
+            } else {
+                Ok(None)
+            }
+        };
+        let (claude, others) = tokio::join!(claude, described);
+        let others = others.context("reading agent summary")?;
+
+        match claude {
+            Ok(Some(claude)) => self.claude = Some(claude),
+            Ok(None) => {}
+            Err(error) => {
+                self.claude = None;
+                return Err(error);
+            }
+        }
+
+        let mut sessions = self.claude.clone().unwrap_or_default();
+        bridge.observe_external(&sessions);
+        sessions.extend(others);
+        bridge.occupancy.presence().merge(&mut sessions);
+        bridge.occupancy.settle_closed(&mut sessions);
+        let mut summary: Vec<_> = sessions
+            .into_iter()
+            .map(|session| Summary {
+                id: session.id,
+                agent: session.agent,
+                title: session.title,
+                cwd: session.cwd,
+                presence: session.presence,
+                pid: session.pid,
+            })
+            .collect();
+        summary.sort_by(|a, b| (&a.agent, &a.id).cmp(&(&b.agent, &b.id)));
+        Ok(summary)
+    }
+}
+
+#[cfg(test)]
+pub(super) async fn source_summary(bridge: &EventBridge) -> Result<Vec<Summary>> {
+    SummaryCache::default()
+        .read(bridge, &Agent::ALL.into_iter().collect())
+        .await
 }
 
 #[cfg(test)]

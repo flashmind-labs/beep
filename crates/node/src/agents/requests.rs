@@ -227,7 +227,7 @@ pub async fn serve_sessions(
             // The stores' watch lives as long as this stream: it rings when a
             // transcript grows.
             let rings = agents.events.subscribe();
-            let _stores = agents.watch_event_sources().await;
+            let _stores = agents.bridge.watch_event_sources().await;
 
             return trace
                 .stream(claude::watch::serve(tx, rx, &agents.occupancy, sessions, rings))
@@ -582,7 +582,7 @@ pub async fn serve_sessions(
     };
     if let Some(sessions) = metadata {
         agents.occupancy.settle_closed(sessions);
-        agents.observe_external(sessions);
+        agents.bridge.observe_external(sessions);
     }
 
     let computed = started.elapsed();
@@ -826,7 +826,7 @@ async fn send_usage(
     // reports so far go out at once, the later ones as the scan changes them.
     let (_scan, mut spend) = match history {
         true => {
-            let (scan, mut spend) = usage.spend.follow(agents.log_changes().await?);
+            let (scan, mut spend) = usage.spend.follow(agents.bridge.log_changes().await?);
             spend.mark_changed();
             (Some(scan), Some(spend))
         }

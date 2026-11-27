@@ -108,11 +108,11 @@ fn listing_checkouts_runs_no_git_and_sees_changes() {
         .expect("a runtime")
         .block_on(async {
             let agents = Agents::new(Parts::default());
-            agents.warm(Some(home.clone()), dir.clone()).await;
+            agents.listings.warm(Some(home.clone()), dir.clone()).await;
             runs(&log);
 
             // Asks that come together share one listing.
-            let asks = (0..ASKS_AT_ONCE).map(|_| agents.found_folders(ASK));
+            let asks = (0..ASKS_AT_ONCE).map(|_| agents.listings.found_folders(ASK));
             let answers = futures::future::join_all(asks).await;
             let first = answers[0].as_ref().expect("the node can say").clone();
             for answer in &answers {
@@ -120,7 +120,11 @@ fn listing_checkouts_runs_no_git_and_sees_changes() {
             }
             assert_eq!(runs(&log), Vec::<String>::new());
 
-            agents.found_folders(ASK).await.expect("the node can say");
+            agents
+                .listings
+                .found_folders(ASK)
+                .await
+                .expect("the node can say");
             assert_eq!(runs(&log), Vec::<String>::new());
 
             // A commit shows, and only its checkout is asked again.
@@ -130,7 +134,11 @@ fn listing_checkouts_runs_no_git_and_sees_changes() {
                 Some(1_100_000_000),
             );
             runs(&log);
-            let after = agents.found_folders(ASK).await.expect("the node can say");
+            let after = agents
+                .listings
+                .found_folders(ASK)
+                .await
+                .expect("the node can say");
             let changed = after
                 .iter()
                 .find(|folder| Path::new(&folder.path) == widget)
@@ -141,7 +149,11 @@ fn listing_checkouts_runs_no_git_and_sees_changes() {
             // So does a branch switch.
             git(&widget, &["switch", "-q", "-c", "old", "HEAD~1"], None);
             runs(&log);
-            let switched = agents.found_folders(ASK).await.expect("the node can say");
+            let switched = agents
+                .listings
+                .found_folders(ASK)
+                .await
+                .expect("the node can say");
             let back = switched
                 .iter()
                 .find(|folder| Path::new(&folder.path) == widget)

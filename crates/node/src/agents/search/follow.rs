@@ -32,7 +32,7 @@ pub(crate) async fn follow(mesh: Mesh, agents: Arc<Agents>) {
         return;
     };
     // Held for the node's life: its watch rings `agent` when a store changes.
-    let _stores = match agents.watch_event_sources().await {
+    let _stores = match agents.bridge.watch_event_sources().await {
         Ok(sources) => Some(sources),
         Err(e) => {
             log::warn!("the agents' stores are not watched for search: {e:#}");

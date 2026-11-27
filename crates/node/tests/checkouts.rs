@@ -34,6 +34,7 @@ fn repo(path: &Path, origin: &str) {
 
 async fn found(agents: &Agents) -> Vec<(PathBuf, String)> {
     agents
+        .listings
         .found_folders(ASK)
         .await
         .expect("the node can say")
@@ -75,11 +76,14 @@ fn a_checkout_under_the_search_folder_is_found_whatever_was_looked_at_before() {
             // without the checkout would be taken to mean it is not there.
             let starting = Agents::new(Parts::default());
             assert!(
-                starting.found_folders(ASK).await.is_err(),
+                starting.listings.found_folders(ASK).await.is_err(),
                 "a node that has not looked yet must not answer"
             );
 
-            starting.warm(Some(home.clone()), dir.clone()).await;
+            starting
+                .listings
+                .warm(Some(home.clone()), dir.clone())
+                .await;
             let first = found(&starting).await;
             assert!(
                 first.contains(&(widget.clone(), ORIGIN.to_owned())),
@@ -91,7 +95,10 @@ fn a_checkout_under_the_search_folder_is_found_whatever_was_looked_at_before() {
             let later = home.join("Projects/acme/github/later");
             repo(&later, "https://example.com/acme/later.git");
             let restarted = Agents::new(Parts::default());
-            restarted.warm(Some(home.clone()), dir.clone()).await;
+            restarted
+                .listings
+                .warm(Some(home.clone()), dir.clone())
+                .await;
             let second = found(&restarted).await;
             assert!(second.iter().any(|(path, _)| *path == later), "{second:?}");
 
@@ -101,7 +108,7 @@ fn a_checkout_under_the_search_folder_is_found_whatever_was_looked_at_before() {
             }
 
             let full = Agents::new(Parts::default());
-            full.warm(Some(home.clone()), dir.clone()).await;
+            full.listings.warm(Some(home.clone()), dir.clone()).await;
             let all = found(&full).await;
             assert!(all.len() > MANY, "only {} came back", all.len());
             assert!(all.iter().any(|(path, _)| *path == widget));

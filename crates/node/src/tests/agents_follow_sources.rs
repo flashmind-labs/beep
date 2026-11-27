@@ -72,3 +72,56 @@ fn record_paths_ignores_logs_shm_and_empty_wal() {
     assert!(pending.record_paths(&roots, &[codex], Some(&[rollout])));
     assert_eq!(pending.agents, BTreeSet::from([Agent::Codex]));
 }
+
+/// A bridge built from its five parts and nothing else, over `root`.
+#[cfg(unix)]
+fn bridge_over(root: &std::path::Path) -> Arc<EventBridge> {
+    use crate::agents::{Reopen, family::links::Links, reviews::kept::Reviews};
+
+    let events = Hub::default();
+    let sessions = Arc::new(Sessions::default());
+    let occupancy = crate::occupancy::Occupancy::over(
+        crate::logs::claude::Store::locate_in(root),
+        crate::logs::found::Stores::at(Some(root), None, None),
+    );
+    let listings = Arc::new(Listings::new(
+        sessions.clone(),
+        occupancy.clone(),
+        Arc::default(),
+        events.clone(),
+        Arc::new(Reviews::new(events.clone(), sessions.clone())),
+        Arc::new(Reopen::new(sessions.clone(), Arc::new(Links::new(Default::default())))),
+    ));
+    let reach = Arc::new(Reach::new(Vec::new(), sessions.clone(), occupancy.clone()));
+
+    Arc::new(EventBridge::new(events, occupancy, listings, reach, sessions))
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_bridge_watches_without_agents_and_its_roots_end_with_the_last_follower() {
+    let root = tempfile::tempdir().unwrap();
+    let bridge = bridge_over(root.path());
+    let lease = bridge.watch_event_sources().await.unwrap();
+    let mut child = tokio::process::Command::new("sh")
+        .args(["-c", "read message"])
+        .stdin(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    bridge.observe_external(&[beep_proto::node::agent::ExternalSession {
+        id: "external-example".into(),
+        agent: "codex".into(),
+        cwd: root.path().to_string_lossy().into_owned(),
+        pid: child.id(),
+        ..Default::default()
+    }]);
+
+    assert_eq!(bridge.observed_work_roots(), [root.path().to_owned()]);
+    assert_eq!(bridge.notification_roots().await.unwrap().len(), 1);
+
+    drop(lease);
+
+    assert!(bridge.observed_work_roots().is_empty());
+    child.kill().await.unwrap();
+}

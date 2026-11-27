@@ -138,3 +138,17 @@ pub(super) fn active_roots(
     roots.dedup();
     roots
 }
+
+// Both log readers classify an unowned write as recent for three minutes.
+// Schedule that single state transition, rather than periodically rereading idle logs.
+pub(super) fn recent_deadline(session: &beep_proto::node::agent::ExternalSession) -> Option<Instant> {
+    if session.pid.is_some() || session.presence != beep_proto::node::agent::Presence::Recent {
+        return None;
+    }
+
+    let remaining = session
+        .last_activity
+        .saturating_add(181)
+        .saturating_sub(crate::logs::unix_now());
+    Instant::now().checked_add(std::time::Duration::from_secs(remaining.max(1)))
+}

@@ -141,6 +141,9 @@ crates/node/src/agents/family/orphans.rs | asks | sleep_until#1 | pace | at most
 crates/node/src/agents/family/orphans.rs | feed | sleep#1 | retry | redials the parent's machine after 5 s while it stays online
 crates/node/src/agents/family/orphans.rs | orphaned | sleep_until#1 | deadline | closes the child after the parent was gone or silent for 10 min
 crates/node/src/agents/family/peer.rs | retrying | sleep#1 | retry | pause before trying a failed peer call again
+crates/node/src/agents/follow.rs | follow | interval_at#1 | pace | sends a keep-alive frame every HEARTBEAT so a quiet session stream stays open
+crates/node/src/agents/follow.rs | follow | sleep_until#1 | deadline | marks an outside session stale when it stops counting as recent
+crates/node/src/agents/follow.rs | follow | sleep#1 | debounce | gathers changes for the coalesce gap before the session is read again
 crates/node/src/agents/follow/sources.rs | observe_external | sleep_until#1 | deadline | waits until an external session stops counting as recent
 crates/node/src/agents/follow/sources.rs | watch_event_sources | sleep#1 | debounce | waits 400 ms for summary requests to settle
 crates/node/src/agents/installs.rs | install_adapters | sleep#1 | outside | hourly detection of installed adapters; woken early by events

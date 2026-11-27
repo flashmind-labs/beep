@@ -32,7 +32,7 @@ pub(super) async fn resolve(offers: &Offers, topics: &[Topic]) -> Result<BTreeMa
     let mut wanted = BTreeMap::new();
 
     if broad_files(topics) {
-        for root in offers.agents.notification_roots().await? {
+        for root in offers.agents.bridge.notification_roots().await? {
             let key = root.to_str().context("a notification root is not UTF-8")?;
             wanted.insert(Topic::keyed("files", key), root);
         }

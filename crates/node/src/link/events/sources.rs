@@ -70,7 +70,7 @@ impl Source {
         let agent_sources = if broad_files(std::slice::from_ref(topic))
             || matches!(topic.name(), "agent" | "agents" | "agent-log" | "*")
         {
-            Some(offers.agents.watch_event_sources().await?)
+            Some(offers.agents.bridge.watch_event_sources().await?)
         } else {
             None
         };

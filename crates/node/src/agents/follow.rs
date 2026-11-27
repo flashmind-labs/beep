@@ -6,18 +6,17 @@ use crate::logs::found::Agent;
 use crate::logs::transcript_stage;
 use crate::events::HEARTBEAT;
 use anyhow::{Context, Result, bail};
-use beep_proto::SessionId;
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{
-        Entry, EntryKind, EntryPatch, ExternalSession, FOLLOW_READERS_FULL, FollowControl,
+        Entry, EntryKind, EntryPatch, FOLLOW_READERS_FULL, FollowControl,
         FollowSession, SessionCursor, SessionPatch, SessionSnapshot, SessionSource, SessionUpdate,
         Status,
     },
 };
 use beep_proto::watched;
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::HashMap,
     future::pending,
     ops::Range,
     path::PathBuf,
@@ -57,98 +56,8 @@ const COALESCE_FILE: Duration = Duration::from_millis(200);
 const COALESCE_BACKGROUND: Duration = Duration::from_secs(1);
 
 pub(super) mod observers;
-mod sources;
+pub(super) mod sources;
 pub(crate) use observers::Sources;
-
-#[derive(Debug, PartialEq)]
-struct Summary {
-    id: SessionId,
-    agent: String,
-    title: Option<String>,
-    cwd: String,
-    presence: beep_proto::node::agent::Presence,
-    pid: Option<u32>,
-}
-
-/// Directory listings belong to the notification lease. Other harnesses' writes
-/// do not invalidate them; descriptions still apply current presence and folders.
-#[derive(Default)]
-struct SummaryCache {
-    claude: Option<Vec<ExternalSession>>,
-}
-
-impl SummaryCache {
-    /// The summary of every session, after the occupancy read the stores
-    /// again for the agents in `changed`.
-    async fn read(&mut self, agents: &Agents, changed: &BTreeSet<Agent>) -> Result<Vec<Summary>> {
-        let sighted = agents.occupancy.refresh(changed).await?;
-        let stores = agents.listings.stores().clone();
-        let refresh_claude = self.claude.is_none() || changed.contains(&Agent::Claude);
-        let described = spawn_blocking(move || {
-            // Preserve the stores' order when activity times tie.
-            let mut seen: Vec<_> = sighted
-                .seen
-                .iter()
-                .filter(|session| session.agent != Agent::Claude)
-                .cloned()
-                .collect();
-            seen.sort_by_key(|session| std::cmp::Reverse(session.last_activity));
-            let now = std::time::SystemTime::now();
-            seen.into_iter()
-                .take(512)
-                .map(|session| stores.describe(session, now))
-                .collect::<Vec<_>>()
-        });
-        let claude = async {
-            if refresh_claude {
-                agents
-                    .listings.external()
-                    .list(512, None, agents.sessions.owned())
-                    .await
-                    .map(Some)
-            } else {
-                Ok(None)
-            }
-        };
-        let (claude, others) = tokio::join!(claude, described);
-        let others = others.context("reading agent summary")?;
-
-        match claude {
-            Ok(Some(claude)) => self.claude = Some(claude),
-            Ok(None) => {}
-            Err(error) => {
-                self.claude = None;
-                return Err(error);
-            }
-        }
-
-        let mut sessions = self.claude.clone().unwrap_or_default();
-        agents.observe_external(&sessions);
-        sessions.extend(others);
-        agents.occupancy.presence().merge(&mut sessions);
-        agents.occupancy.settle_closed(&mut sessions);
-        let mut summary: Vec<_> = sessions
-            .into_iter()
-            .map(|session| Summary {
-                id: session.id,
-                agent: session.agent,
-                title: session.title,
-                cwd: session.cwd,
-                presence: session.presence,
-                pid: session.pid,
-            })
-            .collect();
-        summary.sort_by(|a, b| (&a.agent, &a.id).cmp(&(&b.agent, &b.id)));
-        Ok(summary)
-    }
-}
-
-#[cfg(test)]
-async fn source_summary(agents: &Agents) -> Result<Vec<Summary>> {
-    SummaryCache::default()
-        .read(agents, &Agent::ALL.into_iter().collect())
-        .await
-}
 
 pub async fn serve_follow(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>) -> Result<()> {
     let request: FollowSession = timeout(WRITE_WAIT, rx.recv())
@@ -339,7 +248,7 @@ async fn follow(
         .context("preparing transcript update")??;
         transcript_stage("encode", encoding.into_std());
         let deadline = match &window.source {
-            SessionSource::External(session) => recent_deadline(session),
+            SessionSource::External(session) => observers::recent_deadline(session),
             SessionSource::Owned(_) => None,
         };
         held = Some(window.cursor.start);
@@ -429,20 +338,6 @@ async fn follow(
                 .map(|session| session.live.clone());
         }
     }
-}
-
-// Both log readers classify an unowned write as recent for three minutes.
-// Schedule that single state transition, rather than periodically rereading idle logs.
-fn recent_deadline(session: &beep_proto::node::agent::ExternalSession) -> Option<Instant> {
-    if session.pid.is_some() || session.presence != beep_proto::node::agent::Presence::Recent {
-        return None;
-    }
-
-    let remaining = session
-        .last_activity
-        .saturating_add(181)
-        .saturating_sub(super::unix_now());
-    Instant::now().checked_add(Duration::from_secs(remaining.max(1)))
 }
 
 /// One session reader: its slot among `READERS` and its cached window.
