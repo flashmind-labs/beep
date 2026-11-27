@@ -1,7 +1,7 @@
 use beep_proto::SessionId;
 use super::*;
 use crate::agents::Agents;
-use crate::agents::found::Stores;
+use crate::logs::found::Stores;
 use beep_proto::node::agent::{ExternalSession, SessionsReply, SessionsRequest};
 use beep_proto::node::{LinkRx, agent::Presence};
 use serde_json::json;

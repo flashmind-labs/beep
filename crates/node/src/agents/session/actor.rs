@@ -4,19 +4,10 @@ use super::{
     Answered, Command, EVENTS, NODE_STOPPED, Order, STDERR_LINES,
     turns::{HeldEnd, turn_tokens},
 };
-use crate::agents::{
-    acp::{self, AsyncTask, ModelSwitch, Offered, Prompt},
-    alerts::AlertHub,
-    checkouts::Checkouts,
-    compaction::{Compactor, TurnEnd},
-    picture::Picture,
-    known,
-    launch::{AgentIn, AgentOut, Running, Started},
-    live::{Live, TurnTokens},
-    text::cut,
-    made_files,
-    found::folder_place::of_folder,
-};
+use crate::agents::{acp::{self, AsyncTask, ModelSwitch, Offered, Prompt}, alerts::AlertHub, checkouts::Checkouts, compaction::{Compactor, TurnEnd}, known, launch::{AgentIn, AgentOut, Running, Started}, live::{Live, TurnTokens}, made_files};
+use crate::logs::picture::Picture;
+use crate::text::cut;
+use crate::logs::found::folder_place::of_folder;
 use crate::process::STOP_GRACE;
 use agent_client_protocol::{
     Agent, Builder, Client, ConnectionTo, Dispatch, Handled, JsonRpcMessage, JsonRpcRequest,
@@ -499,7 +490,7 @@ impl Actor {
                     Status::Working | Status::Asking
                 );
                 let continuation = interrupted.then(|| {
-                    Prompt::from(crate::agents::tags::context(
+                    Prompt::from(crate::tags::context(
                         super::CONTINUE,
                     ))
                 });
@@ -1301,7 +1292,7 @@ impl Actor {
         self.replies.push(
             async move {
                 let read = tokio::task::spawn_blocking(move || {
-                    let sessions = crate::agents::found::pi_sessions()?;
+                    let sessions = crate::logs::found::pi_sessions()?;
                     crate::agents::spend::pi_session_cost(&sessions, &id)
                 });
                 let cost = read.await.ok().flatten();

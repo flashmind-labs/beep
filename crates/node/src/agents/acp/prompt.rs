@@ -1,6 +1,6 @@
 //! Prompt contents, image validation and steering requests.
 
-use crate::agents::picture::{Picture, image_line};
+use crate::logs::picture::{Picture, image_line};
 use agent_client_protocol::{
     UntypedMessage,
     v1::schema::{
@@ -153,7 +153,7 @@ pub(in crate::agents) fn prompt(
 
     for context in brief.into_iter().chain(prompt.context.as_deref()) {
         blocks.push(ContentBlock::Text(TextContent::new(
-            crate::agents::tags::context(context),
+            crate::tags::context(context),
         )));
     }
 

@@ -6,13 +6,10 @@ use super::{
     server::{AppServer, Incoming, TooLong},
     settings::{INITIAL_MODE, Mode, Model, Settings, Started},
 };
-use crate::agents::{
-    acp::{
+use crate::agents::{acp::{
         self,
         bridge::{CODEX_NAME, Event, Start, notify, parse_start, unknown_session},
-    },
-    launch::Cli,
-};
+    }, launch::Cli};
 use crate::machine::wsl::DistroName;
 use agent_client_protocol::{
     Client, ConnectionTo, JsonRpcMessage, Responder, UntypedMessage,

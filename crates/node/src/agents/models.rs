@@ -2,15 +2,10 @@
 //! field (`find`, `ModelCache`). flsh lists them with `flsh models`; the
 //! others are read from a `session/new` made only to ask.
 
-use super::{
-    AgentKind,
-    acp::{self, MAX_MODELS, Offered},
-    launch::{AgentIn, AgentOut, Started},
-    known,
-};
+use super::{AgentKind, acp::{self, MAX_MODELS, Offered}, launch::{AgentIn, AgentOut, Started}, known};
 use crate::{
     AsyncMutex,
-    agents::found::Agent,
+    logs::found::Agent,
     lock,
     process::spawn_env::{self, Scope},
     process::{STOP_GRACE, command},
@@ -286,7 +281,7 @@ pub(super) fn flsh_dir_of(kind: &AgentKind) -> Option<PathBuf> {
 
 /// Where `kind` keeps pi's `models.json`.
 pub(super) fn pi_dir_of(kind: &AgentKind) -> Option<PathBuf> {
-    crate::agents::found::pi_agent_dir(&env_of(kind))
+    crate::logs::found::pi_agent_dir(&env_of(kind))
 }
 
 /// The variables `kind` runs with: its own on top of the node's.

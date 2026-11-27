@@ -1,10 +1,7 @@
 //! Starts an agent on the bridge its kind names: the node's own Claude Code
 //! and Codex bridges, or a relay into WSL, or the agent's own process.
 
-use super::{
-    Bridge, claude_direct, codex_direct,
-    launch::{Cli, Running, STDERR_LINES, Started, pipe, spawn},
-};
+use super::{Bridge, claude_direct, codex_direct, launch::{Cli, Running, STDERR_LINES, Started, pipe, spawn}};
 use crate::machine::wsl;
 use anyhow::Result;
 use beep_proto::team::TeamRepo;

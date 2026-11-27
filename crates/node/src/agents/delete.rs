@@ -1,7 +1,9 @@
 //! Deleting an ended session: the agent's own files and the node's record.
 
 use beep_proto::SessionId;
-use super::{Agents, found::Agent, text::valid_id};
+use super::{Agents};
+use crate::logs::found::Agent;
+use crate::text::valid_id;
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::agent::{SessionInfo, Status};
 use beep_proto::watched;

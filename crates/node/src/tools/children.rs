@@ -10,10 +10,7 @@
 use crate::agents::machine_list::Machine;
 use crate::agents::child_view::{ChildView, full_id};
 use crate::agents::reply::{fail, json_of, ok, parse};
-use crate::agents::{
-    Agents, Session, live::Live,
-    family::{ChildNote, ChildStart, RemoteKid, WAIT_LIMIT, Waiting, Who},
-};
+use crate::agents::{Agents, Session, live::Live, family::{ChildNote, ChildStart, RemoteKid, WAIT_LIMIT, Waiting, Who}};
 use crate::agents::child_reach::{ChildId, Found, Reach};
 use super::Node;
 use beep_mesh::Mesh;
@@ -142,7 +139,7 @@ impl Reach<'_> {
         let info = sender.info();
         let name = info.title.unwrap_or(info.agent);
 
-        crate::agents::tags::from_session(id, &name, text)
+        crate::tags::from_session(id, &name, text)
     }
 
 

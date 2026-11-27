@@ -5,7 +5,8 @@
 
 use beep_proto::SessionId;
 use super::{Env, Harness, rewrite, store};
-use crate::agents::{AgentKind, Begin, SavedSession, found::Agent};
+use crate::agents::{AgentKind, Begin, SavedSession};
+use crate::logs::found::Agent;
 use anyhow::{Context, Result};
 use beep_proto::{ModelId, node::agent::ParentLink};
 use iroh::EndpointId;

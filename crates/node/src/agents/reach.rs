@@ -6,7 +6,8 @@ use super::{Agents, SIGHTING_WAIT, media_file::resolve, worktrees};
 use crate::fs::paths::{self, real};
 use crate::run::device::{self, Served};
 use beep_proto::node::{LinkRx, LinkTx};
-use crate::agents::{claude_dir, found::LogRoots};
+use crate::logs::claude_dir;
+use crate::logs::found::LogRoots;
 use anyhow::{Context, Result};
 use std::time::Duration;
 use std::{

@@ -138,7 +138,8 @@ async fn recovery_blocks_new_sessions_and_open_sessions_block_recovery() {
 /// Agents whose Claude Code sessions are read from `claude` and that find
 /// no others.
 fn reading(claude: &Path) -> (Agents, tempfile::TempDir) {
-    use crate::agents::{claude::External, found::Stores};
+    use crate::agents::{claude::External};
+use crate::logs::found::Stores;
     let nothing = tempfile::tempdir().unwrap();
     let agents = Agents {
         external: External::locate_in(claude),

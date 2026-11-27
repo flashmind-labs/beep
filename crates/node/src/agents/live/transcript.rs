@@ -6,15 +6,10 @@ use super::{
     tools::CodexChild,
 };
 use crate::agents::calls::Tool as BeepTool;
-use crate::agents::{
-    acp::wire_name,
-    images::Images,
-    picture::Picture,
-    subagent::Run,
-    unix_now,
-    usage::{UsageHub, claude_rate_limit, flsh_credits},
-    window::window,
-};
+use crate::agents::{acp::wire_name, images::Images, unix_now, usage::{UsageHub, claude_rate_limit, flsh_credits}};
+use crate::logs::picture::Picture;
+use crate::logs::subagent::Run;
+use crate::logs::window::window;
 use agent_client_protocol::v1::schema::{RequestPermissionRequest, SessionUpdate, ToolCallId};
 use beep_proto::{
     AgentSlug,
@@ -32,7 +27,7 @@ use std::{
 
 impl Live {
     pub(crate) fn new(mut info: SessionInfo, images: Arc<Images>, usage: Arc<UsageHub>) -> Self {
-        info.title = info.title.as_deref().and_then(crate::agents::tags::title);
+        info.title = info.title.as_deref().and_then(crate::tags::title);
         let folder = PathBuf::from(&info.cwd);
         Self {
             folder: Some(folder.clone()),
@@ -290,9 +285,9 @@ impl Live {
 
             if let Some((context, rest)) = entry.text.split_once(CLAUDE_CONTINUATION)
                 && rest.starts_with(" that ran out of context.")
-                && crate::agents::tags::parts(context)
+                && crate::tags::parts(context)
                     .iter()
-                    .all(|part| matches!(part, crate::agents::tags::Part::Context(_)))
+                    .all(|part| matches!(part, crate::tags::Part::Context(_)))
             {
                 entry.kind = EntryKind::Compacted;
                 entry.text = summary_note(&entry.text[context.len()..]);
@@ -319,7 +314,7 @@ impl Live {
     pub(crate) fn prompted(&mut self, text: &str) {
         // Until the agent names the session, its first prompt does.
         if self.info.title.is_none() {
-            self.info.title = crate::agents::tags::title(text);
+            self.info.title = crate::tags::title(text);
         }
 
         self.end_thought(Instant::now());

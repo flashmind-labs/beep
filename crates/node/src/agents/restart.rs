@@ -2,13 +2,8 @@
 //! `OpenSession` by the agent's own id, with the prompts that still waited.
 
 use beep_proto::{AccountName, SessionId};
-use super::{
-    AgentKind, Agents, Begin, Command, Prompt, checkout,
-    family::RemoteKid,
-    found::Agent,
-    moving,
-    session::{CONTINUE, NODE_STOPPED, Session},
-};
+use super::{AgentKind, Agents, Begin, Command, Prompt, checkout, family::RemoteKid, moving, session::{CONTINUE, NODE_STOPPED, Session}};
+use crate::logs::found::Agent;
 use anyhow::{Context, Result};
 use beep_proto::watched;
 use beep_proto::{
@@ -335,7 +330,7 @@ impl Agents {
                     Keep::Open => {
                         let mut held = live.held.clone();
                         if matches!(live.status(), Status::Working | Status::Asking) {
-                            held.insert(0, Prompt::from(crate::agents::tags::context(CONTINUE)));
+                            held.insert(0, Prompt::from(crate::tags::context(CONTINUE)));
                         }
                         held
                     }
@@ -482,7 +477,7 @@ impl Agents {
 
         for mut prompt in open.held {
             if prompt.text == CONTINUE {
-                prompt.text = crate::agents::tags::context(CONTINUE);
+                prompt.text = crate::tags::context(CONTINUE);
             }
 
             session

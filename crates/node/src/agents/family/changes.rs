@@ -10,7 +10,8 @@
 use super::{Agents, Command, Live, Session};
 use crate::agents::child_view::full_id;
 use crate::agents::live::{Mark, Stand};
-use crate::agents::{acp::Prompt, cut};
+use crate::agents::{acp::Prompt};
+use crate::text::cut;
 use beep_proto::SessionId;
 use beep_proto::node::agent::{SessionInfo, Status};
 use beep_proto::watched;

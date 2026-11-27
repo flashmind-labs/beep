@@ -53,7 +53,7 @@ pub(super) fn diff_text(cwd: &Path, path: &Path, old: Option<&str>, new: &str) -
     for (mark, line) in lines.take(MAX_LINES) {
         text.push('\n');
         text.push(mark);
-        text.push_str(super::text::cut_str(line, MAX_LINE));
+        text.push_str(crate::text::cut_str(line, MAX_LINE));
     }
 
     if total > MAX_LINES {

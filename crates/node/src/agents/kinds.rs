@@ -1,9 +1,7 @@
 //! The agents a node knows how to start, and how it starts them.
 
 use crate::known::{Adapter, KNOWN, Known};
-use super::{
-    adapters,
-};
+use super::{adapters};
 use crate::machine::env::locate;
 use beep_proto::ModelId;
 use beep_proto::node::harness::{AutoCompact, ModelCompact};

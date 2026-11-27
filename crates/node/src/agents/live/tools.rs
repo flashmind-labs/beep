@@ -5,14 +5,11 @@ use super::{
     content::{cut, image_picture, parent_tool},
 };
 use crate::agents::calls::Tool as BeepTool;
-use crate::agents::found::folder_place::call_folder;
-use crate::agents::{
-    acp::wire_name,
-    picture::{Picture, picture_of},
-    subagent::{Activity, Conversation, Run, Subagent},
-    tool_details,
-    tool_diff::diff_text,
-};
+use crate::logs::found::folder_place::call_folder;
+use crate::agents::{acp::wire_name, tool_diff::diff_text};
+use crate::logs::tool_details;
+use crate::logs::picture::{Picture, picture_of};
+use crate::logs::subagent::{Activity, Conversation, Run, Subagent};
 use agent_client_protocol::v1::schema::{
     ContentBlock, EmbeddedResourceResource, ToolCall as AcpToolCall, ToolCallContent, ToolCallId,
     ToolCallLocation, ToolCallStatus, ToolCallUpdate, ToolKind,

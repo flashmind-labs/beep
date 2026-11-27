@@ -1,10 +1,7 @@
 //! The `agents/1` requests: one answer each, or a stream the caller follows.
 
 use beep_proto::SessionId;
-use super::{
-    Agents, AlertHub, MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP,
-    harnesses, media_file, reach, spend::Reports, work_folder, worktrees,
-};
+use super::{Agents, AlertHub, MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP, harnesses, media_file, reach, spend::Reports, work_folder, worktrees};
 use crate::{custom_agents, files::transfer::Transfers};
 use anyhow::{Context, Result};
 use beep_mesh::machine::thumb::{Picture, thumb_of};

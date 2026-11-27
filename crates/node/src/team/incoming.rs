@@ -11,7 +11,7 @@ use super::{
     },
     link::{Seen, TeamLink, Teams},
 };
-use crate::agents::tags;
+use crate::tags;
 use beep_proto::team::{Card, Lane, Target, TeamMsg, TeamRepo};
 use iroh::EndpointId;
 use std::time::SystemTime;

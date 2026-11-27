@@ -4,7 +4,7 @@
 use crate::{
     AsyncMutex,
     agents::Agents,
-    agents::found,
+    logs::found,
     link::state::{self, Search},
     protocol::{Protocol, Session},
 };

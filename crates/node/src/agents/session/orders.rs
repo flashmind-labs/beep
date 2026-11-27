@@ -4,11 +4,8 @@ use super::{
     Answered, Command, MAX_ASKED, MAX_PLAN, MAX_QUEUED, MAX_QUEUED_BYTES,
     actor::{Actor, Asked, Reply, Waiting, agent_title},
 };
-use crate::agents::{
-    acp::{self, Prompt},
-    live::Live,
-    text::cut,
-};
+use crate::agents::{acp::{self, Prompt}, live::Live};
+use crate::text::cut;
 use agent_client_protocol::{
     Agent, ConnectionTo, Responder,
     v1::schema::{CancelNotification, RequestPermissionResponse},

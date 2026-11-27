@@ -126,8 +126,8 @@ pub async fn listen_in(agents: Arc<Agents>, dir: &Path) -> Result<()> {
 async fn serve_at(agents: Arc<Agents>, dir: &Path, path: PathBuf) -> Result<()> {
     // A short private socket folder, including for long desktop paths.
     let dir = std::path::absolute(dir)?;
-    let socket = crate::agents::socket::presence_path(&dir);
-    crate::agents::socket::prepare(&socket, &dir)?;
+    let socket = crate::socket::presence_path(&dir);
+    crate::socket::prepare(&socket, &dir)?;
     let mut listener = Listener::bind(&socket)?;
     #[cfg(unix)]
     let address = socket

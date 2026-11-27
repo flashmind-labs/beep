@@ -122,7 +122,7 @@ pub(super) struct Folder {
     dir: PathBuf,
 }
 
-pub(super) use crate::agents::text::valid_id;
+pub(super) use crate::text::valid_id;
 
 impl Folder {
     pub(super) fn new(state_dir: &Path) -> Self {

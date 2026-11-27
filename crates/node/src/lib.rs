@@ -23,6 +23,7 @@ pub mod events;
 pub mod files;
 pub mod link;
 mod protocol;
+pub mod tags;
 
 host! {
     pub mod actor;
@@ -33,6 +34,10 @@ host! {
     mod known;
     mod process;
     mod fs;
+    pub(crate) mod calls;
+    mod logs;
+    pub(crate) mod socket;
+    mod text;
     mod run;
     mod team;
     pub(crate) mod watchdog;

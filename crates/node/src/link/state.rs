@@ -1,7 +1,7 @@
 //! The node's key and settings, kept in one folder.
 
 pub use crate::fs::note::default_dir;
-use crate::{agents::AgentKind, agents::found};
+use crate::{agents::AgentKind, logs::found};
 use anyhow::{Context, Result, bail};
 use beep_proto::port::NODE_PORT;
 use iroh::SecretKey;

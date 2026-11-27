@@ -1,12 +1,9 @@
 use super::content::{replayed, thought_line};
 use super::*;
-use crate::agents::{
-    compaction::COMPACTED_ENTRY,
-    text::cut,
-    image_files,
-    picture::Picture,
-    subagent::{Run, RunStep},
-};
+use crate::agents::{compaction::COMPACTED_ENTRY, image_files};
+use crate::text::cut;
+use crate::logs::picture::Picture;
+use crate::logs::subagent::{Run, RunStep};
 use agent_client_protocol::v1::schema::SessionUpdate;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::node::agent::{EntryKind, Status};
@@ -1482,7 +1479,7 @@ fn a_live_claude_spawn_shows_its_requested_model() {
 
 #[test]
 fn automatic_titles_are_cleaned_on_updates_and_restore() {
-    let tagged = crate::agents::tags::from_session("parent", "Parent task", "Fix the upload queue.\nDetails");
+    let tagged = crate::tags::from_session("parent", "Parent task", "Fix the upload queue.\nDetails");
     let mut session = live_titled(&tagged);
     assert_eq!(session.info.title.as_deref(), Some("Fix the upload queue."));
     session.apply(&update(json!({"sessionUpdate": "session_info_update", "title": tagged})));
@@ -1530,9 +1527,9 @@ fn recorded_times_survive_streaming_and_replay() {
 #[test]
 fn recovery_context_does_not_name_a_conversation() {
     let mut live = live();
-    live.prompted(&crate::agents::tags::context(crate::agents::session::CONTINUE));
+    live.prompted(&crate::tags::context(crate::agents::session::CONTINUE));
     assert!(live.info.title.is_none());
-    assert!(crate::agents::tags::own_words(&live.transcript(10).0[0].text).is_empty());
+    assert!(crate::tags::own_words(&live.transcript(10).0[0].text).is_empty());
 }
 
 #[test]

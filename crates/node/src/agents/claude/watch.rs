@@ -4,9 +4,11 @@
 
 use beep_proto::SessionId;
 use super::{
-    discover::Store,
     hooks::{HookEvent, HookMessage},
     live::Live,
+};
+use crate::logs::claude::{
+    discover::Store,
     transcript::{Digest, read_from},
 };
 use crate::run::local_socket::{self as socket, Listener, Stream};

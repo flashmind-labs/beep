@@ -3,6 +3,7 @@
 //! named after it, so the conversation's notes sit above what its threads
 //! keep and no two threads write over each other.
 
+use crate::logs::found::HIDDEN;
 use beep_proto::{SessionId, node::agent::slug};
 use std::{
     io,
@@ -10,7 +11,6 @@ use std::{
 };
 
 /// The hidden folder in the home folder that holds what Beep keeps there.
-pub(super) const HIDDEN: &str = ".beep";
 
 /// How many ids are tried for a folder nobody has yet.
 const TRIES: usize = 8;

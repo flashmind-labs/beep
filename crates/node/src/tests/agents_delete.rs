@@ -1,5 +1,6 @@
 use super::*;
-use crate::agents::{AgentKind, Begin, claude::External, found::Stores};
+use crate::agents::{AgentKind, Begin, claude::External};
+use crate::logs::found::Stores;
 use std::{
     collections::BTreeMap,
     fs::{self, File},
@@ -262,13 +263,13 @@ fn a_file_outside_the_store_or_a_link_to_one_is_not_removed() {
     let store = dir.path().join("store");
     fs::create_dir_all(&store).expect("a store");
     let outside = write(&dir.path().join("outside.jsonl"), "keep me");
-    assert!(crate::agents::found::remove_file_in(&store, &outside).is_err());
+    assert!(crate::logs::found::remove_file_in(&store, &outside).is_err());
     let link = store.join("link.jsonl");
     std::os::unix::fs::symlink(&outside, &link).expect("a link");
-    assert!(crate::agents::found::remove_file_in(&store, &link).is_err());
+    assert!(crate::logs::found::remove_file_in(&store, &link).is_err());
     let folder = store.join("folder-link");
     std::os::unix::fs::symlink(dir.path(), &folder).expect("a folder link");
-    crate::agents::found::remove_dir_in(&store, &folder).expect("a link is skipped");
+    crate::logs::found::remove_dir_in(&store, &folder).expect("a link is skipped");
     assert!(outside.exists() && link.exists());
 }
 

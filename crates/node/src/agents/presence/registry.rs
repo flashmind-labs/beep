@@ -2,7 +2,8 @@
 
 use beep_proto::SessionId;
 use crate::{
-    agents::{found::Agent, unix_now},
+    agents::unix_now,
+    logs::found::Agent,
     lock,
 };
 use anyhow::{Result, bail};
@@ -106,7 +107,7 @@ impl Registry {
         session.session.presence = Presence::Running;
         session.session.last_activity = now;
         if let Some(title) = registration.title {
-            session.session.title = Some(crate::agents::cut(&title, 300));
+            session.session.title = Some(crate::text::cut(&title, 300));
         }
         self.changes
             .send_modify(|count| *count = count.wrapping_add(1));

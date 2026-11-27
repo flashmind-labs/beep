@@ -6,11 +6,8 @@ use super::{
     content::{cut, image_picture, push_cut, replayed, thought_line},
     tools::ToolCall,
 };
-use crate::agents::{
-    compaction::{CLAUDE_CONTINUATION, COMPACTED_ENTRY, MAX_SUMMARY, summary_note},
-    image_files,
-    picture::Picture,
-};
+use crate::agents::{compaction::{CLAUDE_CONTINUATION, COMPACTED_ENTRY, MAX_SUMMARY, summary_note}, image_files};
+use crate::logs::picture::Picture;
 use agent_client_protocol::{
     schema::MaybeUndefined,
     v1::schema::{
@@ -79,7 +76,7 @@ impl Live {
                             self.keep(picture);
                         }
                         // A brief from before the tags is Beep's context.
-                        self.user_chunk(&crate::agents::tags::bare_block(&shown));
+                        self.user_chunk(&crate::tags::bare_block(&shown));
                     }
                     ContentBlock::Image(image) => {
                         if let Ok(data) = STANDARD.decode(&image.data) {
@@ -114,7 +111,7 @@ impl Live {
             SessionUpdate::SessionInfoUpdate(info) => {
                 if !self.named
                     && let MaybeUndefined::Value(new) = &info.title
-                    && let Some(title) = crate::agents::tags::title(new)
+                    && let Some(title) = crate::tags::title(new)
                 {
                     self.naming = false;
                     self.info.title = Some(title);
@@ -241,7 +238,7 @@ impl Live {
     }
 
     fn user_chunk(&mut self, text: &str) {
-        if let Some(rest) = crate::agents::tags::after_interruption(text) {
+        if let Some(rest) = crate::tags::after_interruption(text) {
             self.push_entry(EntryKind::Other, "Interrupted".into());
             self.in_message = false;
             if !rest.trim().is_empty() {
@@ -280,7 +277,7 @@ impl Live {
         {
             // Claude replays compaction summaries as user messages on restore.
             // Also defer partial prefixes while the message is streaming.
-            self.info.title = crate::agents::tags::title(&prompt.text).filter(|title| {
+            self.info.title = crate::tags::title(&prompt.text).filter(|title| {
                 !CLAUDE_CONTINUATION.starts_with(title) && !title.starts_with(CLAUDE_CONTINUATION)
             });
         }

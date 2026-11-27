@@ -5,13 +5,7 @@
 //! stopped; the review stays here for the caller and the desktops.
 
 use beep_proto::SessionId;
-use super::{
-    Agents, Begin, Command, Session,
-    family::{ChildStart, Review, Who},
-    known,
-    live::Live,
-    unix_now,
-};
+use super::{Agents, Begin, Command, Session, family::{ChildStart, Review, Who}, known, live::Live, unix_now};
 use beep_proto::ModelId;
 use beep_proto::node::agent::{
     ReviewOrder, ReviewRun, Status, StopReason, SubmittedReview,

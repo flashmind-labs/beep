@@ -158,7 +158,7 @@ async fn an_interrupted_turn_continues_before_queued_prompts() {
         .expect("queued");
     assert_eq!(
         before.open_sessions()[0].held[0].text,
-        crate::agents::tags::context(CONTINUE)
+        crate::tags::context(CONTINUE)
     );
     before.shutdown().await;
     let stopped = before.open_sessions();
@@ -168,7 +168,7 @@ async fn an_interrupted_turn_continues_before_queued_prompts() {
             .iter()
             .map(|p| p.text.clone())
             .collect::<Vec<_>>(),
-        vec![crate::agents::tags::context(CONTINUE), "after".to_owned()]
+        vec![crate::tags::context(CONTINUE), "after".to_owned()]
     );
     let after = Agents::new(vec![kind]);
     after.settings_arrived();
@@ -199,7 +199,7 @@ async fn a_held_session_resumes_after_the_restart_with_its_prompt() {
     assert_eq!(
         stopped[0].held,
         [
-            Prompt::from(crate::agents::tags::context(CONTINUE)),
+            Prompt::from(crate::tags::context(CONTINUE)),
             Prompt::from("after".to_owned())
         ]
     );
@@ -474,7 +474,7 @@ async fn recovery_context_keeps_the_title_even_when_the_adapter_renames_it() {
             .iter()
             .find(|entry| entry.text.contains(CONTINUE))
             .expect("recovery context");
-        assert!(crate::agents::tags::own_words(&context.text).is_empty());
+        assert!(crate::tags::own_words(&context.text).is_empty());
     });
     after.shutdown().await;
 }

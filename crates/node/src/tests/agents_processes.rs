@@ -327,7 +327,7 @@ async fn stop_returns_when_the_processes_exit_not_after_the_grace() {
         .spawn()
         .unwrap();
     let pid = child.id().unwrap();
-    let process = snapshot::read(Duration::ZERO)
+    let process = read_table(Duration::ZERO)
         .await
         .unwrap()
         .get(&pid)

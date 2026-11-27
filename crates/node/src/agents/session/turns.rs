@@ -4,14 +4,8 @@ use super::{
     MAX_RUNNING_TOOLS,
     actor::{Actor, PendingSteer, Reply, Stopping, Turn, stop_reason},
 };
-use crate::agents::{
-    acp::{self, Prompt},
-    compaction::{COMPACT_PROMPT, COMPACTED_ENTRY, TurnEnd, summary_note},
-    image_files,
-    live::{TurnFiles, TurnMade, TurnTokens, TurnWorktrees},
-    text::cut,
-    made_files, worktrees,
-};
+use crate::agents::{acp::{self, Prompt}, compaction::{COMPACT_PROMPT, COMPACTED_ENTRY, TurnEnd, summary_note}, image_files, live::{TurnFiles, TurnMade, TurnTokens, TurnWorktrees}, made_files, worktrees};
+use crate::text::cut;
 use agent_client_protocol::{
     Agent, ConnectionTo,
     v1::schema::{CancelNotification, PromptResponse, SessionId, SessionUpdate, ToolCallStatus},
@@ -619,7 +613,7 @@ impl Actor {
             prompt.images.clear();
         }
 
-        self.context_turn = crate::agents::tags::said(&prompt.text).is_empty();
+        self.context_turn = crate::tags::said(&prompt.text).is_empty();
         let brief = self.brief.take();
         self.sent += 1;
         self.turn = Some(Turn::new(self.sent));

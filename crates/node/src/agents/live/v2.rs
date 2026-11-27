@@ -177,7 +177,7 @@ impl Live {
             }
             v2::SessionUpdate::SessionInfoUpdate(_) if self.named => {}
             v2::SessionUpdate::SessionInfoUpdate(update) => match &update.title {
-                MaybeUndefined::Value(title) => self.info.title = crate::agents::tags::title(title),
+                MaybeUndefined::Value(title) => self.info.title = crate::tags::title(title),
                 MaybeUndefined::Null => self.info.title = None,
                 _ => {}
             },
@@ -261,7 +261,7 @@ impl Live {
                             use base64::{Engine, engine::general_purpose::STANDARD};
                             match STANDARD.decode(&image.data) {
                                 Ok(data) => {
-                                    let picture = crate::agents::picture::Picture {
+                                    let picture = crate::logs::picture::Picture {
                                         mime: image.mime_type.to_string(),
                                         data,
                                     };
@@ -290,7 +290,7 @@ impl Live {
                 item.text = cut(&text, MAX_ENTRY);
             }
             if kind == EntryKind::User {
-                item.text = crate::agents::tags::bare_block(&item.text);
+                item.text = crate::tags::bare_block(&item.text);
             }
         }
         if kind == EntryKind::Agent && self.v2.last_agent.is_none_or(|last| entry >= last) {
@@ -302,7 +302,7 @@ impl Live {
         } else if kind == EntryKind::User && self.info.title.is_none() {
             self.info.title = self
                 .entry_mut(entry)
-                .and_then(|item| crate::agents::tags::title(&item.text));
+                .and_then(|item| crate::tags::title(&item.text));
         }
         self.in_message = false;
     }

@@ -502,7 +502,7 @@ pub(crate) async fn watch_paths(root: &Path) -> Result<Vec<PathBuf>> {
     // Read in process: no git process for each folder the events watch.
     let root = root.to_owned();
     let found = spawn_blocking(move || {
-        let repo = super::found::repository(&root)?;
+        let repo = crate::logs::found::repository(&root)?;
         Some((repo.git_dir().to_owned(), repo.common_dir().to_owned()))
     })
     .await?;

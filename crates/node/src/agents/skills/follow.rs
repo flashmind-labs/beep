@@ -6,10 +6,7 @@ use super::{
     compare::{Holder, Outcome, Take, compare},
     enabled,
 };
-use crate::agents::{
-    skill_disk::{self, Base, Hashes, Scan, Seen},
-    skill_library::online,
-};
+use crate::agents::{skill_disk::{self, Base, Hashes, Scan, Seen}, skill_library::online};
 use crate::events::paths::Paths;
 use anyhow::{Context, Result, bail};
 use beep_mesh::{Key, Mesh, MeshError, PeerClient};

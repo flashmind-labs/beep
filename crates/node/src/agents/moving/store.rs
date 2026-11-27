@@ -1,10 +1,9 @@
 //! Where this machine keeps a session's transcript, and writing one in.
 
 use super::{Harness, Stored};
-use crate::agents::{
-    Agents, claude_dir,
-    found::{self, Agent},
-};
+use crate::agents::{Agents};
+use crate::logs::claude_dir;
+use crate::logs::found::{self, Agent};
 use anyhow::{Context, Result, ensure};
 use beep_proto::SessionId;
 use beep_proto::node::agent::Status;

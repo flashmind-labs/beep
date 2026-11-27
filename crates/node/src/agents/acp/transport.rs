@@ -64,7 +64,7 @@ fn messages<R: AsyncBufRead + Unpin + Send + 'static>(
                         if !trimmed.is_empty() {
                             log::debug!(
                                 "agent wrote a line that is not JSON-RPC: {}",
-                                crate::agents::cut(trimmed, 200)
+                                crate::text::cut(trimmed, 200)
                             );
                         }
                     }

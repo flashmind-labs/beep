@@ -1,6 +1,8 @@
 //! Passes over fabricated logs of every agent.
 
 use super::*;
+use crate::logs::spend::{Line, Request, billing};
+use beep_proto::node::usage::Billing;
 use beep_proto::watched;
 use std::{collections::BTreeMap, fs, io::Write, path::Path};
 

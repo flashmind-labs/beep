@@ -459,7 +459,7 @@ async fn read_page(
     let texts = entries
         .into_iter()
         .filter_map(|entry| match entry.kind {
-            EntryKind::User => Some(crate::agents::tags::own_words(&entry.text)),
+            EntryKind::User => Some(crate::tags::own_words(&entry.text)),
             EntryKind::Agent => Some(entry.text),
             _ => None,
         })

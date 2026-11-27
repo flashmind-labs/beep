@@ -1,11 +1,9 @@
 //! Pushes an initial snapshot and subsequent changes to an open session view.
 
-use super::{
-    Agents, MAX_TRANSCRIPT,
-    claude::Followed,
-    found::{Agent, Seen},
-    transcript_stage,
-};
+use super::{Agents, MAX_TRANSCRIPT, };
+use crate::logs::claude::Followed;
+use crate::logs::found::{Agent, Seen};
+use crate::logs::transcript_stage;
 use crate::events::HEARTBEAT;
 use anyhow::{Context, Result, bail};
 use beep_proto::SessionId;
@@ -1140,7 +1138,7 @@ async fn paths(
             paths.push(file.with_extension("meta.json"));
         }
         if matches!(request.agent.as_ref(), "flsh" | "opencode") {
-            paths.push(super::found::wal_path(&file));
+            paths.push(crate::logs::found::wal_path(&file));
         }
 
         paths.push(file);

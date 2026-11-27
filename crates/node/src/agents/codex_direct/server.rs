@@ -2,10 +2,7 @@
 //! `jsonrpc` field. A call waits for its answer; what Codex sends meanwhile
 //! waits, in order, for the bridge.
 
-use crate::agents::{
-    launch::Cli,
-    pipe::{Frame, Pipe},
-};
+use crate::agents::{launch::Cli, pipe::{Frame, Pipe}};
 use crate::machine::wsl::DistroName;
 use crate::process::line_reader::MAX_MESSAGE;
 use anyhow::{Context, Result, anyhow};

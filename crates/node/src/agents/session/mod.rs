@@ -103,7 +103,7 @@ pub(super) async fn parent_gone(parent: &mut watch::Receiver<Live>) -> bool {
 /// What a stream asks of a session.
 #[derive(Debug, strum::IntoStaticStr)]
 pub(super) enum Command {
-    RecoverCodexChildren(Vec<crate::agents::SubagentRun>),
+    RecoverCodexChildren(Vec<crate::logs::subagent::Run>),
     Prompt(Prompt),
     /// A message for the running turn: it goes once the agent's current
     /// tool call finishes, ahead of the prompts waiting.

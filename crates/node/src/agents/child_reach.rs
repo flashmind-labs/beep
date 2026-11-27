@@ -1,14 +1,7 @@
 //! How a caller reaches its children (`Reach`), and the subagent card its
 //! transcript shows for each `start_agent` call (`show_children`).
 
-use super::{
-    Agents, Session,
-    calls::command_name,
-    child_view::ChildView,
-    family::{RemoteKid, Who},
-    live::Mark,
-    machine_list::{Machine, find_named, machine_name},
-};
+use super::{Agents, Session, calls::command_name, child_view::ChildView, family::{RemoteKid, Who}, live::Mark, machine_list::{Machine, find_named, machine_name}};
 use beep_mesh::Mesh;
 use beep_proto::SessionId;
 use beep_proto::node::agent::{Entry, EntryKind};

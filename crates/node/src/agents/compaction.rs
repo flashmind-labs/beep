@@ -19,30 +19,12 @@ use beep_proto::{
 pub(super) use crate::known::Route;
 use std::collections::BTreeMap;
 
+pub(super) use crate::logs::window::{COMPACTED_ENTRY, MAX_SUMMARY, summary_note};
+
 /// The prompt that asks an agent to compact its conversation.
 pub(super) const COMPACT_PROMPT: &str = "/compact";
-/// What the transcript shows for a compaction, as Claude Code's reader does.
-pub(super) const COMPACTED_ENTRY: &str = "[conversation compacted]";
-/// Upper bound for a summary carried in one chat entry.
-pub(super) const MAX_SUMMARY: usize = 128 * 1024;
 pub(super) const CLAUDE_CONTINUATION: &str =
     "This session is being continued from a previous conversation";
-
-/// pi-acp's first line before the summary it sends for `/compact`.
-const PI_COMPACTED: &str = "Compaction completed.";
-
-pub(super) fn summary_note(text: &str) -> String {
-    let summary = match text.split_once("\nSummary:\n") {
-        Some((_, summary)) => summary,
-        // pi-acp heads it with the tokens before, then a blank line.
-        None if text.starts_with(PI_COMPACTED) => text.split_once("\n\n").map_or("", |(_, s)| s),
-        None => text,
-    };
-    format!(
-        "{COMPACTED_ENTRY}\n{}",
-        super::text::cut_str(summary.trim(), MAX_SUMMARY)
-    )
-}
 
 /// Whether and when the node compacts a harness's sessions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -262,7 +244,7 @@ impl Compactor {
     /// runs.
     pub(super) fn heard(&mut self, text: &str) -> bool {
         if self.running {
-            super::text::push_cut(&mut self.reply, text, MAX_SUMMARY);
+            crate::text::push_cut(&mut self.reply, text, MAX_SUMMARY);
         }
         self.running
     }

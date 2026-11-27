@@ -1,5 +1,5 @@
 use super::*;
-use crate::agents::tags::{Part, parts};
+use crate::tags::{Part, parts};
 use crate::team::asks::Answer;
 use crate::team::board::tests::{Pair, login, repo};
 use beep_proto::team::{Lane, TeamMsg};

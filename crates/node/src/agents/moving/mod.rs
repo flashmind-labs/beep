@@ -37,7 +37,8 @@ pub(crate) use follow::follow;
 pub(crate) use progress::Moves;
 pub use read::ALPN as SESSIONS_ALPN;
 
-use super::{Agents, found::Agent};
+use super::Agents;
+use crate::logs::found::Agent;
 use anyhow::{Context, Result};
 use beep_proto::SessionId;
 use iroh::{Endpoint, EndpointId};
@@ -120,12 +121,12 @@ impl TryFrom<Agent> for Harness {
 /// rewritten: Claude Code finds a session by the folder it runs in. Nothing
 /// when there is none, or one is there already. Blocks on the file system.
 pub(crate) fn rehome_claude(id: &SessionId, old: &Path, new: &Path) -> Result<()> {
-    let projects = super::claude_dir::config_dir()
+    let projects = crate::logs::claude_dir::config_dir()
         .context("this machine has no home folder")?
         .join("projects");
     let kept_for = |folder: &Path| {
         projects
-            .join(super::claude_dir::slug(folder))
+            .join(crate::logs::claude_dir::slug(folder))
             .join(format!("{id}.jsonl"))
     };
     let from = kept_for(old);

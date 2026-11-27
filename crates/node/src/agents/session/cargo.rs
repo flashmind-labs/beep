@@ -1,6 +1,6 @@
 //! Shared Cargo outputs and compiler caching without replacing agent settings.
 
-use crate::agents::found;
+use crate::logs::found;
 use crate::process::spawn_env;
 use std::{
     collections::BTreeMap,

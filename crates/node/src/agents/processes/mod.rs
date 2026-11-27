@@ -27,57 +27,11 @@ use tokio_util::task::AbortOnDropHandle;
 mod docker;
 
 pub(super) use docker::Docker;
-use process::Process;
 mod pages;
-mod process;
-mod snapshot;
+use crate::logs::processes::{
+    Process, UNWATCHED, WATCHED, invalidate, os, read as read_table, signal,
+};
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
-mod linux;
-#[cfg(any(target_os = "macos", target_os = "ios"))]
-mod macos;
-#[cfg(windows)]
-mod windows;
-#[cfg(any(target_os = "linux", target_os = "android"))]
-use linux as os;
-#[cfg(any(target_os = "macos", target_os = "ios"))]
-use macos as os;
-#[cfg(windows)]
-use windows as os;
-
-/// Sends SIGTERM, or SIGKILL when `kill`, to `p` unless it is gone or its pid
-/// now belongs to another process.
-#[cfg(unix)]
-fn signal(p: &Process, kill: bool) -> std::io::Result<()> {
-    if !os::alive(p) {
-        return Ok(());
-    }
-
-    let pid = libc::pid_t::try_from(p.pid).map_err(std::io::Error::other)?;
-    // SAFETY: the positive pid and signal are plain integers. Its birth was
-    // checked above, so a stale observation is not sent to a reused pid.
-    if unsafe { libc::kill(pid, if kill { libc::SIGKILL } else { libc::SIGTERM }) } != 0 {
-        let e = std::io::Error::last_os_error();
-
-        if e.raw_os_error() != Some(libc::ESRCH) {
-            return Err(e);
-        }
-    }
-
-    Ok(())
-}
-#[cfg(windows)]
-use windows::signal;
-
-/// How often a session reads the process table while it works or a client
-/// follows `processes`: a wrapper that daemonizes and exits between reads
-/// would lose its child, and closing the session would leave it running.
-const WATCHED: Duration = Duration::from_secs(1);
-/// How often an idle session reads it, only to keep track of children that
-/// leave the session's group, so closing the session can stop them. Idle
-/// sessions share a table up to this old, so however many there are, the
-/// OS is read about once per interval.
-const UNWATCHED: Duration = Duration::from_secs(60);
 
 /// How often a standalone node checks the ports its sessions' processes
 /// listen on, so a server that binds after it started still shows up.
@@ -136,12 +90,6 @@ async fn pace<T>(
         changed = demand.changed() => changed.is_ok().then_some(WATCHED),
         Ok(()) = watched::wait_for(session, &works), if !working => Some(WATCHED),
     }
-}
-
-/// The machine's processes, by pid, from the table every reader shares: it
-/// is read at most once a second however many ask.
-pub(super) async fn table() -> anyhow::Result<Arc<HashMap<u32, Process>>> {
-    snapshot::read(WATCHED).await
 }
 
 /// What the poll task last published: when it read the table, and its list
@@ -415,7 +363,7 @@ impl Processes {
 
         // A new root must not take a cached entry left by a reused pid.
         let first = observed.root_birth.is_none();
-        let all = snapshot::read(if first { Duration::ZERO } else { max_age }).await?;
+        let all = read_table(if first { Duration::ZERO } else { max_age }).await?;
         let before = observed.processes.clone();
         if observed.root_birth.is_none() {
             observed.root_birth = all.get(&root_pid).map(|p| p.birth);
@@ -518,7 +466,7 @@ impl Processes {
             .find(|p| p.pid == pid && !p.helper())
             .ok_or_else(|| anyhow::anyhow!("the process is not running in this session"))?;
         let stopped = stop(&[process]).await;
-        snapshot::invalidate().await;
+        invalidate().await;
         // Readers must not be left listing what ended.
         if let Err(e) = self.poll(false).await {
             log::debug!("could not read session processes after a stop: {e:#}");
@@ -728,13 +676,13 @@ pub(super) async fn close_outside(pid: u32, wait: Duration) -> anyhow::Result<()
     }
     // Watched before the signal, so its exit cannot come first.
     let exit = crate::events::exits::Exit::watch(pid)?;
-    let Some(process) = snapshot::read(Duration::ZERO).await?.get(&pid).cloned() else {
+    let Some(process) = read_table(Duration::ZERO).await?.get(&pid).cloned() else {
         return Ok(());
     };
 
     send(Arc::from([process]), false).await?;
     let ended = tokio::time::timeout(wait, exit.wait()).await;
-    snapshot::invalidate().await;
+    invalidate().await;
     ended.map_err(|_| anyhow::anyhow!("it did not end; close it in its terminal"))
 }
 

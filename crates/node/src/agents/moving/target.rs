@@ -15,7 +15,8 @@ use super::{
     saved::{Folder, Phase, PlacedTree, Saved},
     worktree,
 };
-use crate::agents::{SavedSession, checkouts::watch_paths, conversation, found::Agent};
+use crate::agents::{SavedSession, checkouts::watch_paths, conversation};
+use crate::logs::found::Agent;
 use crate::events::paths::Paths;
 use anyhow::{Context, Result, bail};
 use beep_proto::SessionId;

@@ -3,7 +3,7 @@
 //! `beep-node hook` (`forward`), which hands the event over `socket_path`.
 
 use beep_proto::SessionId;
-use crate::agents::cut;
+use crate::text::cut;
 use crate::run::local_socket as socket;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::agent::{Activity, ActivityKind, PlanEntry, PlanStatus};
@@ -60,7 +60,7 @@ pub fn socket_path(dir: &Path) -> PathBuf {
 
 /// Claude Code's user settings file.
 pub fn user_settings() -> Result<PathBuf> {
-    let root = crate::agents::claude_dir::config_dir().context("this machine has no home folder")?;
+    let root = crate::logs::claude_dir::config_dir().context("this machine has no home folder")?;
     Ok(root.join("settings.json"))
 }
 

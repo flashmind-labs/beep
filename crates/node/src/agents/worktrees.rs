@@ -3,7 +3,7 @@
 //! session's repository lists (`listed_in`), which opens it to reads like a
 //! session's own folder. Read-only: nothing here changes a checkout.
 
-use super::found::{Memo, common_dir, git_dir};
+use crate::logs::found::{Memo, common_dir, git_dir};
 use super::work_diff::git;
 use crate::fs::paths;
 use anyhow::Result;

@@ -14,7 +14,7 @@ use agent_client_protocol::{
     },
 };
 use beep_proto::node::agent::{Effort, ModeOption, ModelOption};
-use crate::agents::subagent::CLAUDE_SPAWNS;
+use crate::logs::subagent::CLAUDE_SPAWNS;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::path::Path;

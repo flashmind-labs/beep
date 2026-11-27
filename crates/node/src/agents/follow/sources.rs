@@ -1,7 +1,8 @@
 //! Event sources for sessions on this machine.
 
 use super::{SummaryCache, recent_deadline};
-use crate::agents::{Agents, Sighted, found::Agent};
+use crate::agents::{Agents, Sighted};
+use crate::logs::found::Agent;
 use anyhow::{Context, Result};
 use beep_proto::{SessionId, watched};
 use std::{

@@ -1,7 +1,8 @@
 //! The pictures in sessions' transcripts (`Images`), kept by `image_key` so
 //! the apps can ask for one by its `[image: image-<key>]` line.
 
-use super::{image_index::FileIndexes, picture::Picture};
+use super::{image_index::FileIndexes};
+use crate::logs::picture::Picture;
 use beep_proto::SessionId;
 use crate::lock;
 use beep_proto::image_key;

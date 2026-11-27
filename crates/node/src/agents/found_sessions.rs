@@ -1,15 +1,12 @@
 //! Sessions and folders found in the agents' own logs and on disk.
 
-use super::{
-    AgentKind, Agents, Begin, Command, DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS,
-    MAX_FOLDERS, MAX_IN_FOLDERS, Picture, SavedSession, Session, Sighted,
-    holders::{self, Holding},
-    window::clamp_limit,
-};
+use super::{AgentKind, Agents, Begin, Command, DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS, MAX_FOLDERS, MAX_IN_FOLDERS, SavedSession, Session, Sighted, holders::{self, Holding}};
+use crate::logs::picture::Picture;
+use crate::logs::window::clamp_limit;
 use crate::{
     AsyncMutex,
     agents::claude::{self, External},
-    agents::found::{self, Agent},
+    logs::found::{self, Agent},
 };
 use anyhow::{Context, Result};
 use beep_proto::node::{
@@ -414,7 +411,7 @@ impl Agents {
         session: &SessionId,
         last: usize,
         before: Option<u64>,
-        followed: Option<(&claude::Followed, Option<u64>)>,
+        followed: Option<(&crate::logs::claude::Followed, Option<u64>)>,
         keep_pictures: bool,
     ) -> Result<Option<(Vec<Entry>, u64)>> {
         if let Some(found) = self.get(session) {

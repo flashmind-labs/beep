@@ -4,9 +4,7 @@
 //! state without making a transcript read wait for it.
 
 use super::{ChildNote, NO_AGENT, Parent, RemoteKid};
-use crate::agents::{
-    Agents, child_view::ChildView, machine_list::{Machine, machine_name}, reply::json_of,
-};
+use crate::agents::{Agents, child_view::ChildView, machine_list::{Machine, machine_name}, reply::json_of};
 use crate::peer_stream::over_the_mesh;
 use beep_mesh::Mesh;
 use beep_proto::SessionId;

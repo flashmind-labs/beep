@@ -564,7 +564,7 @@ fn flsh_source() -> (TempDir, Arc<Agents>) {
     (dir, Arc::new(agents))
 }
 
-const FLSH: &str = include_str!("../agents/found/fixtures/flsh.jsonl");
+const FLSH: &str = include_str!("../logs/found/fixtures/flsh.jsonl");
 
 async fn read_flsh(server: &Router, copy: &Path, id: &str) -> anyhow::Result<Pulled> {
     let client = endpoint().await;

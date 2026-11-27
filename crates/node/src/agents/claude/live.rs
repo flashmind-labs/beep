@@ -66,7 +66,7 @@ fn block(reason: &str) -> Value {
 fn from_user(text: &str) -> String {
     format!(
         "{}\n{text}",
-        crate::agents::tags::context("The user sent this through Beep.")
+        crate::tags::context("The user sent this through Beep.")
     )
 }
 

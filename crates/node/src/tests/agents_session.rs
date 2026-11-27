@@ -6,9 +6,7 @@ use super::{
     orders::{choose, queue_room},
     turns::take_steers,
 };
-use crate::agents::{
-    compaction::{COMPACT_PROMPT, COMPACTED_ENTRY},
-};
+use crate::agents::{compaction::{COMPACT_PROMPT, COMPACTED_ENTRY}};
 use beep_proto::node::{
     agent::{Alert, AlertKind, OptionKind, StopReason, TaskState},
     harness::{AutoCompact, ModelCompact},
@@ -218,7 +216,7 @@ async fn the_first_prompt_carries_the_brief() {
     assert_eq!(
         blocks,
         [
-            crate::agents::tags::context("Worktree first.").as_str(),
+            crate::tags::context("Worktree first.").as_str(),
             "go"
         ]
     );
@@ -299,7 +297,7 @@ async fn a_resumed_session_gets_the_tools_in_session_load_and_the_brief_in_its_p
     assert_eq!(
         prompt_texts(&sent[2]),
         [
-            crate::agents::tags::context("This session moved.").as_str(),
+            crate::tags::context("This session moved.").as_str(),
             "go"
         ]
     );
@@ -324,7 +322,7 @@ async fn an_agent_without_a_system_prompt_gets_the_whole_brief_in_its_first_prom
     );
     assert_eq!(
         prompt_texts(&sent[2]),
-        [crate::agents::tags::context(&brief).as_str(), "go"]
+        [crate::tags::context(&brief).as_str(), "go"]
     );
 }
 
@@ -1452,7 +1450,7 @@ async fn an_agent_without_a_system_prompt_hears_instructions_again_after_compact
         live.info.turns >= 2 || live.status() == Status::Ended
     })
     .await;
-    let rule = crate::agents::tags::context("Use plain words.\n\nWorktree first.");
+    let rule = crate::tags::context("Use plain words.\n\nWorktree first.");
     let sent = sent(&log);
     let prompts: Vec<Vec<&str>> = sent
         .iter()
@@ -2748,7 +2746,7 @@ cat > /dev/null
         let requests = sent(&log);
         assert_eq!(requests[1]["method"], method);
         assert!(requests[1]["params"].get("systemPrompt").is_none());
-        let instructions = crate::agents::tags::context("Use plain words.");
+        let instructions = crate::tags::context("Use plain words.");
         assert_eq!(prompt_texts(&requests[2]), [instructions.as_str(), "go"]);
     }
 }

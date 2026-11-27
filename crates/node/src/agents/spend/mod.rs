@@ -2,9 +2,8 @@
 //! agents' own logs, sessions started outside Beep included, for the caller's
 //! `FollowUsage` stream.
 
-use beep_proto::node::usage::{Billing, SessionSpend};
+use beep_proto::node::usage::SessionSpend;
 use beep_proto::{AgentSlug, SessionId};
-use ledger::{Ledger, SessionKey};
 use std::{
     collections::BTreeMap,
     path::PathBuf,
@@ -17,20 +16,16 @@ use tokio::{
 };
 use tokio_util::task::AbortOnDropHandle;
 
-mod agy;
-mod billing;
-mod claude;
-mod codex;
-mod databases;
-mod ledger;
-mod pi;
-mod scan;
-
-pub(crate) use pi::session_cost as pi_session_cost;
-pub(crate) use scan::Roots;
+use crate::logs::spend::{
+    Roots, databases,
+    ledger::{Ledger, SessionKey, Stamp},
+    scan,
+};
+pub(crate) use crate::logs::spend::pi_session_cost;
 
 use crate::{
-    agents::{SPEND_GAP, found::Agent, prices::Tokens, unix_now},
+    agents::{SPEND_GAP, unix_now},
+    logs::found::Agent,
     events::Change,
     lock,
 };
@@ -39,44 +34,6 @@ use crate::{
 const WINDOW_SECS: u64 = 35 * 24 * 3600;
 /// The most sessions one pass reports.
 const MAX_REPORTS: usize = 500;
-
-/// What one log line said.
-#[derive(Debug)]
-pub(super) enum Line {
-    /// The session the log is of, from its header, and the provider it
-    /// runs on when the header names one.
-    Session {
-        id: SessionId,
-        cwd: String,
-        provider: Option<String>,
-    },
-    /// The model the next requests run on.
-    Model(String),
-    /// One request to the model.
-    Request(Request),
-}
-
-/// One request and its tokens, as one log line records it.
-#[derive(Debug, Default)]
-pub(super) struct Request {
-    /// The session, when the line names it rather than the log's header.
-    session: Option<SessionId>,
-    cwd: Option<String>,
-    /// Unix seconds.
-    at: u64,
-    model: Option<String>,
-    tokens: Tokens,
-    /// What it cost, when the log says.
-    cost_usd: Option<f64>,
-    /// Lines with the same key are copies of one request.
-    key: Option<u64>,
-    /// A running total that a repeated count repeats.
-    total: Option<u64>,
-    /// The provider it went to, when the line names it.
-    provider: Option<String>,
-    /// How it was paid for, when the line itself tells.
-    billing: Billing,
-}
 
 /// What the scan has reported of each session, as its latest report stands.
 pub(crate) type Reports = BTreeMap<(AgentSlug, SessionId), SessionSpend>;
@@ -305,7 +262,7 @@ impl Spend {
         session: &SessionId,
         path: &std::path::Path,
     ) -> std::io::Result<()> {
-        let stamp = ledger::Stamp::of(path)?;
+        let stamp = Stamp::of(path)?;
 
         if agent == Agent::Flsh {
             // flsh keeps totals, not a log: what they say now is held back.

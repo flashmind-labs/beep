@@ -84,7 +84,7 @@ impl Pipe {
                         }
                     }
                     Err(_) if text.trim().is_empty() => {}
-                    Err(_) => log::debug!("{name} wrote: {}", crate::agents::cut(&text, 200)),
+                    Err(_) => log::debug!("{name} wrote: {}", crate::text::cut(&text, 200)),
                 }
             }
         });

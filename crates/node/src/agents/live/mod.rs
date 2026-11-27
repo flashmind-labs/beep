@@ -46,10 +46,7 @@ const MAX_DESCRIPTION: usize = 240;
 const MAX_COMPACTIONS: usize = 100;
 /// The longest summary or question detail.
 const MAX_LINE: usize = beep_proto::node::agent::MAX_QUESTION_LINE;
-/// Claude Code's tool that publishes a page or document as an artifact.
-pub(in crate::agents) const ARTIFACT_TOOL: &str = "Artifact";
-/// Claude Code's tool that loads a skill.
-pub(in crate::agents) const SKILL_TOOL: &str = "Skill";
+pub(in crate::agents) use crate::logs::window::{ARTIFACT_TOOL, SKILL_TOOL};
 
 /// The `_meta` key claude-agent-acp forwards Claude Code's rate limit
 /// events under, in a `usage_update`.

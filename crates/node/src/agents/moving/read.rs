@@ -13,7 +13,8 @@ use super::{
     saved::{MOVED_AWAY, Outgoing, Previous, SentTree},
     worktree::{self, MovingWorktree, Work},
 };
-use crate::agents::{Agents, SavedSession, found::Agent};
+use crate::agents::{Agents, SavedSession};
+use crate::logs::found::Agent;
 use anyhow::{Context, Result, bail};
 use beep_proto::{SessionId, watched};
 use beep_proto::{

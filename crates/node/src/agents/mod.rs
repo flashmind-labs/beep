@@ -2,7 +2,7 @@
 //! over ACP (`Agents`) and the streams the caller follows them on; sessions
 //! started outside Beep (`claude`, `found`).
 
-pub mod tags;
+pub use crate::tags;
 mod work_diff;
 
 pub use work_diff::parse_git_patch;
@@ -11,10 +11,9 @@ host! {
     pub(crate) mod brief;
     pub(crate) mod child_reach;
     pub(crate) mod child_view;
-    pub(crate) mod calls;
-    mod text;
-    pub(crate) use text::cut;
-    use crate::{AsyncMutex, agents::claude::External, agents::found::Stores, agents::mcp_launch::Launch};
+    pub(crate) use crate::calls;
+    use crate::{AsyncMutex, agents::claude::External, logs::found::Stores, agents::mcp_launch::Launch};
+    use crate::logs::found;
     use beep_proto::SessionId;
     use std::{
         collections::HashMap,
@@ -25,10 +24,8 @@ host! {
     use tokio::{sync::watch, time::Instant};
 
     pub mod claude;
-    pub(crate) mod claude_dir;
     mod claude_direct;
     mod codex_direct;
-    pub(crate) mod found;
     pub(crate) mod mcp_launch;
     pub(crate) mod skill_disk;
     pub(crate) mod skill_library;
@@ -63,17 +60,14 @@ host! {
     mod media_file;
     mod models;
     pub(crate) mod moving;
-    mod picture;
     mod pipe;
     pub(crate) mod reply;
     mod plans;
     pub mod presence;
-    mod prices;
     mod processes;
     pub(crate) mod reach;
     mod recovery;
     pub mod search;
-    mod tool_details;
     mod requests;
     mod restart;
     pub(crate) mod reviews;
@@ -81,14 +75,12 @@ host! {
     mod session;
     mod session_stream;
     mod sessions;
-    pub(crate) mod socket;
-    mod spend;
+    pub(crate) use crate::socket;
+    pub(crate) mod spend;
     pub(crate) mod start;
-    mod subagent;
     mod tool_diff;
     pub(crate) mod uploads;
     mod usage;
-    mod window;
     pub use follow::serve_follow;
     pub(crate) mod work_folder;
     mod worktrees;
@@ -96,7 +88,6 @@ host! {
     pub use work_folder::{local_hashes, local_read, local_tree};
 
 
-    pub(crate) use picture::{Picture, block_picture};
     pub use kinds::{AgentKind, Bridge, detect};
     pub use launch::{AgentIn, AgentOut, Running, Started};
     pub use start::start;
@@ -111,7 +102,6 @@ host! {
     pub(crate) use restart::{OpenSession, SavedSession};
     pub(crate) use session::{Answered, Asking};
     pub use session_stream::serve_session;
-    pub(crate) use subagent::{Run as SubagentRun, RunStep};
 
     use acp::Prompt;
     pub(crate) use alerts::AlertHub;
@@ -158,13 +148,6 @@ host! {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |since| since.as_secs())
-    }
-
-    /// Records how long `stage` of a transcript read took since `started`:
-    /// finding the file, reading, parsing, subagents, encoding or sending.
-    fn transcript_stage(stage: &'static str, started: std::time::Instant) {
-        metrics::histogram!("beep_transcript_stage_seconds", "stage" => stage)
-            .record(started.elapsed().as_secs_f64());
     }
 
     /// The agents this node offers and the sessions it runs. Sessions belong

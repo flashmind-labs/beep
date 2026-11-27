@@ -6,14 +6,10 @@ use super::{
     cli::{Cli, Launch, disallowed_tools},
     updates,
 };
-use crate::agents::{
-    acp::{
+use crate::agents::{acp::{
         self,
         bridge::{ClientReply, ClientRequest, Event, Start, notify, parse_start, unknown_session},
-    },
-    launch,
-    pipe::Frame,
-};
+    }, launch, pipe::Frame};
 use crate::machine::wsl::{self, DistroName, LinuxPath};
 use agent_client_protocol::{
     Client, ConnectionTo, JsonRpcMessage, Responder, UntypedMessage,
@@ -336,7 +332,7 @@ impl Bridge {
             return updates::transcript(cwd, id);
         };
         let cwd = wsl::linux_path(cwd)?;
-        let folder = crate::agents::claude_dir::slug(Path::new(cwd.as_ref()));
+        let folder = crate::logs::claude_dir::slug(Path::new(cwd.as_ref()));
         let transcript = self
             .home
             .as_ref()?

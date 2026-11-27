@@ -99,7 +99,7 @@ fn only_stores_in_files_have_a_harness() {
 
 #[test]
 fn flsh_changes_the_header_folder_only_and_files_under_flshs_names() {
-    let input = include_str!("../agents/found/fixtures/flsh.jsonl");
+    let input = include_str!("../logs/found/fixtures/flsh.jsonl");
     let out = move_with(Harness::Flsh, input, "ignored.jsonl");
     let (header, rest) = input.split_once('\n').expect("a header");
     let want = header.replace(

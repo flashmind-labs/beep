@@ -3,11 +3,7 @@
 //! reviewer hands its findings in. Both run on the caller's own node.
 
 use crate::agents::reply::{fail, json_done, ok, parse};
-use crate::agents::{
-    Agents,
-    family::WAIT_LIMIT,
-    reviews::MAX_FINDINGS,
-};
+use crate::agents::{Agents, family::WAIT_LIMIT, reviews::MAX_FINDINGS};
 use super::Node;
 use beep_proto::SessionId;
 use beep_proto::node::{

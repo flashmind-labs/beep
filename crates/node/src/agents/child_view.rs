@@ -1,6 +1,6 @@
 //! What an agent reads of one child session (`ChildView`).
 
-use super::text::cut;
+use crate::text::cut;
 use beep_proto::SessionId;
 use beep_proto::node::agent::{SessionInfo, Status};
 use serde::{Deserialize, Serialize};

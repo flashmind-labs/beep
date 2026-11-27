@@ -106,8 +106,8 @@ pub(super) fn replay(path: &Path, in_wsl: bool) -> std::io::Result<Vec<SessionUp
 
 /// Where Claude Code keeps the transcript of `session`, run in `cwd`.
 pub(super) fn transcript(cwd: &Path, session: &str) -> Option<PathBuf> {
-    let folder = crate::agents::claude_dir::slug(cwd);
-    Some(crate::agents::claude_dir::projects_dir()?.join(folder).join(format!("{session}.jsonl")))
+    let folder = crate::logs::claude_dir::slug(cwd);
+    Some(crate::logs::claude_dir::projects_dir()?.join(folder).join(format!("{session}.jsonl")))
 }
 
 /// The tool call `id` to the tool `name` with `input`, run inside the
