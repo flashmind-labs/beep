@@ -7,6 +7,17 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.43] - 2026-11-27
+
+### Added
+
+- Desktop: Open linked Beep sessions directly from chat messages (`beep://session/<id>` or `beep://session/<id>@<machine>`, plus inline code spans matching known session IDs), with Cmd/Ctrl-click or right-click to open beside, and a Copy link item in the session menu.
+
+### Fixed
+
+- macOS: Beep no longer crashes at launch (0.10.42).
+- Desktop: macOS Notification Center now refreshes its cached app icon when Beep updates to a new icon, instead of staying on the old one.
+
 ## [0.10.42] - 2026-11-26
 
 ### Fixed
