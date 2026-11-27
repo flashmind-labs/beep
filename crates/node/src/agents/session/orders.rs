@@ -81,7 +81,7 @@ impl Actor {
             Command::Ask { question, reply } => {
                 let question = Question {
                     id: 0,
-                    text: cut(&question.text, MAX_ASKED),
+                    text: question.text,
                     detail: question.detail.map(|detail| cut(&detail, MAX_ASKED)),
                     options: question.options,
                 };

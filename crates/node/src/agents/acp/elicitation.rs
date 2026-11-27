@@ -321,7 +321,7 @@ fn field(
         value,
         question: Question {
             id: 0,
-            text: crate::text::cut(text, beep_proto::node::agent::MAX_QUESTION_LINE),
+            text: text.to_owned(),
             detail,
             options,
         },

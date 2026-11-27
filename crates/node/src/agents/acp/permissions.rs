@@ -114,10 +114,7 @@ pub(in crate::agents) fn permission_v2(
     Ok(Permission {
         question: Question {
             id: 0,
-            text: crate::text::cut(
-                &request.title,
-                beep_proto::node::agent::MAX_QUESTION_LINE,
-            ),
+            text: request.title,
             detail: request.description.or(subject_detail).map(|detail| {
                 crate::text::cut(&detail, beep_proto::node::agent::MAX_QUESTION_LINE)
             }),
