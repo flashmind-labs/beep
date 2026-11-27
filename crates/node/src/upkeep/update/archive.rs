@@ -91,5 +91,5 @@ fn unzip(packed: &[u8], binary: &str) -> io::Result<Option<Vec<u8>>> {
 }
 
 #[cfg(test)]
-#[path = "../../tests/machine_update_archive.rs"]
+#[path = "../../tests/upkeep_update_archive.rs"]
 mod tests;

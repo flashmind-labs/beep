@@ -17,7 +17,7 @@ pub(crate) mod projects;
 mod watcher;
 
 #[cfg(test)]
-#[path = "../../tests/machine_ci.rs"]
+#[path = "../../tests/upkeep_ci.rs"]
 mod tests;
 
 use crate::agents::ci::Ci;

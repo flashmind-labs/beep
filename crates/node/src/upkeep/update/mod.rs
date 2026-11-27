@@ -142,5 +142,5 @@ async fn wait_for_idle(dir: &Path, limit: Duration) -> Option<restart::UpdateCon
 }
 
 #[cfg(test)]
-#[path = "../../tests/machine_update.rs"]
+#[path = "../../tests/upkeep_update.rs"]
 mod tests;

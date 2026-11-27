@@ -220,5 +220,5 @@ async fn remote(agents: &Agents, now: bool, channel: ReleaseChannel) -> Result<R
 }
 
 #[cfg(test)]
-#[path = "../../tests/machine_update_remote.rs"]
+#[path = "../../tests/upkeep_update_remote.rs"]
 mod tests;

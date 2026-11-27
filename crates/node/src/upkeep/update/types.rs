@@ -139,5 +139,5 @@ impl Ord for Version {
 }
 
 #[cfg(test)]
-#[path = "../../tests/machine_update_version.rs"]
+#[path = "../../tests/upkeep_update_version.rs"]
 mod tests;

@@ -852,5 +852,5 @@ fn remote_refs_changed(folder: &Path) -> Option<SystemTime> {
 }
 
 #[cfg(test)]
-#[path = "../../tests/machine_ci_watcher.rs"]
+#[path = "../../tests/upkeep_ci_watcher.rs"]
 mod tests;

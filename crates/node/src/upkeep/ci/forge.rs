@@ -341,5 +341,5 @@ async fn read_watch(output: impl AsyncRead + Unpin) -> Watched {
 }
 
 #[cfg(test)]
-#[path = "../../tests/machine_ci_forge.rs"]
+#[path = "../../tests/upkeep_ci_forge.rs"]
 mod tests;

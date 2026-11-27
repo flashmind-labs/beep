@@ -135,5 +135,5 @@ fn swap_aside(exe: &Path, fresh: &Path, old: &Path) -> Result<(), Error> {
 }
 
 #[cfg(test)]
-#[path = "../../tests/machine_update_install.rs"]
+#[path = "../../tests/upkeep_update_install.rs"]
 mod tests;

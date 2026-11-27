@@ -160,5 +160,5 @@ pub(super) fn changes(before: Option<&View>, now: &View) -> Vec<String> {
 }
 
 #[cfg(test)]
-#[path = "../../tests/machine_ci_github.rs"]
+#[path = "../../tests/upkeep_ci_github.rs"]
 mod tests;

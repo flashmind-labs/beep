@@ -193,10 +193,10 @@ crates/node/src/link/peers.rs | wait_for_node | sleep#1 | retry | retries connec
 crates/node/src/link/sampler.rs | sampling | interval#1 | outside | samples disk, memory and traffic every minute
 crates/node/src/link/watchdog.rs | look | sleep#1 | outside | thread checks for a stalled runtime every 15 s
 crates/node/src/link/watchdog.rs | start | interval#1 | pace | runtime beat the watchdog thread checks
-crates/node/src/machine/ci/github.rs | wait | sleep#1 | deadline | stops waiting on a gh run watch after 30 min
-crates/node/src/machine/ci/watcher.rs | run | interval#1 | outside | lists busy projects' forge runs every 60 s
-crates/node/src/machine/ci/watcher.rs | run | interval_at#1 | outside | checks GitHub projects every 45 s
-crates/node/src/machine/ci/watcher.rs | run | sleep_until#1 | compat | asks machines every 10 min when idle, only nodes before 0.8.28 that do not push their reach; ends with them
+crates/node/src/upkeep/ci/github.rs | wait | sleep#1 | deadline | stops waiting on a gh run watch after 30 min
+crates/node/src/upkeep/ci/watcher.rs | run | interval#1 | outside | lists busy projects' forge runs every 60 s
+crates/node/src/upkeep/ci/watcher.rs | run | interval_at#1 | outside | checks GitHub projects every 45 s
+crates/node/src/upkeep/ci/watcher.rs | run | sleep_until#1 | compat | asks machines every 10 min when idle, only nodes before 0.8.28 that do not push their reach; ends with them
 crates/node/src/machine/elect.rs | hear | sleep#1 | retry | follows a dropped machine again after 5 s
 crates/node/src/machine/provision/mod.rs | check_loop | interval#1 | outside | hourly probe of tool releases and installs
 crates/node/src/machine/sign_in.rs | drive | sleep_until#1 | deadline | ends a sign-in not finished in time
