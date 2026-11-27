@@ -15,7 +15,7 @@ use crate::agents::{
     family::{ChildNote, ChildStart, RemoteKid, WAIT_LIMIT, Waiting, Who},
 };
 use crate::agents::child_reach::{ChildId, Found, Reach};
-use crate::link::Offers;
+use super::Node;
 use beep_mesh::Mesh;
 use beep_proto::SessionId;
 use beep_proto::node::{
@@ -55,8 +55,8 @@ pub(crate) struct PeerStart {
 }
 
 /// Answers one agent tool for the session that called it.
-pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
-    let agents = &offers.agents;
+pub(super) async fn call(node: &Node, request: &Request) -> Reply {
+    let agents = &node.agents;
     let Some((session, who)) = agents.caller(&request.session) else {
         return fail("This session is not one this node runs.");
     };
@@ -763,5 +763,5 @@ fn folder_on(specs: &[SyncSpec], me: EndpointId, cwd: &Path, target: EndpointId)
 }
 
 #[cfg(test)]
-#[path = "../../tests/agents_mcp_children.rs"]
+#[path = "../tests/tools_children.rs"]
 mod tests;

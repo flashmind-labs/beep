@@ -1,6 +1,6 @@
 use beep_proto::SessionId;
 use super::*;
-use crate::agents::desktop_call::ProjectTools;
+use crate::tools::ProjectTools;
 use crate::link::Offers;
 use std::sync::Arc;
 

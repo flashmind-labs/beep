@@ -1,5 +1,5 @@
 use super::*;
-use crate::agents::caller::Caller;
+use crate::tools::Caller;
 use crate::{
     run::tasks::Table,
     team::board::tests::{Forge, member, repo},
@@ -185,7 +185,7 @@ async fn pickup_is_taken_only_from_the_gateway() {
             agents: Some(offers.agents.clone()),
             ..caller(&link, table, true)
         };
-        crate::agents::mcp::peer_tools::answer(request(Tool::TeamPickup, order.clone()), caller)
+        crate::tools::peer_tools::answer(request(Tool::TeamPickup, order.clone()), caller)
     };
 
     let (text, failed) = done(pickup(Table::Peer(SecretKey::generate().public())).await);

@@ -3,10 +3,8 @@
 use crate::agents::machine_list::find;
 use crate::peer_stream::over_the_mesh;
 use crate::agents::reply::{fail, json_of, parse};
-use crate::{
-    agents::{Agents, known},
-    link::Offers,
-};
+use super::Node;
+use crate::{agents::Agents, known::known};
 use beep_proto::node::{
     agent::{Effort, ModelList, ModelOption, ModelPick, efforts},
     tools::{Reply, Request},
@@ -65,16 +63,16 @@ impl HarnessInfo {
 
 /// Routes discovery to the named machine, defaulting to this node even
 /// when it has not joined a mesh.
-pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
-    route(offers, request).await.unwrap_or_else(fail)
+pub(super) async fn call(node: &Node, request: &Request) -> Reply {
+    route(node, request).await.unwrap_or_else(fail)
 }
 
-async fn route(offers: &Offers, request: &Request) -> Result<Reply, String> {
+async fn route(node: &Node, request: &Request) -> Result<Reply, String> {
     let args = Args::try_from(request)?;
     let Some(name) = args.machine else {
-        return Ok(answer(&offers.agents, request).await);
+        return Ok(answer(&node.agents, request).await);
     };
-    let mesh = offers
+    let mesh = node
         .mesh
         .get()
         .ok_or("This machine is not in a mesh yet. Leave out `machine` to query here.")?;
@@ -82,7 +80,7 @@ async fn route(offers: &Offers, request: &Request) -> Result<Reply, String> {
         .ok_or_else(|| format!("No machine called {name}. Use list_machines for the names."))?;
 
     if target.id == mesh.me() {
-        return Ok(answer(&offers.agents, request).await);
+        return Ok(answer(&node.agents, request).await);
     }
 
     over_the_mesh(&mesh, target.id, request)
@@ -111,5 +109,5 @@ pub(crate) async fn answer(agents: &Agents, request: &Request) -> Reply {
 }
 
 #[cfg(test)]
-#[path = "../../tests/agents_mcp_harness.rs"]
+#[path = "../tests/tools_harness.rs"]
 mod tests;

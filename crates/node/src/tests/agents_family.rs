@@ -1604,7 +1604,7 @@ async fn a_far_parent_s_stop_all_stops_its_child_here() {
             .expect("the child starts");
         until(&child, |live| live.status() == Status::Working).await;
 
-        let reply = crate::agents::mcp::children::answer_peer(
+        let reply = crate::tools::children::answer_peer(
             &rig.agents,
             far,
             stop(Agents::name_of(&child), args),
@@ -1648,7 +1648,7 @@ async fn a_node_with_no_mesh_does_not_say_it_notes_every_settle() {
         .start_child(link, start("kid", "hello", rig.dir.path()))
         .await
         .expect("the child starts");
-    let reply = crate::agents::mcp::children::answer_peer(
+    let reply = crate::tools::children::answer_peer(
         &rig.agents,
         far,
         ToolRequest {
@@ -1679,7 +1679,7 @@ async fn another_machine_s_agent_lists_and_messages_any_agent_until_the_user_spe
     let id = Agents::name_of(&session);
     let far = SecretKeyFor::id();
     let call = |tool: Tool, args: serde_json::Value| {
-        crate::agents::mcp::children::answer_peer(
+        crate::tools::children::answer_peer(
             &rig.agents,
             far,
             ToolRequest {
@@ -1821,7 +1821,7 @@ async fn handed(
         approved: Default::default(),
     };
 
-    match crate::agents::mcp::answer_team(link, agents, from, &request).await {
+    match crate::tools::answer_team(link, agents, from, &request).await {
         beep_proto::node::tools::Reply::Done { text, failed } => (text, failed),
         other => panic!("not done: {other:?}"),
     }

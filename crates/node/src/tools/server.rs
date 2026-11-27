@@ -415,5 +415,5 @@ async fn ask_user<B: Backend>(backend: &B, session: &SessionId, args: Value) -> 
 }
 
 #[cfg(test)]
-#[path = "../../tests/agents_mcp_server.rs"]
+#[path = "../tests/tools_server.rs"]
 mod tests;

@@ -8,7 +8,7 @@ use crate::agents::{
     family::WAIT_LIMIT,
     reviews::MAX_FINDINGS,
 };
-use crate::link::Offers;
+use super::Node;
 use beep_proto::SessionId;
 use beep_proto::node::{
     agent::{ReviewOrder, ReviewRun, SubmittedReview},
@@ -30,7 +30,7 @@ struct ReviewArgs {
 
 /// What `review` answers, as JSON.
 #[derive(Debug, Serialize)]
-pub(in crate::agents) struct ReviewView {
+pub(crate) struct ReviewView {
     id: SessionId,
     /// `working`, `done` or `failed`.
     state: &'static str,
@@ -61,13 +61,13 @@ impl From<ReviewRun> for ReviewView {
 }
 
 /// Answers `review` for the session that called it.
-pub(super) async fn review(offers: &Offers, request: &Request) -> Reply {
-    run_review(offers, request).await.unwrap_or_else(fail)
+pub(super) async fn review(node: &Node, request: &Request) -> Reply {
+    run_review(node, request).await.unwrap_or_else(fail)
 }
 
 /// Answers `submit_review` for the session that called it.
-pub(super) fn submit(offers: &Offers, request: &Request) -> Reply {
-    submit_review(offers, request).unwrap_or_else(fail)
+pub(super) fn submit(node: &Node, request: &Request) -> Reply {
+    submit_review(node, request).unwrap_or_else(fail)
 }
 
 /// How `run` stands, as `review` and `agent_status` answer it.
@@ -75,9 +75,9 @@ pub(super) fn standing(run: ReviewRun) -> Reply {
     answer(&ReviewView::from(run))
 }
 
-async fn run_review(offers: &Offers, request: &Request) -> Result<Reply, String> {
+async fn run_review(node: &Node, request: &Request) -> Result<Reply, String> {
     let args: ReviewArgs = parse(&request.args)?;
-    let agents = &offers.agents;
+    let agents = &node.agents;
     let (caller, who) = agents
         .caller(&request.session)
         .ok_or("This session is not one this node runs.")?;
@@ -113,7 +113,7 @@ async fn run_review(offers: &Offers, request: &Request) -> Result<Reply, String>
         }
     };
 
-    Ok(answer(&waited(&offers.agents, &who, run).await))
+    Ok(answer(&waited(&node.agents, &who, run).await))
 }
 
 fn answer(view: &ReviewView) -> Reply {
@@ -122,7 +122,7 @@ fn answer(view: &ReviewView) -> Reply {
 
 /// Waits for the review to end, at most `WAIT_LIMIT`, as `start_agent`'s
 /// `wait` does: a tool call must come back before the agent's client gives up.
-pub(in crate::agents) async fn waited(
+pub(crate) async fn waited(
     agents: &Agents,
     who: &crate::agents::family::Who,
     run: ReviewRun,
@@ -140,7 +140,7 @@ pub(in crate::agents) async fn waited(
     }
 }
 
-fn submit_review(offers: &Offers, request: &Request) -> Result<Reply, String> {
+fn submit_review(node: &Node, request: &Request) -> Result<Reply, String> {
     let review: SubmittedReview = parse(&request.args)?;
 
     if review.summary.trim().is_empty() {
@@ -163,11 +163,11 @@ fn submit_review(offers: &Offers, request: &Request) -> Result<Reply, String> {
         ));
     }
 
-    offers.agents.submit_review(&request.session, review)?;
+    node.agents.submit_review(&request.session, review)?;
 
     Ok(ok("Submitted. The review is done: end your turn."))
 }
 
 #[cfg(test)]
-#[path = "../../tests/agents_mcp_review.rs"]
+#[path = "../tests/tools_review.rs"]
 mod tests;

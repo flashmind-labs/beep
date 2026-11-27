@@ -1,7 +1,19 @@
 //! What `beep-node status` reports of the agents found here. Part of
 //! `link::local_status::LocalStatus`, so its fields follow the wire rules there.
 
+use iroh::Endpoint;
 use serde::{Deserialize, Serialize};
+use std::{path::PathBuf, time::SystemTime};
+
+/// What a node knows of itself; the code that uses it is in `link::peers::own`.
+#[derive(Clone)]
+pub(crate) struct Own {
+    pub(crate) endpoint: Endpoint,
+    pub(crate) dir: PathBuf,
+    pub(crate) name: String,
+    /// When the node started.
+    pub(crate) started: SystemTime,
+}
 
 /// A coding agent whose CLI the node found. Part of `LocalStatus`, so its
 /// fields follow the wire rules there.

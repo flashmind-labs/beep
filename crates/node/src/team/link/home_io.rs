@@ -2,8 +2,8 @@
 
 use super::TeamLink;
 use crate::{
-    agents::desktop_call::forward as to_desktop,
     membership::on_team,
+    peer_stream::forward as to_desktop,
     team::home::read,
 };
 use beep_mesh::{DeviceKind, Key, Mesh, TeamWrites, keep_contacts, take_roster};

@@ -12,7 +12,7 @@ use beep_proto::watched;
 use std::sync::Arc;
 
 /// Why a request is not an order for a session.
-pub(super) enum Refused {
+pub(crate) enum Refused {
     Images(String),
     Request(Request),
 }

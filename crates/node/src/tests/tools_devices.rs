@@ -1,5 +1,4 @@
 use super::*;
-use crate::machine::provision::Provision;
 use beep_proto::node::device::DeviceId;
 use serde_json::json;
 
@@ -167,11 +166,11 @@ async fn a_call_names_the_machines_and_devices_it_could_not_find() {
     let mesh = Mesh::create(&dir.path().join("mesh"), endpoint, "build-box")
         .await
         .unwrap();
-    let offers = Offers::local(&[], Provision::new(dir.path()));
+    let node = Node::test(dir.path()).await;
     let screens = Screens::default();
 
     let called = call(
-        &offers,
+        &node,
         &mesh,
         &screens,
         &SessionId::from("s1"),
@@ -182,7 +181,7 @@ async fn a_call_names_the_machines_and_devices_it_could_not_find() {
     assert_eq!(called.text, "No machine called nowhere. Machines: build-box.");
 
     let called = call(
-        &offers,
+        &node,
         &mesh,
         &screens,
         &SessionId::from("s1"),
@@ -196,7 +195,7 @@ async fn a_call_names_the_machines_and_devices_it_could_not_find() {
         called.text
     );
 
-    let called = call(&offers, &mesh, &screens, &SessionId::from("s1"), json!({ "action": "list" })).await;
+    let called = call(&node, &mesh, &screens, &SessionId::from("s1"), json!({ "action": "list" })).await;
     assert!(!called.failed);
     assert!(called.text.starts_with("- build-box (this machine)"), "{}", called.text);
 }

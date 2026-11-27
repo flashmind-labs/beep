@@ -1,6 +1,6 @@
 //! Coding agents (Claude Code, Codex, Antigravity, pi, flsh, OpenCode) run
 //! over ACP (`Agents`) and the streams the caller follows them on; sessions
-//! started outside Beep (`claude`, `found`) and the Beep MCP server (`mcp`).
+//! started outside Beep (`claude`, `found`).
 
 pub mod tags;
 mod work_diff;
@@ -8,12 +8,10 @@ mod work_diff;
 pub use work_diff::parse_git_patch;
 
 host! {
-    mod brief;
-    pub(crate) mod desktop_call;
+    pub(crate) mod brief;
     pub(crate) mod child_reach;
     pub(crate) mod child_view;
     pub(crate) mod calls;
-    pub(crate) mod caller;
     mod text;
     pub(crate) use text::cut;
     use crate::{AsyncMutex, agents::claude::External, agents::found::Stores, agents::mcp_launch::Launch};
@@ -31,7 +29,6 @@ host! {
     mod claude_direct;
     mod codex_direct;
     pub(crate) mod found;
-    pub mod mcp;
     pub(crate) mod mcp_launch;
     pub(crate) mod skill_disk;
     pub(crate) mod skill_library;
@@ -56,9 +53,9 @@ host! {
     mod image_files;
     mod image_index;
     mod images;
-    mod kinds;
+    pub(crate) mod kinds;
     mod launch;
-    mod live;
+    pub(crate) mod live;
     pub(crate) mod machine_list;
     pub(crate) mod projects;
     mod lsp;
@@ -79,12 +76,12 @@ host! {
     mod tool_details;
     mod requests;
     mod restart;
-    mod reviews;
+    pub(crate) mod reviews;
     mod running;
     mod session;
     mod session_stream;
     mod sessions;
-    mod socket;
+    pub(crate) mod socket;
     mod spend;
     pub(crate) mod start;
     mod subagent;
@@ -124,8 +121,9 @@ host! {
     use crate::known::{Adapter, KNOWN, known, route};
     use models::ModelCache;
     use crate::machine::env::locate::folder;
-    use session::Begin;
-    use session::{Command, Session, Start};
+    pub(crate) use session::Begin;
+    pub(crate) use session::{Command, Session};
+    use session::Start;
     use spend::Spend;
     use usage::UsageHub;
 
@@ -223,7 +221,7 @@ host! {
         /// requests may reach beside the sessions' folders.
         folders: OnceLock<Vec<PathBuf>>,
         /// The sessions that started sessions, and the children on other machines.
-        family: family::Family,
+        pub(crate) family: family::Family,
         /// The reviews reviewers handed in, and the reviewers running.
         reviews: reviews::Reviews,
         /// How sessions start the Beep MCP server, once the node serves it.

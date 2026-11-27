@@ -36,6 +36,7 @@ host! {
     mod run;
     mod team;
     mod custom_agents;
+    pub mod tools;
 }
 
 /// Kills every background task and terminal still running, at once. For

@@ -3,11 +3,8 @@
 //! that has one; between nodes there is no server to ask, and no rules to
 //! check, since the mesh's members are the user's own machines.
 
+use super::{Caller, answer_projects, answer_team, children, harness};
 use crate::{
-    agents::{
-        caller::Caller,
-        mcp::{answer_projects, answer_team, children, harness},
-    },
     files::transfer::Incoming,
     run::tasks::{self, Table},
 };
@@ -400,5 +397,5 @@ fn task_error(reply: TaskReply) -> String {
 }
 
 #[cfg(test)]
-#[path = "../../tests/link_peer_tools.rs"]
+#[path = "../tests/link_peer_tools.rs"]
 mod tests;

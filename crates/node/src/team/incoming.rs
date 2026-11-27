@@ -6,8 +6,8 @@
 
 use super::{
     asks::{
-        ASK_CARD, Asks, Delivery, MAX_CARD, MAX_CARDS, MAX_TEXT, MAX_WAITING, NOT_WAITING, Taken,
-        is_ask_id, not_served, too_long,
+        ASK_CARD, Answer, Asks, Delivery, MAX_CARD, MAX_CARDS, MAX_TEXT, MAX_WAITING, NOT_WAITING,
+        Taken, ToDeliver, Undo, is_ask_id, not_served, too_long,
     },
     link::{Seen, TeamLink, Teams},
 };
@@ -20,7 +20,7 @@ impl TeamLink {
     /// Takes an ask from `peer`, a device of a teammate: hands it to the
     /// session on the card it names, or keeps it as a Needs you card for
     /// this mesh's person. The refusal when it is not taken.
-    pub(super) async fn asked(&self, peer: EndpointId, ask: &TeamMsg) -> Option<TeamMsg> {
+    pub(super) fn asked(&self, peer: EndpointId, ask: &TeamMsg) -> Answer {
         let TeamMsg::Ask {
             id,
             repo,
@@ -30,7 +30,7 @@ impl TeamLink {
             ..
         } = ask
         else {
-            return None;
+            return Answer::Send(None);
         };
         let to_card = match to {
             Target::Agent { card } => Some(card.as_str()),
@@ -43,9 +43,9 @@ impl TeamLink {
             // A Needs you card for the person's apps.
             Ok(None) => {
                 self.cards_changed(repo);
-                return None;
+                return Answer::Send(None);
             }
-            Err(reason) => return Some(refused(reason)),
+            Err(reason) => return Answer::Send(Some(refused(reason))),
         };
         let words = format!(
             "{text}\n\n[An ask from {}'s agent on the team of {repo}. Answer it once with \
@@ -53,16 +53,17 @@ impl TeamLink {
             from.login
         );
         let words = tags::from_teammate(&from.card, &format!("{}'s agent", from.login), &words);
-        let delivered = self.deliver(&card, Delivery::Ask, words).await;
 
-        delivered.err().map(|reason| {
-            self.asks(|asks| asks.taken.remove(id));
-            refused(reason)
+        Answer::Deliver(ToDeliver {
+            card,
+            delivery: Delivery::Ask,
+            words,
+            undo: Undo::Ask { id: id.clone() },
         })
     }
 
     /// Takes `peer`'s answer to an ask this mesh sent, into the asking session.
-    pub(super) async fn answered(&self, peer: EndpointId, id: &str, text: &str) -> Option<TeamMsg> {
+    pub(super) fn answered(&self, peer: EndpointId, id: &str, text: &str) -> Answer {
         let sent = self.both(|teams, asks| {
             asks.expire(SystemTime::now());
             let sent = asks.sent.get(id).ok_or(NOT_WAITING)?;
@@ -82,18 +83,34 @@ impl TeamLink {
         });
         let (sent, login) = match sent {
             Ok(sent) => sent,
-            Err(reason) => return Some(refused(reason.to_owned())),
+            Err(reason) => return Answer::Send(Some(refused(reason.to_owned()))),
         };
         let words = format!("{text}\n\n[{login}'s answer to your team_ask {id}.]");
         let words = tags::from_teammate(&sent.asked, &format!("{login}'s agent"), &words);
 
-        let delivered = self.deliver(&sent.asker, Delivery::Reply, words).await;
-
-        delivered.err().map(|reason| {
-            // Not handed on: it waits for the teammate to send it again.
-            self.asks(|asks| asks.sent.insert(id.to_owned(), sent));
-            refused(reason)
+        Answer::Deliver(ToDeliver {
+            card: sent.asker.clone(),
+            delivery: Delivery::Reply,
+            words,
+            undo: Undo::Reply {
+                id: id.to_owned(),
+                sent,
+            },
         })
+    }
+
+    /// Takes back what an ask or an answer took, as it was not handed to its
+    /// session: the ask is no longer kept, and the answer waits for the
+    /// teammate to send it again.
+    pub(crate) fn undo(&self, undo: Undo) {
+        self.asks(|asks| match undo {
+            Undo::Ask { id } => {
+                asks.taken.remove(&id);
+            }
+            Undo::Reply { id, sent } => {
+                asks.sent.insert(id, sent);
+            }
+        });
     }
 }
 

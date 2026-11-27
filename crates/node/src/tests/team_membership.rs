@@ -74,7 +74,10 @@ fn reachable_bob(pair: &Pair) -> Member {
 
 fn online(pair: &Pair) -> Router {
     Router::builder(pair.bob_link.endpoint().clone())
-        .accept(beep_proto::team::ALPN, pair.bob_link.handler())
+        .accept(
+            beep_proto::team::ALPN,
+            crate::tools::team_link::TeamAlpn::new(crate::tools::Node::of_link(&pair.bob_link)),
+        )
         .spawn()
 }
 
@@ -124,7 +127,7 @@ async fn a_device_added_after_the_join_is_announced_and_taken() {
         repo: repo(),
         members: vec![entry],
     };
-    assert_eq!(pair.bob_link.answer(gateway, &roster).await, None);
+    assert_eq!(pair.bob_link.answer(gateway, &roster).await.sent(), None);
     assert!(
         pair.bob_link
             .with(|teams| teams.rosters.allows(added, &repo()))

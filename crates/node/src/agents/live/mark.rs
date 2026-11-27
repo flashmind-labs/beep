@@ -33,7 +33,7 @@ impl From<&Live> for Stand {
 
 /// What a session saw of a relative: told again once it differs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::agents) struct Mark {
+pub(crate) struct Mark {
     pub(in crate::agents) turns: u32,
     pub(in crate::agents) stand: Stand,
 }

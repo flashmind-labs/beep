@@ -62,7 +62,7 @@ impl RemoteKid {
 impl Agents {
     /// Notes a child that runs on another machine, and has it stopped with
     /// its parent.
-    pub(in crate::agents) fn adopt_remote(&self, parent: &Session, kid: RemoteKid) {
+    pub(crate) fn adopt_remote(&self, parent: &Session, kid: RemoteKid) {
         {
             let mut remote = crate::lock(&self.family.remote);
 

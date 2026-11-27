@@ -1,16 +1,12 @@
 //! A team's board over the link: the boards this device serves to the
 //! teammates who subscribe, and the follow of a teammate's board.
 
-use super::{READ, TeamError, TeamLink, finish};
-use beep_proto::{
-    node::{LinkRx, LinkTx},
-    team::{Card, Member, TeamMsg, TeamRepo},
-};
+use super::{READ, TeamError, TeamLink};
+use beep_proto::team::{Card, Member, TeamMsg, TeamRepo};
 use iroh::{EndpointAddr, EndpointId};
 use std::time::Duration;
 use tokio::{
-    select,
-    sync::{broadcast::error::RecvError, mpsc},
+    sync::mpsc,
     time::{Instant, sleep, timeout_at},
 };
 
@@ -25,55 +21,6 @@ const FIRST_BOARD: Duration = if cfg!(test) {
 };
 /// The largest message a teammate's gateway may send.
 const MAX_FRAME: usize = 1024 * 1024;
-/// Serves `repo`'s board to `peer`, a member's device: the whole board, then
-/// each change, until the peer finishes the stream or is no longer on the
-/// team, or the board moves to another machine. What else the peer sends
-/// is answered as the link answers it.
-pub(in crate::team) async fn serve(
-    link: &TeamLink,
-    peer: EndpointId,
-    repo: TeamRepo,
-    mut tx: LinkTx,
-    mut rx: LinkRx,
-) -> Result<(), TeamError> {
-    let watched = link.served(|served| served.boards.watch(&repo));
-    let Some((cards, mut changes)) = watched else {
-        return finish(tx).await;
-    };
-    tx.send(&TeamMsg::Board {
-        repo: repo.clone(),
-        cards,
-    })
-    .await?;
-
-    loop {
-        select! {
-            change = changes.recv() => {
-                let msg = match change {
-                    _ if !link.with(|teams| teams.rosters.allows(peer, &repo)) => break,
-                    Ok((card, gone)) => TeamMsg::BoardChange { repo: repo.clone(), card, gone },
-                    Err(RecvError::Lagged(_)) => match link.served(|served| served.boards.cards(&repo)) {
-                        Some(cards) => TeamMsg::Board { repo: repo.clone(), cards },
-                        None => break,
-                    },
-                    Err(RecvError::Closed) => break,
-                };
-                tx.send(&msg).await?;
-            }
-            msg = rx.recv::<TeamMsg>() => match msg? {
-                None => break,
-                Some(msg) => {
-                    if let Some(answer) = link.answer(peer, &msg).await {
-                        tx.send(&answer).await?;
-                    }
-                }
-            },
-        }
-    }
-
-    finish(tx).await
-}
-
 /// What a teammate's gateway said of their board.
 pub(in crate::team) enum Heard {
     Board(Vec<Card>),

@@ -2,8 +2,6 @@
 //! server, and the sessions devices of the mesh open, until it stops.
 
 use crate::{
-    agents::mcp::{self, deliver_handoffs, peer_tools},
-    agents::caller::Caller,
     agents::{AgentKind, Agents, SESSIONS_ALPN, skills::Skills},
     files::Folders,
     files::transfer::Transfers,
@@ -22,6 +20,7 @@ use crate::{
     run::shell,
     run::tasks,
     run::terminal,
+    tools::{self, Caller, Node, peer_tools},
 };
 use anyhow::{Context, Result, bail};
 use beep_proto::logging::RequestTrace;
@@ -212,7 +211,7 @@ pub async fn serve(
     }));
     // The agents' Beep MCP server runs this binary against a socket in the
     // node's folder.
-    let _mcp = mcp::start(&state.dir, &offers);
+    let _mcp = tools::start(&state.dir, Node::of(&offers));
     // Desktops read the device list when adb sees a phone come or go.
     let _devices = AbortOnDropHandle::new(tokio::spawn(device::track_phones()));
     // Logs when the async workers, or a step that hung before, stop moving.
@@ -431,7 +430,7 @@ pub(super) async fn serve_open(
             SessionProtocol::DeviceVideo => device::video::serve(tx, rx).await,
             SessionProtocol::SignIn => crate::machine::sign_in::serve(tx, rx).await,
             SessionProtocol::McpServers => {
-                mcp::configured::serve(offers.agents, tx, rx).await
+                tools::configured::serve(offers.agents, tx, rx).await
             }
             SessionProtocol::Commands => {
                 super::commands::serve_open(tx, rx, offers, who.id()).await
@@ -525,10 +524,6 @@ impl Peers {
     /// the offers goes elsewhere.
     pub async fn new(bound: Bound) -> Self {
         let Bound { offers, own, team } = bound;
-        let deliveries = AbortOnDropHandle::new(tokio::spawn(deliver_handoffs(
-            offers.clone(),
-            team.handoffs(),
-        )));
         let inner = Arc::new(Inner {
             own,
             team,
@@ -536,7 +531,6 @@ impl Peers {
             later: watch::channel(BTreeSet::new()).0,
             active: Mutex::new(None),
             follower: Mutex::new(None),
-            _deliveries: deliveries,
             serve_protocol: serve_stream,
         });
         Self { inner }
@@ -584,7 +578,8 @@ async fn serve_protocol(
         let offers = inner.offers().clone();
         // Diagnostics are open to every machine of the mesh, even when not lent.
         if Own::is_diagnostic(&protocol) {
-            return inner.own.serve_diagnostic(protocol, tx, rx, offers).await;
+            let node = offers.node(&inner.own, &inner.team);
+            return inner.own.serve_diagnostic(protocol, tx, rx, node).await;
         }
 
         // The person at this machine is not held to the setting; a device of the mesh is.

@@ -6,21 +6,17 @@
 //! and has a machine with the project start a session on an issue newly
 //! assigned to the user (`Tool::TeamPickup`).
 
-use super::{
-    desktop,
-    server::ASK_LIMIT,
-};
+use super::{Node, desktop, server::ASK_LIMIT};
 use crate::agents::reply::{fail, json_of, ok, parse};
 use crate::agents::child_view::full_id;
 use crate::agents::machine_list::{find, machine_name};
 use crate::peer_stream::over_the_mesh;
 use crate::{
     agents::{Agents, Answered, Asking},
-    link::Offers,
     team::{
         asks::{Delivery, MAX_TEXT, Outgoing},
         cards::Teammates,
-        link::{Handoff, TeamLink},
+        link::TeamLink,
         pickup::{PickupStart, start_issue},
     },
 };
@@ -40,7 +36,7 @@ use std::{
     path::PathBuf,
     time::{Duration, Instant},
 };
-use tokio::{sync::mpsc, task::JoinSet, time::timeout};
+use tokio::time::timeout;
 
 /// How long handing an ask to a session on another machine, or reading the
 /// team's issues, may take.
@@ -84,9 +80,9 @@ struct Handed {
 }
 
 /// The team link and the team `session`'s project is on, when it is on one.
-pub(super) fn team_of(offers: &Offers, session: &SessionId) -> Option<(TeamLink, TeamRepo)> {
-    let link = offers.team.clone()?;
-    let folder = offers.agents.folder_of(session)?;
+pub(super) fn team_of(node: &Node, session: &SessionId) -> Option<(TeamLink, TeamRepo)> {
+    let link = node.team.clone();
+    let folder = node.agents.folder_of(session)?;
     let repo = link.home(|home| home.team_of(&folder))?;
     link.with(|teams| teams.rosters.get(&repo).is_some()).then_some(())?;
 
@@ -95,7 +91,7 @@ pub(super) fn team_of(offers: &Offers, session: &SessionId) -> Option<(TeamLink,
 
 /// `team_join` from any session: validates the code, asks the user to confirm,
 /// and forwards the join (with automatic project import or clone) to a desktop.
-pub(super) async fn join_call(offers: &Offers, request: &Request) -> Reply {
+pub(super) async fn join_call(node: &Node, request: &Request) -> Reply {
     let args: JoinToolArgs = match parse(&request.args) {
         Ok(args) => args,
         Err(e) => return fail(e),
@@ -144,7 +140,7 @@ pub(super) async fn join_call(offers: &Offers, request: &Request) -> Reply {
         ],
     };
 
-    match timeout(ASK_LIMIT, offers.agents.ask(&request.session, question)).await {
+    match timeout(ASK_LIMIT, node.agents.ask(&request.session, question)).await {
         Ok(Ok(Answered::Picked(option))) if option.id == JOIN_CONFIRM => {}
         Ok(Ok(_)) => {
             return fail(
@@ -173,18 +169,18 @@ pub(super) async fn join_call(offers: &Offers, request: &Request) -> Reply {
         approved: Approved::No,
     };
 
-    desktop::call(offers, &forward).await
+    desktop::call(node, &forward).await
 }
 
 /// `team` or `team_ask` from a session on this node, answered by the
 /// machine of the mesh that acts for the team.
-pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
-    let (Some(mesh), Some((link, repo))) = (offers.mesh.get(), team_of(offers, &request.session))
+pub(super) async fn call(node: &Node, request: &Request) -> Reply {
+    let (Some(mesh), Some((link, repo))) = (node.mesh.get(), team_of(node, &request.session))
     else {
         return fail("This session's project has no team.");
     };
     let (args, asking) = match request.tool {
-        Tool::TeamAsk => match outgoing(&offers.agents, &mesh, &link, request, repo.clone()) {
+        Tool::TeamAsk => match outgoing(&node.agents, &mesh, &link, request, repo.clone()) {
             Ok(ask) => (serde_json::to_string(&ask), ask.reply_to.is_none()),
             Err(e) => return fail(e),
         },
@@ -216,7 +212,7 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
     let gateway = link.served(|served| served.gateways.get(&repo).copied());
     let reply = match gateway {
         Some(gateway) if gateway == mesh.me() => {
-            answer(&link, &offers.agents, None, &request).await
+            answer(&link, &node.agents, None, &request).await
         }
         Some(gateway) => over_the_mesh(&mesh, gateway, &request)
             .await
@@ -431,36 +427,16 @@ async fn team(link: &TeamLink, repo: &TeamRepo) -> Reply {
     )
 }
 
-/// Puts what the team link took from teammates into the sessions of this
-/// node's mesh, and says on each handoff whether it got there. Ends with the
-/// team link's follower.
-pub(crate) async fn deliver_handoffs(offers: Offers, mut handoffs: mpsc::Receiver<Handoff>) {
-    let mut delivering = JoinSet::new();
-
-    loop {
-        tokio::select! {
-            Some(handoff) = handoffs.recv() => {
-                let offers = offers.clone();
-                delivering.spawn(async move {
-                    let Handoff { card, delivery, text, done } = handoff;
-                    let delivered = deliver(&offers, &card, delivery, text).await;
-                    done.send(delivered).ok();
-                });
-            }
-            Some(_) = delivering.join_next() => {}
-            else => return,
-        }
-    }
-}
-
-async fn deliver(offers: &Offers, card: &str, delivery: Delivery, text: String) -> Result<(), String> {
+/// Hands `text` to the session on `card`, here or on the machine of this
+/// mesh that runs it.
+pub(super) async fn deliver(node: &Node, card: &str, delivery: Delivery, text: String) -> Result<(), String> {
         let no_session = || format!("No session {card} runs on this mesh");
         let (_, machine) = card.split_once('@').ok_or_else(no_session)?;
-        let mesh = offers.mesh.get().ok_or_else(no_session)?;
+        let mesh = node.mesh.get().ok_or_else(no_session)?;
         let machine = find(&mesh, machine).ok_or_else(no_session)?;
 
         if machine.id == mesh.me() {
-            return here(&offers.agents, card, delivery, text).await;
+            return here(&node.agents, card, delivery, text).await;
         }
 
         let handed = Handed {

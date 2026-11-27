@@ -16,7 +16,8 @@ use crate::{
     link::protocol::SessionProtocol,
     link::watchdog::{self, Step},
     machine::{env, stats},
-    team::link::{TeamAlpn, TeamLink},
+    team::link::TeamLink,
+    tools::{Node, team_link::TeamAlpn},
 };
 use anyhow::{Context, Result, bail};
 use beep_mesh::{
@@ -55,7 +56,8 @@ mod offers;
 mod own;
 
 pub use offers::{Bound, Offers};
-pub(crate) use offers::{Own, Who, read_open, withheld};
+pub(crate) use crate::status::Own;
+pub(crate) use offers::{Who, read_open, withheld};
 
 /// The socket `beep-node mesh` reaches the running node on, in its folder.
 const SOCKET: &str = "mesh.sock";
@@ -100,8 +102,6 @@ pub(super) struct Inner {
     pub(super) active: Mutex<Option<Protocols>>,
     /// Applies the mesh's state to the node while it is a member.
     pub(super) follower: Mutex<Option<AbortOnDropHandle<()>>>,
-    /// Puts what the team link takes from teammates into sessions.
-    pub(super) _deliveries: AbortOnDropHandle<()>,
     /// Serves a stream once its protocol is known: set by the node's
     /// router, which this module does not import.
     pub(super) serve_protocol: ServeProtocol,
@@ -136,6 +136,11 @@ impl Inner {
 
     fn active(&self) -> Option<Mesh> {
         self.offers().mesh.get()
+    }
+
+    /// What the tools and diagnostics read of this node.
+    pub(super) fn node(&self) -> Node {
+        self.offers().node(&self.own, &self.team)
     }
 }
 
@@ -218,11 +223,6 @@ impl Peers {
         (self.inner.serve_protocol)(self.inner.clone(), tx, rx, protocol, who, trace).await
     }
 
-    /// The `beep-team/1` handler.
-    pub fn team_handler(&self) -> TeamAlpn {
-        self.inner.team.handler()
-    }
-
     pub(super) fn channel_offers(&self) -> Offers {
         self.inner.offers().clone()
     }
@@ -273,6 +273,11 @@ impl Peers {
                 }),
             },
         })
+    }
+
+    /// The `beep-team/1` handler.
+    pub fn team_handler(&self) -> TeamAlpn {
+        TeamAlpn::new(self.inner.node())
     }
 
     /// The `beep-join/2` handler.
@@ -348,7 +353,7 @@ impl Peers {
 
     /// Whether this device is a desktop in the current device list.
     pub fn is_desktop(&self) -> bool {
-        self.inner.own.is_desktop(&self.inner.offers())
+        self.inner.own.is_desktop(&self.inner.node())
     }
 
     /// Whether this device is in a mesh it was not removed from.
@@ -359,7 +364,7 @@ impl Peers {
 
     /// The mesh's devices, empty before the node joined.
     pub fn devices(&self) -> Vec<DeviceStatus> {
-        self.inner.own.devices(&self.inner.offers())
+        self.inner.own.devices(&self.inner.node())
     }
 
     fn active(&self) -> Option<Mesh> {
@@ -743,15 +748,15 @@ async fn answer(stream: Stream, peers: &Peers) -> Result<()> {
         out.push_str("end\n");
         out
     } else if request == STATUS {
-        let offers = peers.inner.offers().clone();
-        let status = peers.inner.own.local_status(&offers).await?;
+        let node = peers.inner.node();
+        let status = peers.inner.own.local_status(&node).await?;
         write.write_all(&rmp_serde::to_vec(&status)?).await?;
         write.shutdown().await?;
         return Ok(());
     } else if let Some(since) = request.strip_prefix(REPORT) {
         let since: i64 = since.trim().parse().context("reading the report's start")?;
-        let offers = peers.inner.offers().clone();
-        let shares = collect(peers.inner.own.report_targets(&offers), since).await;
+        let node = peers.inner.node();
+        let shares = collect(peers.inner.own.report_targets(&node), since).await;
         write.write_all(&rmp_serde::to_vec(&shares)?).await?;
         write.shutdown().await?;
         return Ok(());

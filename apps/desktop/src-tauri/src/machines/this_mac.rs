@@ -7,12 +7,10 @@ use crate::{
     machines::{ThisMacStatus, ThisMacView, desktop},
 };
 use beep_node::{
-    agents::{
-        mcp::{self, ProjectTools},
-        skills::Skills,
-    },
+    agents::skills::Skills,
     link::{self, Bound, Offers, listen_hooks, state::Search},
     machine::{provision::Provision, service::logs::Logs},
+    tools::{self, Node, ProjectTools},
 };
 use beep_proto::node::desktop::Permission;
 use iroh::{Endpoint, EndpointId};
@@ -105,7 +103,7 @@ impl Machine {
                 .agents
                 .install_adapters(home.dir.clone(), Vec::new());
             let _upkeep = home.offers.agents.start_upkeep();
-            let _mcp = mcp::start(&home.dir, &home.offers);
+            let _mcp = tools::start(&home.dir, Node::of(&home.offers));
             // Terminal Claude Code sessions report their state here; the
             // MCP server stops when this task does, with the app. The
             // phones on this Mac's adb go to the desktops that follow them.

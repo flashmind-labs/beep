@@ -3,7 +3,8 @@
 use beep_proto::SessionId;
 use crate::agents::machine_list;
 use crate::agents::reply;
-use crate::{agents::TRANSCRIPT_PROTOCOL, link::Offers};
+use super::Node;
+use crate::agents::TRANSCRIPT_PROTOCOL;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     agent::{EntryKind, SessionsReply, SessionsRequest},
@@ -60,17 +61,17 @@ impl Args {
     }
 }
 
-pub(super) async fn call(offers: &Offers, value: Value) -> Result<Reply> {
+pub(super) async fn call(node: &Node, value: Value) -> Result<Reply> {
     let args = Args::try_from(value)?;
-    let read = timeout(READ_LIMIT, read(offers, &args))
+    let read = timeout(READ_LIMIT, read(node, &args))
         .await
         .context("Transcript read timed out; the machine may be offline")??;
     render(read)
 }
 
-async fn read(offers: &Offers, args: &Args) -> Result<SessionsReply> {
+async fn read(node: &Node, args: &Args) -> Result<SessionsReply> {
     if let Some(name) = &args.machine {
-        let mesh = offers
+        let mesh = node
             .mesh
             .get()
             .context("This machine has not joined a mesh. Omit machine to read here.")?;
@@ -87,7 +88,7 @@ async fn read(offers: &Offers, args: &Args) -> Result<SessionsReply> {
         }
     }
 
-    Ok(offers
+    Ok(node
         .agents
         .transcript_reply(&args.session, args.last, false, args.before)
         .await)
@@ -119,5 +120,5 @@ fn render(read: SessionsReply) -> Result<Reply> {
 }
 
 #[cfg(test)]
-#[path = "../../tests/agents_mcp_transcripts.rs"]
+#[path = "../tests/tools_transcripts.rs"]
 mod tests;

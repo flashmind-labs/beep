@@ -336,7 +336,7 @@ impl Agents {
 
     /// The models the agent `name` can run on here; `None` when this node
     /// has no such agent.
-    pub(super) async fn models(&self, name: &str) -> Option<ModelList> {
+    pub(crate) async fn models(&self, name: &str) -> Option<ModelList> {
         let kind = self.named(name)?;
         let kind = self
             .settings
@@ -508,7 +508,7 @@ impl Agents {
     }
 
     /// The sessions now, as last published.
-    pub(super) fn session_map(&self) -> Arc<sessions::Map> {
+    pub(crate) fn session_map(&self) -> Arc<sessions::Map> {
         self.sessions.read()
     }
 
@@ -533,7 +533,7 @@ impl Agents {
     }
 
     /// The agent called `name`, when this node has it.
-    pub(super) fn named(&self, name: &str) -> Option<AgentKind> {
+    pub(crate) fn named(&self, name: &str) -> Option<AgentKind> {
         self.kinds().iter().find(|kind| kind.name == name).cloned()
     }
 
@@ -555,7 +555,7 @@ impl Agents {
     }
 
     /// The agents this node can start now.
-    pub(super) fn kinds(&self) -> Arc<Vec<AgentKind>> {
+    pub(crate) fn kinds(&self) -> Arc<Vec<AgentKind>> {
         watched::read_sent(&self.kinds, Clone::clone)
     }
 
@@ -582,7 +582,7 @@ impl Agents {
 
     /// The session `id` names: by the id it started under or by the
     /// agent's own id.
-    pub(super) fn get(&self, id: &SessionId) -> Option<Arc<Session>> {
+    pub(crate) fn get(&self, id: &SessionId) -> Option<Arc<Session>> {
         find_session(&self.session_map(), id)
     }
 
@@ -745,7 +745,7 @@ impl Agents {
         self.settings.prepare(&configured).await
     }
 
-    pub(super) async fn start(
+    pub(crate) async fn start(
         &self,
         kind: &AgentKind,
         cwd: Option<&str>,
@@ -1020,7 +1020,7 @@ impl Agents {
     /// The subfolder of its own, made now, that a child called `title`
     /// starts in when its parent names none and `parent` is in an assistant
     /// conversation's folder. `None` anywhere else: it starts in the parent's.
-    pub(super) fn child_folder(&self, parent: &Session, title: Option<&str>) -> Result<Option<PathBuf>> {
+    pub(crate) fn child_folder(&self, parent: &Session, title: Option<&str>) -> Result<Option<PathBuf>> {
         let Some(home) = dirs::home_dir() else {
             return Ok(None);
         };

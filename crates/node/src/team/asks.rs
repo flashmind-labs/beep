@@ -7,7 +7,7 @@
 
 use beep_proto::{
     SessionId,
-    team::{AgentRef, Card, Target, TeamRepo},
+    team::{AgentRef, Card, Target, TeamMsg, TeamRepo},
 };
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
@@ -70,6 +70,47 @@ impl AskLimit {
     }
 }
 
+/// What the team link makes of a message from a teammate.
+#[derive(Debug)]
+pub(crate) enum Answer {
+    /// What the link answers itself, if anything.
+    Send(Option<TeamMsg>),
+    /// A text for a session of this node, to deliver before answering.
+    Deliver(ToDeliver),
+}
+
+impl Answer {
+    /// What the link answers itself, for a message that is never handed to a
+    /// session.
+    #[cfg(test)]
+    pub(crate) fn sent(self) -> Option<TeamMsg> {
+        match self {
+            Self::Send(answer) => answer,
+            Self::Deliver(delivery) => panic!("a delivery to {}", delivery.card),
+        }
+    }
+}
+
+/// A text to hand to the session on `card`, and how to take it back if it is
+/// not handed over.
+#[derive(Debug)]
+pub(crate) struct ToDeliver {
+    /// `<session>@<machine>`.
+    pub(crate) card: String,
+    pub(crate) delivery: Delivery,
+    pub(crate) words: String,
+    pub(crate) undo: Undo,
+}
+
+/// What `TeamLink::undo` takes back.
+#[derive(Debug)]
+pub(crate) enum Undo {
+    /// The ask taken from a teammate is no longer kept.
+    Ask { id: String },
+    /// The answer waits for the teammate to send it again.
+    Reply { id: String, sent: Sent },
+}
+
 /// `Tool::TeamAsk` from a session's node to its mesh's gateway: the ask as
 /// that node made it, or the answer to one when `reply_to` is set, which
 /// goes to whoever asked and needs no `to`.
@@ -97,7 +138,7 @@ pub(crate) struct Asks {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct Sent {
+pub(crate) struct Sent {
     pub(super) repo: TeamRepo,
     /// The asking session's card.
     pub(super) asker: String,

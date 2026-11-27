@@ -6,14 +6,13 @@
 use super::catalog::REMOTE_RUN;
 use crate::agents::machine_list::{Machine, find_named, machines, no_machine};
 use crate::agents::calls::command_name;
-use super::peer_tools;
-use crate::agents::caller::Caller;
+use super::{Node, peer_tools};
+use super::Caller;
 use crate::peer_stream::{handshake, over_the_mesh};
 use crate::agents::reply::{done, fail, ok};
 use crate::{
     agents::live::Sent,
     files::transfer::{Incoming, Offer},
-    link::Offers,
     machine::env,
 };
 use anyhow::{Context, Result};
@@ -63,11 +62,11 @@ pub(super) fn run_here(mesh: &Mesh, request: &Request) -> Option<Reply> {
 }
 
 /// The reply for `request`, a tool between the machines of `mesh`.
-pub(super) async fn call(offers: &Offers, mesh: &Mesh, request: &Request) -> Reply {
-    dispatch(offers, mesh, request).await.unwrap_or_else(fail)
+pub(super) async fn call(node: &Node, mesh: &Mesh, request: &Request) -> Reply {
+    dispatch(node, mesh, request).await.unwrap_or_else(fail)
 }
 
-async fn dispatch(offers: &Offers, mesh: &Mesh, request: &Request) -> Result<Reply, String> {
+async fn dispatch(node: &Node, mesh: &Mesh, request: &Request) -> Result<Reply, String> {
     let args: Value = serde_json::from_str(&request.args).unwrap_or(Value::Null);
 
     match request.tool {
@@ -80,12 +79,12 @@ async fn dispatch(offers: &Offers, mesh: &Mesh, request: &Request) -> Result<Rep
             let target = find_named(mesh, name)?;
 
             if request.tool == Tool::SendFiles {
-                send_files(offers, mesh, &target, request, &args).await
+                send_files(node, mesh, &target, request, &args).await
             } else {
-                Ok(to_machine(offers, mesh, &target, request).await)
+                Ok(to_machine(node, mesh, &target, request).await)
             }
         }
-        Tool::SyncProject => sync_project(offers, mesh, request, &args).await,
+        Tool::SyncProject => sync_project(node, mesh, request, &args).await,
         Tool::JobStatus | Tool::Cancel => {
             let job = args
                 .get("id")
@@ -101,16 +100,16 @@ async fn dispatch(offers: &Offers, mesh: &Mesh, request: &Request) -> Result<Rep
                 ..request.clone()
             };
 
-            Ok(to_machine(offers, mesh, &target, &sent).await)
+            Ok(to_machine(node, mesh, &target, &sent).await)
         }
         other => Err(format!("{other:?} is not a tool between machines.")),
     }
 }
 
-/// Offers each path here, then has `target` fetch it: the target's own
+/// Node each path here, then has `target` fetch it: the target's own
 /// transfers do the writing, under its own rules about where.
 async fn send_files(
-    offers: &Offers,
+    node: &Node,
     mesh: &Mesh,
     target: &Machine,
     request: &Request,
@@ -129,7 +128,7 @@ async fn send_files(
         return Err(format!("Send between 1 and {MAX_SEND} paths at a time."));
     }
 
-    let transfers = offers
+    let transfers = node
         .transfers
         .get()
         .ok_or("This machine's file transfers did not start, so it sends no files.")?;
@@ -160,7 +159,7 @@ async fn send_files(
                     total,
                 };
                 let fetched =
-                    have_fetched(offers, mesh, target, request, &offer, dest.clone(), sent).await;
+                    have_fetched(node, mesh, target, request, &offer, dest.clone(), sent).await;
                 before = before.saturating_add(offered_size(&offer));
                 fetched
             }
@@ -188,7 +187,7 @@ fn offered_size(offer: &Offer) -> u64 {
 /// Has `target` fetch `offer`, showing the caller's session how far it has
 /// gone past `sent`: its text, or why it was not sent.
 async fn have_fetched(
-    offers: &Offers,
+    node: &Node,
     mesh: &Mesh,
     target: &Machine,
     request: &Request,
@@ -222,7 +221,7 @@ async fn have_fetched(
     tokio::pin!(fetched);
     let reply = tokio::select! {
         reply = &mut fetched => reply,
-        () = show_sent(offers, &request.session, offer.sent(), sent) => fetched.await,
+        () = show_sent(node, &request.session, offer.sent(), sent) => fetched.await,
     };
 
     match reply {
@@ -240,7 +239,7 @@ async fn have_fetched(
 /// counts, at most every `SHOW_SENT_EVERY`, until the offer ends or the
 /// session cannot be shown.
 async fn show_sent(
-    offers: &Offers,
+    node: &Node,
     session: &SessionId,
     mut offer: watch::Receiver<u64>,
     sent: Sent,
@@ -251,7 +250,7 @@ async fn show_sent(
             .saturating_add(watched::read_and_update(&mut offer, |bytes| *bytes));
         let shown = Sent { done, ..sent };
 
-        if let Err(e) = offers.agents.sending(session, shown).await {
+        if let Err(e) = node.agents.sending(session, shown).await {
             log::debug!("send progress not shown: {e:#}");
             return;
         }
@@ -267,7 +266,7 @@ async fn show_sent(
 /// Scans the project here, then has the machines that sync it (or the one
 /// named) scan and wait until they have it.
 async fn sync_project(
-    offers: &Offers,
+    node: &Node,
     mesh: &Mesh,
     request: &Request,
     args: &Value,
@@ -290,7 +289,7 @@ async fn sync_project(
     let me = mesh.me();
     let mut notes = Vec::new();
 
-    if let Some(transfers) = offers.transfers.get()
+    if let Some(transfers) = node.transfers.get()
         && spec.folders.contains_key(&me)
         && let Err(e) = transfers.syncs().rescan(name).await
     {
@@ -320,7 +319,7 @@ async fn sync_project(
     let replies = futures::future::join_all(
         wanted
             .iter()
-            .map(|machine| to_machine(offers, mesh, machine, &call)),
+            .map(|machine| to_machine(node, mesh, machine, &call)),
     )
     .await;
     let mut failed = false;
@@ -463,9 +462,9 @@ impl FromStr for Job {
 
 /// Runs `request` on `target`: here when it is this device, over the mesh
 /// otherwise.
-async fn to_machine(offers: &Offers, mesh: &Mesh, target: &Machine, request: &Request) -> Reply {
+async fn to_machine(node: &Node, mesh: &Mesh, target: &Machine, request: &Request) -> Reply {
     let reply = if target.id == mesh.me() {
-        peer_tools::answer(request.clone(), Caller::local(offers)).await
+        peer_tools::answer(request.clone(), Caller::of(node)).await
     } else {
         match over_the_mesh(mesh, target.id, request).await {
             Ok(reply) => reply,
@@ -508,5 +507,5 @@ fn name_the_job(text: &str, machine: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "../../tests/agents_mcp_machines.rs"]
+#[path = "../tests/tools_machines.rs"]
 mod tests;

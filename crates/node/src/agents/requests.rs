@@ -59,7 +59,7 @@ impl Agents {
     /// The answer to a transcript read: the last `last` entries of a
     /// session this node runs, or else of a Claude Code session started
     /// outside Beep, read from its file.
-    pub(super) async fn transcript_reply(
+    pub(crate) async fn transcript_reply(
         &self,
         session: &SessionId,
         last: u32,

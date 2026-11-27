@@ -9,7 +9,7 @@ use crate::{
     machines::list::MachineLists,
 };
 use beep_fleet::{Desk, ImportJob, Session};
-use beep_node::agents::mcp::{ProjectTools, command_name};
+use beep_node::tools::{ProjectTools, command_name};
 use beep_proto::{
     CreateProject, FoundPlace, FoundProject, ImportedProject, NewRepository, ProjectFolder,
     node::tools::Reply,

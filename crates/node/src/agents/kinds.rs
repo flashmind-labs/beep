@@ -80,7 +80,7 @@ impl Bridge {
 
 /// `kind` runs inside WSL, which only this node can start: its program and
 /// arguments stay as detection made them.
-pub(super) fn in_wsl(kind: &AgentKind) -> bool {
+pub(crate) fn in_wsl(kind: &AgentKind) -> bool {
     kind.bridge.as_ref().is_some_and(|bridge| bridge.wsl().is_some())
 }
 

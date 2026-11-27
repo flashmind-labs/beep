@@ -5,7 +5,7 @@
 //! start another app, whose node would start another. Being the app itself,
 //! it is signed and notarized with it.
 
-use beep_node::agents::mcp::Invocation;
+use beep_node::tools::Invocation;
 use std::ffi::OsString;
 use std::future::Future;
 use tokio::runtime::Builder;

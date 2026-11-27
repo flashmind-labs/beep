@@ -12,7 +12,7 @@ pub(crate) use super::served::Served;
 
 use super::{
     served::ServedBoards,
-    asks::{Asks, Delivery, not_served},
+    asks::{Answer, Asks, not_served},
     home::{Home, Invites, TeamForge},
     proof::{PROOF_CONTEXTS, ProofError},
     roster::{Refusal, Rosters},
@@ -25,28 +25,23 @@ use beep_proto::{
     team::{ALPN, ForgeLogin, Member, Removed, TeamMsg, TeamRecord, TeamRepo},
 };
 use futures::future::join_all;
-use iroh::{
-    Endpoint, EndpointAddr, EndpointId,
-    endpoint::Connection,
-    protocol::{AcceptError, ProtocolHandler},
-};
+use iroh::{Endpoint, EndpointAddr, EndpointId};
 use std::{
     collections::BTreeMap,
-    fmt,
     sync::{Arc, Mutex},
     time::{Duration, SystemTime},
 };
 use tokio::{
-    sync::{Notify, mpsc, oneshot, watch},
+    sync::{Notify, watch},
     time::{sleep, timeout},
 };
 
 /// How long a device gets to connect when dialed.
 const DIAL: Duration = Duration::from_secs(5);
 /// How long a peer gets to open its stream and send its first message.
-pub(super) const READ: Duration = Duration::from_secs(10);
+pub(crate) const READ: Duration = Duration::from_secs(10);
 /// The largest first message: a stranger's `Join` or `Invite` is small.
-const FIRST_FRAME: usize = 16 * 1024;
+pub(crate) const FIRST_FRAME: usize = 16 * 1024;
 /// How long the forge gets to say whether a login may push.
 const VOUCH_LIMIT: Duration = Duration::from_secs(20);
 /// How often a removal goes again to the members it did not reach. Short in tests.
@@ -86,19 +81,6 @@ pub(super) struct Seen {
     pub(super) on_board: bool,
 }
 
-/// Asks queued for the follower of `TeamLink::handoffs`.
-const HANDOFFS: usize = 32;
-
-/// A text for a session of this mesh, taken from a teammate. The follower
-/// answers on `done` whether it reached the session.
-pub(crate) struct Handoff {
-    /// `<session>@<machine>`.
-    pub(crate) card: String,
-    pub(crate) delivery: Delivery,
-    pub(crate) text: String,
-    pub(crate) done: oneshot::Sender<Result<(), String>>,
-}
-
 /// The team link of this device, shared by its handler, its dialing and the
 /// task that follows the mesh.
 #[derive(Clone)]
@@ -121,9 +103,6 @@ struct Inner {
     /// The pickup queues the gateways handed this device, for its gateway
     /// loop to keep.
     queues: Mutex<BTreeMap<TeamRepo, Vec<u64>>>,
-    /// Asks and answers taken, for the follower of `handoffs` to put into
-    /// sessions.
-    handing: Mutex<Option<mpsc::Sender<Handoff>>>,
     /// Rings when a roster or an invite waits for a desktop.
     waiting: Notify,
     /// Rings when an invite or a card was added, which may expire sooner than the next to.
@@ -143,7 +122,6 @@ impl TeamLink {
             served: ServedBoards::default(),
             invites: Mutex::default(),
             queues: Mutex::default(),
-            handing: Mutex::new(None),
             waiting: Notify::new(),
             expiring: Notify::new(),
             rostered: watch::channel(0).0,
@@ -159,10 +137,6 @@ impl TeamLink {
         self.inner.endpoint.id()
     }
 
-    pub(crate) fn handler(&self) -> TeamAlpn {
-        TeamAlpn(self.clone())
-    }
-
     #[cfg(test)]
     pub(crate) fn endpoint(&self) -> &Endpoint {
         &self.inner.endpoint
@@ -170,37 +144,6 @@ impl TeamLink {
 
     pub(crate) fn forge(&self) -> &dyn TeamForge {
         self.inner.forge.as_ref()
-    }
-
-    /// The asks and answers this link takes, for the sessions they are for.
-    /// One follower takes them: a call replaces the one before. Until there
-    /// is one, they are refused.
-    pub(crate) fn handoffs(&self) -> mpsc::Receiver<Handoff> {
-        let (sender, receiver) = mpsc::channel(HANDOFFS);
-        *crate::lock(&self.inner.handing) = Some(sender);
-        receiver
-    }
-
-    /// Hands `text` to the session on `card` and waits for the follower to
-    /// say whether it got there.
-    pub(super) async fn deliver(
-        &self,
-        card: &str,
-        delivery: Delivery,
-        text: String,
-    ) -> Result<(), String> {
-        let none = || "This device runs no sessions".to_owned();
-        let sender = crate::lock(&self.inner.handing).clone().ok_or_else(none)?;
-        let (done, delivered) = oneshot::channel();
-        let handoff = Handoff {
-            card: card.to_owned(),
-            delivery,
-            text,
-            done,
-        };
-        sender.send(handoff).await.map_err(|_| none())?;
-
-        delivered.await.unwrap_or_else(|_| Err(none()))
     }
 
     /// Reads or changes what the link knows. Keep `f` short: it holds the lock.
@@ -461,99 +404,51 @@ impl TeamLink {
         }
     }
 
-    async fn serve(&self, connection: &Connection) -> Result<(), TeamError> {
-        let peer = connection.remote_id();
-        let (send, recv) = timeout(READ, connection.accept_bi())
-            .await
-            .map_err(|_| TeamError::Refused("no stream".to_owned()))?
-            .map_err(anyhow::Error::from)?;
-        let (mut tx, mut rx) = link(send, recv);
+    /// Admits the stranger whose first message is `join`, a `TeamMsg::Join`,
+    /// on its own link. Anything else is not a join and ends the link.
+    pub(crate) async fn admit_join(
+        &self,
+        peer: EndpointId,
+        join: TeamMsg,
+        tx: LinkTx,
+        rx: LinkRx,
+    ) -> Result<(), TeamError> {
+        let TeamMsg::Join {
+            secret,
+            repo,
+            login,
+            mesh,
+            devices,
+        } = join
+        else {
+            return Ok(());
+        };
+        let join = super::join::Join {
+            secret,
+            repo,
+            login,
+            mesh,
+            devices,
+        };
 
-        // A stranger's first message is small; a member's may be a whole roster.
-        if !self.with(|teams| teams.rosters.knows(peer)) {
-            rx.set_max_frame(FIRST_FRAME);
-        }
-
-        let first = timeout(READ, rx.recv::<TeamMsg>())
-            .await
-            .map_err(|_| TeamError::Refused("no message".to_owned()))??;
-
-        match first {
-            None => Ok(()),
-            Some(TeamMsg::Join {
-                secret,
-                repo,
-                login,
-                mesh,
-                devices,
-            }) => {
-                let join = super::join::Join {
-                    secret,
-                    repo,
-                    login,
-                    mesh,
-                    devices,
-                };
-                self.admit(peer, join, tx, rx).await
-            }
-            Some(TeamMsg::Invite { repo, ticket }) => {
-                if let Some(refused) = self.invited(peer, repo, ticket) {
-                    tx.send(&refused).await?;
-                }
-                finish(tx).await?;
-                Ok(())
-            }
-            Some(first) if self.with(|teams| teams.rosters.knows(peer)) => {
-                self.serve_member(peer, first, tx, rx).await
-            }
-            Some(_) => {
-                connection.close(1u32.into(), b"not on a team");
-                Ok(())
-            }
-        }
+        self.admit(peer, join, tx, rx).await
     }
 
     /// Whether `peer` is on `repo`'s team, which this device serves the board of.
-    fn serves(&self, peer: EndpointId, repo: &TeamRepo) -> bool {
+    pub(crate) fn serves(&self, peer: EndpointId, repo: &TeamRepo) -> bool {
         self.with(|teams| teams.rosters.allows(peer, repo))
             && self.served(|served| served.boards.serves(repo))
     }
 
-    /// Answers a member's messages until they finish the stream.
-    async fn serve_member(
-        &self,
-        peer: EndpointId,
-        first: TeamMsg,
-        mut tx: LinkTx,
-        mut rx: LinkRx,
-    ) -> Result<(), TeamError> {
-        let mut next = Some(first);
-
-        while let Some(msg) = next {
-            if let TeamMsg::Subscribe { repo } = &msg
-                && self.serves(peer, repo)
-            {
-                return board_io::serve(self, peer, repo.clone(), tx, rx).await;
-            }
-
-            if let Some(answer) = self.answer(peer, &msg).await {
-                tx.send(&answer).await?;
-            }
-            next = rx.recv().await?;
-        }
-
-        finish(tx).await?;
-        Ok(())
-    }
-
-    /// The answer to one message from a member's device, if any. A roster's
-    /// newcomers are added once the forge says they may push.
-    pub(super) async fn answer(&self, peer: EndpointId, msg: &TeamMsg) -> Option<TeamMsg> {
-        let refused = |reason: String| Some(TeamMsg::Refused { reason });
+    /// The answer to one message from a member's device: what the link says
+    /// back, if anything, or a text for a session to deliver first. A
+    /// roster's newcomers are added once the forge says they may push.
+    pub(crate) async fn answer(&self, peer: EndpointId, msg: &TeamMsg) -> Answer {
+        let refused = |reason: String| Answer::Send(Some(TeamMsg::Refused { reason }));
 
         // An invite is to a team the contact is not on yet.
         if let TeamMsg::Invite { repo, ticket } = msg {
-            return self.invited(peer, repo.clone(), ticket.clone());
+            return Answer::Send(self.invited(peer, repo.clone(), ticket.clone()));
         }
 
         let own = self.home(|home| home.mesh);
@@ -583,9 +478,9 @@ impl TeamLink {
         match msg {
             TeamMsg::Join { .. } => refused("A join opens its own link".to_owned()),
             TeamMsg::Subscribe { repo } => refused(not_served(repo)),
-            TeamMsg::Ask { .. } => self.asked(peer, msg).await,
-            TeamMsg::Reply { id, text } => self.answered(peer, id, text).await,
-            _ => None,
+            TeamMsg::Ask { .. } => self.asked(peer, msg),
+            TeamMsg::Reply { id, text } => self.answered(peer, id, text),
+            _ => Answer::Send(None),
         }
     }
 
@@ -633,7 +528,7 @@ impl TeamLink {
 
     /// Keeps a contact's invite for a desktop to show; refuses anyone else's,
     /// and invites that do not read or are for another repository.
-    fn invited(&self, peer: EndpointId, repo: TeamRepo, ticket: String) -> Option<TeamMsg> {
+    pub(crate) fn invited(&self, peer: EndpointId, repo: TeamRepo, ticket: String) -> Option<TeamMsg> {
         let from = self.home(|home| home.contacts.get(&peer).copied());
         let kept = from
             .ok_or_else(|| Refusal::Stranger.to_string())
@@ -678,34 +573,12 @@ fn owes(teams: &Teams, member: &Member, msg: &TeamMsg) -> bool {
 
 /// Finishes `tx` once the peer read it, or after `READ`: a peer that holds
 /// the link without reading does not hold this side with it.
-pub(super) async fn finish(tx: LinkTx) -> Result<(), TeamError> {
+pub(crate) async fn finish(tx: LinkTx) -> Result<(), TeamError> {
     timeout(READ, tx.finish())
         .await
         .map_err(|_| TeamError::Refused("the peer stopped reading".to_owned()))??;
 
     Ok(())
-}
-
-/// Serves `beep-team/1`.
-pub struct TeamAlpn(TeamLink);
-
-impl fmt::Debug for TeamAlpn {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("TeamAlpn")
-    }
-}
-
-impl ProtocolHandler for TeamAlpn {
-    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
-        if let Err(e) = self.0.serve(&connection).await {
-            log::debug!(
-                "a team link from {} ended: {e}",
-                connection.remote_id().fmt_short()
-            );
-        }
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]

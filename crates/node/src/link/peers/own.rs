@@ -1,8 +1,9 @@
 //! What a node knows of itself, as values: its key, name and folder. The
-//! diagnostics a problem report reads are served from these and the offers,
+//! diagnostics a problem report reads are served from these and the `Node`,
 //! so what asks for them needs no handle on the running node.
 
-use super::{Offers, Own, read_open};
+use super::read_open;
+use crate::{status::Own, tools::Node};
 use crate::link::{
     local_status::{self, LocalStatus},
     protocol::SessionProtocol,
@@ -37,18 +38,18 @@ impl Own {
         protocol: SessionProtocol,
         mut tx: LinkTx,
         rx: LinkRx,
-        offers: Offers,
+        node: Node,
     ) -> Result<()> {
         tx.send(&Opened::Ready {}).await?;
         let metrics = self.dir.join("metrics.log");
 
         match protocol {
-            SessionProtocol::LogQuery => offers.log.serve_query(tx, rx).await,
+            SessionProtocol::LogQuery => node.log.serve_query(tx, rx).await,
             SessionProtocol::MetricsQuery => {
                 crate::link::metrics::serve_query(tx, rx, metrics).await
             }
-            SessionProtocol::Report => match self.local_status(&offers).await {
-                Ok(status) => serve_report(tx, rx, status, offers.log, metrics).await,
+            SessionProtocol::Report => match self.local_status(&node).await {
+                Ok(status) => serve_report(tx, rx, status, node.log, metrics).await,
                 Err(e) => {
                     let reason = format!("this machine's status could not be read: {e:#}");
                     tx.send(&report::Reply::Failed { reason }).await?;
@@ -62,15 +63,15 @@ impl Own {
 
     /// A session of this node for the diagnostics only, for a caller in this
     /// process.
-    fn diagnostics(&self, offers: Offers) -> SessionFn {
+    fn diagnostics(&self, node: Node) -> SessionFn {
         let own = self.clone();
 
         Arc::new(move |tx: LinkTx, mut rx: LinkRx| {
-            let (own, offers) = (own.clone(), offers.clone());
+            let (own, node) = (own.clone(), node.clone());
             Box::pin(async move {
                 let served = async {
                     let protocol = read_open(&mut rx).await?;
-                    own.serve_diagnostic(protocol, tx, rx, offers).await
+                    own.serve_diagnostic(protocol, tx, rx, node).await
                 };
 
                 if let Err(e) = served.await {
@@ -81,8 +82,8 @@ impl Own {
     }
 
     /// What `beep-node status` shows. Checks each project's folder on disk.
-    pub(crate) async fn local_status(&self, offers: &Offers) -> Result<LocalStatus> {
-        let mesh = offers.mesh.get().filter(|mesh| mesh.is_member(mesh.me()));
+    pub(crate) async fn local_status(&self, node: &Node) -> Result<LocalStatus> {
+        let mesh = node.mesh.get().filter(|mesh| mesh.is_member(mesh.me()));
         let devices = mesh
             .as_ref()
             .map(Mesh::devices)
@@ -96,7 +97,7 @@ impl Own {
                 last_seen: status.last_seen.map(unix_secs),
             })
             .collect();
-        let syncs = offers.transfers.get().map(|transfers| transfers.syncs());
+        let syncs = node.transfers.get().map(|transfers| transfers.syncs());
         let projects = match syncs {
             Some(syncs) => {
                 let held = syncs.held();
@@ -125,22 +126,22 @@ impl Own {
             mesh: mesh.map(|mesh| mesh.id()),
             devices,
             projects,
-            agents: offers.agents.agent_report(),
+            agents: node.agents.agent_report(),
         })
     }
 
     /// What a problem report asks: this node through its own diagnostics, the
     /// others over their live links. This node alone before it joined a mesh.
-    pub(crate) fn report_targets(&self, offers: &Offers) -> Vec<Target> {
+    pub(crate) fn report_targets(&self, node: &Node) -> Vec<Target> {
         let me = self.endpoint.id();
         let own = |name: String, kind: DeviceKind| Target {
             id: me,
             name,
             kind,
-            client: Ok(PeerClient::local(self.diagnostics(offers.clone()))),
+            client: Ok(PeerClient::local(self.diagnostics(node.clone()))),
         };
 
-        match offers.mesh.get().filter(|mesh| mesh.is_member(me)) {
+        match node.mesh.get().filter(|mesh| mesh.is_member(me)) {
             Some(mesh) => mesh
                 .code_hosts()
                 .into_iter()
@@ -172,17 +173,17 @@ impl Own {
     }
 
     /// Whether this device is a desktop in the current device list.
-    pub(crate) fn is_desktop(&self, offers: &Offers) -> bool {
+    pub(crate) fn is_desktop(&self, node: &Node) -> bool {
         let me = self.endpoint.id();
 
-        self.devices(offers)
+        self.devices(node)
             .iter()
             .any(|status| status.device.id == me && status.device.kind == DeviceKind::Desktop)
     }
 
     /// The mesh's devices, empty before the node joined.
-    pub(crate) fn devices(&self, offers: &Offers) -> Vec<beep_mesh::DeviceStatus> {
-        offers.mesh.get().map(|mesh| mesh.devices()).unwrap_or_default()
+    pub(crate) fn devices(&self, node: &Node) -> Vec<beep_mesh::DeviceStatus> {
+        node.mesh.get().map(|mesh| mesh.devices()).unwrap_or_default()
     }
 }
 

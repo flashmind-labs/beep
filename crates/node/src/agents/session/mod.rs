@@ -80,7 +80,8 @@ const STOP_WITHIN: Duration = Duration::from_secs(10);
 /// The most tool calls followed at once, to know when none runs.
 const MAX_RUNNING_TOOLS: usize = 256;
 
-pub(in crate::agents) use begin::{Begin, History};
+pub(crate) use begin::Begin;
+pub(in crate::agents) use begin::History;
 
 /// Whether the parent ended for good: not just with the node, which
 /// resumes it, and its children, after the restart.
@@ -101,7 +102,7 @@ pub(super) async fn parent_gone(parent: &mut watch::Receiver<Live>) -> bool {
 
 /// What a stream asks of a session.
 #[derive(Debug, strum::IntoStaticStr)]
-pub(super) enum Command {
+pub(crate) enum Command {
     RecoverCodexChildren(Vec<crate::agents::SubagentRun>),
     Prompt(Prompt),
     /// A message for the running turn: it goes once the agent's current
@@ -209,10 +210,10 @@ pub(super) type Kept = Arc<Mutex<Option<watch::Sender<Live>>>>;
 
 pub(crate) struct Session {
     /// Private handle for the process and its MCP connection, never a public session id.
-    pub(super) id: SessionId,
-    pub(super) agent: String,
+    pub(crate) id: SessionId,
+    pub(crate) agent: String,
     orders: crate::actor::Sender<Order>,
-    pub(super) live: watch::Receiver<Live>,
+    pub(crate) live: watch::Receiver<Live>,
     /// Where the retained live replay begins in Claude's saved transcript.
     pub(super) history: Option<crate::AsyncMutex<Option<History>>>,
     /// The session's state sender once its task ended, so a refile can
@@ -222,11 +223,11 @@ pub(crate) struct Session {
     kept: Kept,
     /// A temporary reviewer (`agents::reviews`): never listed, never kept
     /// over a restart, offered `submit_review`.
-    pub(super) reviewer: bool,
+    pub(crate) reviewer: bool,
     /// The home assistant: offered the assistant's brief and tools.
     pub(super) assistant: bool,
     /// The named account it runs signed in as; `None` for the default one.
-    pub(super) account: Option<AccountName>,
+    pub(crate) account: Option<AccountName>,
     pub(super) processes: Arc<Processes>,
     /// Dropping the session stops its task and with it the agent, at once.
     _task: AbortOnDropHandle<()>,
@@ -689,7 +690,7 @@ impl Session {
         self.peer_messages.store(0, Ordering::Relaxed);
     }
 
-    pub(super) fn info(&self) -> SessionInfo {
+    pub(crate) fn info(&self) -> SessionInfo {
         watched::read(&self.live, |live| live.info.clone())
     }
 
@@ -724,7 +725,7 @@ impl Session {
     /// Hands `command` to the session and waits until it is done or refused.
     /// The actor answers an order at once; one stuck past `ORDER_WAIT` is
     /// an error and a line in the log, not a caller held for good (#427).
-    pub(super) async fn order(&self, command: Command) -> Result<(), String> {
+    pub(crate) async fn order(&self, command: Command) -> Result<(), String> {
         let (done, answer) = oneshot::channel();
         let ordered = async {
             self.orders
@@ -750,7 +751,7 @@ impl Session {
     }
 
     /// Closes the session and waits until its agent has stopped.
-    pub(super) async fn close(&self) {
+    pub(crate) async fn close(&self) {
         // Refused when it already ends; either way it is waited for.
         let _ = self.order(Command::Close { by_user: false }).await;
         let mut live = self.live.clone();

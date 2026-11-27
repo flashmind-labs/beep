@@ -1,17 +1,23 @@
 //! The Beep MCP server, whose tools let this node's coding agents work across
 //! the user's machines: `start` serves it,
 //! and `Launch` names it in each session's `session/new` as
-//! `beep-node mcp --session <id>`.
+//! `beep-node mcp --session <id>`. `tools` sits above `team` and `agents` and
+//! below `link`, which builds its `Node`.
 
 use beep_proto::SessionId;
 use crate::{
     agents::{
         Answered, Asking,
+        Agents,
         mcp_launch::{Launch, SOCKET_ENV, TOKEN_ENV},
         socket,
     },
-    link::Offers,
+    files::transfer::Sharing,
+    machine::service::logs::Logs,
+    membership::Membership,
     run::local_socket::{self, Listener},
+    status::Own,
+    team::link::TeamLink,
 };
 use anyhow::{Context, Result, bail};
 use beep_proto::node::tools::{Reply, Request, Tool};
@@ -30,27 +36,31 @@ use tokio::{
 };
 use tokio_util::task::AbortOnDropHandle;
 
+mod caller;
 mod catalog;
 pub(crate) mod children;
 pub(crate) mod configured;
 mod debug;
 mod desktop;
+pub(crate) mod desktop_call;
 mod devices;
 pub(crate) mod harness;
 mod machines;
 pub(crate) mod peer_tools;
 mod media;
-pub(in crate::agents) mod review;
+pub(crate) mod review;
 mod server;
 mod team;
+pub(crate) mod team_link;
 mod transcripts;
 
 
-pub use super::calls::{SERVER_NAME, command_name};
-pub use super::mcp_launch::Invocation;
+pub use crate::agents::calls::{SERVER_NAME, command_name};
+pub use crate::agents::mcp_launch::Invocation;
+pub(crate) use caller::Caller;
 pub(crate) use desktop::answer as answer_projects;
-pub use super::desktop_call::ProjectTools;
-pub(crate) use team::{answer as answer_team, deliver_handoffs};
+pub use desktop_call::ProjectTools;
+pub(crate) use team::answer as answer_team;
 pub(crate) use server::Backend;
 use server::Called;
 
@@ -67,10 +77,10 @@ impl Invocation {
     }
 }
 
-/// Serves the Beep MCP server for `offers`' sessions from the socket in
+/// Serves the Beep MCP server for `node`'s sessions from the socket in
 /// `dir` until the handle drops, with sessions running this executable as
 /// the server's command. `None`, logged, when this executable is not found.
-pub fn start(dir: &Path, offers: &Offers) -> Option<AbortOnDropHandle<()>> {
+pub fn start(dir: &Path, node: Node) -> Option<AbortOnDropHandle<()>> {
     let exe = match std::env::current_exe().and_then(std::path::absolute) {
         Ok(exe) => exe,
         Err(e) => {
@@ -80,50 +90,63 @@ pub fn start(dir: &Path, offers: &Offers) -> Option<AbortOnDropHandle<()>> {
     };
     let dir = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
     let launch = Arc::new(Launch::new(exe, dir));
-    let offers = offers.clone();
     Some(AbortOnDropHandle::new(tokio::spawn(async move {
-        if let Err(e) = listen(launch, offers).await {
+        if let Err(e) = listen(launch, node).await {
             log::warn!("not serving the Beep MCP server: {e:#}");
         }
     })))
 }
 
+/// What the tools read of this node, which `link` builds from what it
+/// serves: the sessions, the mesh and the node's own values.
+#[derive(Clone)]
+pub struct Node {
+    pub(crate) agents: Arc<Agents>,
+    pub(crate) mesh: Membership,
+    pub(crate) transfers: Sharing,
+    pub(crate) team: TeamLink,
+    pub(crate) project_tools: Option<Arc<dyn ProjectTools>>,
+    pub(crate) own: Own,
+    /// The node's log, which `beep_logs` reads through the report targets.
+    pub(crate) log: Logs,
+}
+
 /// What `server` uses on a node: the mesh for calls, the sessions for
 /// questions.
-struct Node {
-    offers: Offers,
+struct Served {
+    node: Node,
     /// The devices the agents drive, attached while in use.
     screens: devices::Screens,
 }
 
-impl Backend for Node {
+impl Backend for Served {
     async fn call(&self, request: &Request) -> Result<Reply> {
         match request.tool {
             Tool::ListProjects => {
                 return Ok(crate::agents::projects::call(
-                    self.offers.agents.mesh().as_ref(),
+                    self.node.agents.mesh().as_ref(),
                     &request.args,
                 ));
             }
-            Tool::HarnessInfo => return Ok(harness::call(&self.offers, request).await),
-            Tool::Projects => return Ok(desktop::call(&self.offers, request).await),
-            Tool::Review => return Ok(review::review(&self.offers, request).await),
-            Tool::SubmitReview => return Ok(review::submit(&self.offers, request)),
+            Tool::HarnessInfo => return Ok(harness::call(&self.node, request).await),
+            Tool::Projects => return Ok(desktop::call(&self.node, request).await),
+            Tool::Review => return Ok(review::review(&self.node, request).await),
+            Tool::SubmitReview => return Ok(review::submit(&self.node, request)),
             Tool::StartAgent
             | Tool::AgentStatus
             | Tool::SendToAgent
             | Tool::StopAgent
-            | Tool::ListAgents => return Ok(children::call(&self.offers, request).await),
-            Tool::Team | Tool::TeamAsk => return Ok(team::call(&self.offers, request).await),
-            Tool::TeamJoin => return Ok(team::join_call(&self.offers, request).await),
+            | Tool::ListAgents => return Ok(children::call(&self.node, request).await),
+            Tool::Team | Tool::TeamAsk => return Ok(team::call(&self.node, request).await),
+            Tool::TeamJoin => return Ok(team::join_call(&self.node, request).await),
             Tool::BeepStatus | Tool::BeepLogs | Tool::BeepMetrics | Tool::FileReport => {
-                return Ok(debug::call(&self.offers, request).await);
+                return Ok(debug::call(&self.node, request).await);
             }
             _ => {}
         }
 
         // The machines of the mesh answer for themselves.
-        let Some(mesh) = self.offers.mesh.get() else {
+        let Some(mesh) = self.node.mesh.get() else {
             return Ok(Reply::Done {
                 text: NO_MESH.to_owned(),
                 failed: true,
@@ -134,45 +157,45 @@ impl Backend for Node {
             return Ok(refused);
         }
 
-        Ok(machines::call(&self.offers, &mesh, request).await)
+        Ok(machines::call(&self.node, &mesh, request).await)
     }
 
     async fn device(&self, session: &SessionId, args: Value) -> Called {
-        match self.offers.mesh.get() {
-            Some(mesh) => devices::call(&self.offers, &mesh, &self.screens, session, args).await,
+        match self.node.mesh.get() {
+            Some(mesh) => devices::call(&self.node, &mesh, &self.screens, session, args).await,
             None => Called::failed(NO_MESH),
         }
     }
 
     async fn read_transcript(&self, args: serde_json::Value) -> Result<Reply> {
-        transcripts::call(&self.offers, args).await
+        transcripts::call(&self.node, args).await
     }
 
     async fn ask(&self, session: &SessionId, question: Asking) -> Result<Answered> {
-        self.offers.agents.ask(session, question).await
+        self.node.agents.ask(session, question).await
     }
 
     fn reviewer(&self, session: &SessionId) -> bool {
-        self.offers.agents.is_reviewer(session)
+        self.node.agents.is_reviewer(session)
     }
 
     fn assistant(&self, session: &SessionId) -> bool {
-        self.offers.agents.is_assistant(session)
+        self.node.agents.is_assistant(session)
     }
 
     fn team(&self, session: &SessionId) -> bool {
-        team::team_of(&self.offers, session).is_some()
+        team::team_of(&self.node, session).is_some()
     }
 
     fn alone(&self) -> bool {
-        self.offers
+        self.node
             .mesh
             .get()
             .is_none_or(|mesh| crate::agents::machine_list::alone(&mesh))
     }
 
     fn media(&self, session: &SessionId) -> Option<media::Media> {
-        self.offers.agents.folder_of(session).map(media::Media::new)
+        self.node.agents.folder_of(session).map(media::Media::new)
     }
 }
 
@@ -193,7 +216,7 @@ struct Hello {
 /// checks the session's token and serves MCP itself. `ask_user` becomes a
 /// question in the session; every other call goes to the mesh over
 /// `tools/1`.
-pub async fn listen(launch: Arc<Launch>, offers: Offers) -> Result<()> {
+async fn listen(launch: Arc<Launch>, node: Node) -> Result<()> {
     let socket = &launch.socket;
     socket::prepare(socket, &launch.dir)?;
     let mut listener = Listener::bind(socket)?;
@@ -201,10 +224,10 @@ pub async fn listen(launch: Arc<Launch>, offers: Offers) -> Result<()> {
         "serving the Beep MCP server on {}",
         local_socket::shown(socket)
     );
-    offers.agents.serve_mcp(launch.clone());
-    offers.agents.serve_mesh(offers.mesh.clone());
-    let node = Arc::new(Node {
-        offers,
+    node.agents.serve_mcp(launch.clone());
+    node.agents.serve_mesh(node.mesh.clone());
+    let node = Arc::new(Served {
+        node,
         screens: devices::Screens::default(),
     });
     let mut connections = JoinSet::new();
@@ -234,7 +257,7 @@ pub async fn listen(launch: Arc<Launch>, offers: Offers) -> Result<()> {
 /// right token.
 async fn connection(
     launch: Arc<Launch>,
-    node: Arc<Node>,
+    node: Arc<Served>,
     stream: local_socket::Stream,
 ) -> Result<()> {
     let (read, write) = tokio::io::split(stream);
@@ -260,7 +283,7 @@ async fn connection(
         );
     }
 
-    if !node.offers.agents.runs(&hello.session) {
+    if !node.node.agents.runs(&hello.session) {
         bail!(
             "refused an MCP connection: session {} does not run",
             hello.session
@@ -317,5 +340,5 @@ pub async fn pipe(dir: &Path, session: &SessionId) -> Result<()> {
 }
 
 #[cfg(test)]
-#[path = "../../tests/agents_mcp.rs"]
+#[path = "../tests/tools.rs"]
 mod tests;

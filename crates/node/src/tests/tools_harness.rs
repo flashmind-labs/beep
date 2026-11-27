@@ -1,12 +1,8 @@
 use beep_proto::SessionId;
 use super::*;
 use crate::{
-    agents::{
-        AgentKind,
-        mcp::{Backend, Node},
-    },
-    agents::{caller::Caller, mcp::peer_tools},
-    machine::provision::Provision,
+    agents::AgentKind,
+    tools::{Backend, Caller, Node, Served, peer_tools},
 };
 use beep_proto::node::tools::Tool;
 use serde_json::{Value, json};
@@ -34,8 +30,8 @@ fn result(reply: Reply) -> Value {
 #[tokio::test]
 async fn invalid_requests_fail_before_querying_a_harness() {
     let dir = tempfile::tempdir().expect("a temp folder");
-    let node = Node {
-        offers: Offers::local(&[], Provision::new(dir.path())),
+    let node = Served {
+        node: Node::test(dir.path()).await,
         screens: Default::default(),
     };
     for (args, message) in [
@@ -92,10 +88,10 @@ cat > /dev/null
         default_model: None,
         bridge: None,
     };
-    let mut offers = Offers::local(&[], Provision::new(dir.path()));
-    offers.agents = Arc::new(Agents::new(vec![kind]));
-    let node = Node {
-        offers,
+    let mut node = Node::test(dir.path()).await;
+    node.agents = Arc::new(Agents::new(vec![kind]));
+    let node = Served {
+        node,
         screens: Default::default(),
     };
     let info = result(
@@ -119,13 +115,13 @@ cat > /dev/null
         ])
     );
     assert!(
-        node.offers.agents.session_map().is_empty(),
+        node.node.agents.session_map().is_empty(),
         "discovery starts no coding session"
     );
 
     // Peers can query a desktop even when it lends no commands or
     // agents. Its machine argument must not cause another forward.
-    let mut caller = Caller::local(&node.offers);
+    let mut caller = Caller::of(&node.node);
     caller.commands_off = Some("Commands are off".to_owned());
     let peer = result(
         peer_tools::answer(

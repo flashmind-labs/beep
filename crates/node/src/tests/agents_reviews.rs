@@ -312,7 +312,7 @@ async fn a_wait_on_a_review_ends_when_the_review_does() {
     let reviewer = rig.agents.get(&run.id).expect("the reviewer runs");
     let wait = tokio::spawn({
         let (agents, who, run) = (rig.agents.clone(), who.clone(), run.clone());
-        async move { crate::agents::mcp::review::waited(&agents, &who, run).await }
+        async move { crate::tools::review::waited(&agents, &who, run).await }
     });
 
     // The wait is parked on the running review before it ends.

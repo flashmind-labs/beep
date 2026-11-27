@@ -1,9 +1,10 @@
 //! The `beep-node` command line.
 
 use beep_node::{
-    agents::{Agents, claude::hooks, mcp},
+    agents::{Agents, claude::hooks},
     link::{self, peers, state},
     machine::{env, host, service, update},
+    tools,
 };
 use beep_proto::SessionId;
 
@@ -505,7 +506,7 @@ async fn run() -> Result<()> {
             println!("{text}");
             Ok(())
         }
-        Command::Mcp { session } => mcp::pipe(&dir, &session).await,
+        Command::Mcp { session } => tools::pipe(&dir, &session).await,
         #[cfg(unix)]
         Command::PtyHost => beep_node::run_terminal_host(&dir).await,
         Command::Hook { event: _ } => {

@@ -235,7 +235,10 @@ impl Pair {
         let inviter_forge = Arc::new(Forge::signed_in("alice", collaborator));
         let inviter = TeamLink::new(endpoint.clone(), inviter_forge.clone());
         let router = Router::builder(endpoint)
-            .accept(beep_proto::team::ALPN, inviter.handler())
+            .accept(
+            beep_proto::team::ALPN,
+            crate::tools::team_link::TeamAlpn::new(crate::tools::Node::of_link(&inviter)),
+        )
             .spawn();
         let secret = JoinSecret::generate();
         let alice_mesh = mesh_id();
@@ -319,7 +322,7 @@ impl Pair {
 
     /// Hands `msg` to the inviter as `peer`'s device would.
     async fn tell(&self, peer: EndpointId, msg: TeamMsg) -> Option<TeamMsg> {
-        self.inviter.answer(peer, &msg).await
+        self.inviter.answer(peer, &msg).await.sent()
     }
 }
 

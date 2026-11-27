@@ -1,21 +1,21 @@
 //! The home assistant's project tools, which a Beep desktop answers. A
-//! desktop answers them itself through the hook its host gives `Offers`, and
+//! desktop answers them itself through the hook its host gives `Node`, and
 //! any other node sends the call to a desktop of its mesh over `tools/1` as
 //! `Tool::Projects`, with the tool's action in its arguments.
 
+use super::{Node, ProjectTools};
 use crate::agents::reply::fail;
-use crate::agents::desktop_call::{ProjectTools, elsewhere, forward};
-use crate::link::Offers;
+use crate::peer_stream::{elsewhere, forward};
 use beep_proto::node::tools::{Reply, Request};
 use std::sync::Arc;
 
 /// The reply for a call from a session on this node.
-pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
-    if let Some(projects) = &offers.project_tools {
+pub(super) async fn call(node: &Node, request: &Request) -> Reply {
+    if let Some(projects) = &node.project_tools {
         return projects.call(request.args.clone()).await;
     }
 
-    let Some(mesh) = offers.mesh.get() else {
+    let Some(mesh) = node.mesh.get() else {
         return fail(format!("{} It is not in a mesh.", elsewhere("this machine")));
     };
 
@@ -31,5 +31,5 @@ pub(crate) async fn answer(projects: Option<&Arc<dyn ProjectTools>>, request: &R
 }
 
 #[cfg(test)]
-#[path = "../../tests/agents_mcp_desktop.rs"]
+#[path = "../tests/tools_desktop.rs"]
 mod tests;

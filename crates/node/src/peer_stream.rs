@@ -4,7 +4,7 @@
 //! elections can all use it.
 
 use anyhow::{Context, Result, bail};
-use beep_mesh::Mesh;
+use beep_mesh::{DeviceKind, Mesh};
 use beep_proto::{
     node::{
         LinkRx, LinkTx, Open, Opened,
@@ -206,4 +206,57 @@ pub(crate) enum CallFailed {
     /// The call broke once the request was on its way: it may have run.
     #[error("{0:#}")]
     Sent(anyhow::Error),
+}
+
+pub(crate) fn elsewhere(machine: &str) -> String {
+    format!("The project tools run in the Beep desktop; this session runs on {machine}.")
+}
+
+/// Sends the call to the first online desktop of the mesh. A phone is a
+/// desktop that only observes, so it is skipped.
+pub(crate) async fn forward(mesh: &Mesh, request: &tools::Request) -> tools::Reply {
+    let me = mesh.me();
+    let devices = mesh.devices();
+    let here = devices
+        .iter()
+        .find(|status| status.device.id == me)
+        .map_or("a node", |status| status.device.name.as_str());
+    let mut desktops: Vec<_> = devices
+        .iter()
+        .filter(|status| {
+            status.device.kind == DeviceKind::Desktop
+                && status.online
+                && !mesh.is_observer(status.device.id)
+        })
+        .collect();
+    desktops.sort_by(|a, b| a.device.name.cmp(&b.device.name));
+
+    let Some(desktop) = desktops.first() else {
+        return failed(format!(
+            "{} No desktop of the mesh is online.",
+            elsewhere(here)
+        ));
+    };
+    let name = &desktop.device.name;
+    let replied = over_the_mesh(mesh, desktop.device.id, request).await;
+
+    from_desktop(name, replied)
+}
+
+/// The reply of the desktop `name`.
+pub(crate) fn from_desktop(name: &str, replied: Result<tools::Reply, CallFailed>) -> tools::Reply {
+    match replied {
+        // A desktop from before the tool answers that it serves no such tool.
+        Ok(tools::Reply::Done { text, failed: true }) if text.contains("does not serve Unknown") => {
+            failed(format!(
+                "{name}: That desktop's Beep is too old for the project tools. Update it."
+            ))
+        }
+        Ok(reply) => reply,
+        Err(e) => failed(format!("Could not reach the desktop {name}: {e:#}")),
+    }
+}
+
+fn failed(text: String) -> tools::Reply {
+    tools::Reply::Done { text, failed: true }
 }

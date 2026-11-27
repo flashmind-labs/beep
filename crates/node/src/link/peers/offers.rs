@@ -2,7 +2,7 @@
 
 use crate::{
     membership::Membership,
-    agents::{AgentKind, Agents, TRANSCRIPT_PROTOCOL, desktop_call::ProjectTools, skills::Skills},
+    agents::{AgentKind, Agents, TRANSCRIPT_PROTOCOL, skills::Skills},
     files::transfer::Sharing,
     link::{
         EventSources, protocol::SessionProtocol, sampler::Sampler, search::Searches,
@@ -11,7 +11,9 @@ use crate::{
     protocol::Protocol,
     machine::{provision::Provision, service::logs::Logs},
     run::{device, shell, tasks, terminal},
+    status::Own,
     team::{home::ForgeCli, link::TeamLink},
+    tools::{Caller, Node, ProjectTools},
 };
 use anyhow::{Context, Result};
 use beep_proto::node::{
@@ -19,7 +21,7 @@ use beep_proto::node::{
 };
 use iroh::{Endpoint, EndpointId};
 use std::{
-    path::{Path, PathBuf},
+    path::Path,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -33,16 +35,6 @@ const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 
 
 
-
-/// What a node knows of itself; the code that uses it is in `own`.
-#[derive(Clone)]
-pub(crate) struct Own {
-    pub(crate) endpoint: Endpoint,
-    pub(crate) dir: PathBuf,
-    pub(crate) name: String,
-    /// When the node started.
-    pub(crate) started: SystemTime,
-}
 
 /// Offers made with the node's own values, which `Peers::new` takes. It
 /// derefs to the offers.
@@ -64,6 +56,61 @@ impl std::ops::Deref for Bound {
 impl std::ops::DerefMut for Bound {
     fn deref_mut(&mut self) -> &mut Offers {
         &mut self.offers
+    }
+}
+
+impl Caller {
+    /// This node's own agent calling it.
+    pub(crate) fn local(offers: &Offers) -> Self {
+        Self {
+            table: tasks::Table::Shared,
+            desktop_here: false,
+            commands_off: None,
+            transfers: offers.transfers.get(),
+            agents: Some(offers.agents.clone()),
+            project_tools: offers.project_tools.clone(),
+            team: offers.team.clone(),
+            mesh: offers.mesh.get(),
+        }
+    }
+}
+
+#[cfg(test)]
+impl Node {
+    /// A node of `dir` in no mesh, with no agents, for a test.
+    pub(crate) async fn test(dir: &Path) -> Self {
+        use iroh::endpoint::presets;
+
+        let endpoint = Endpoint::builder(presets::Minimal)
+            .bind()
+            .await
+            .expect("the endpoint binds");
+        let bound = Offers::local(&[], Provision::new(dir)).bound(&endpoint, dir, "build-box");
+        Self::of(&bound)
+    }
+}
+
+#[cfg(test)]
+impl Node {
+    /// A node of `link`, with no agents and in no mesh, for a test of the
+    /// team link's server.
+    pub(crate) fn of_link(link: &TeamLink) -> Self {
+        let own = Own {
+            endpoint: link.endpoint().clone(),
+            dir: std::path::PathBuf::new(),
+            name: "build-box".to_owned(),
+            started: SystemTime::now(),
+        };
+
+        Offers::default().node(&own, link)
+    }
+}
+
+impl Node {
+    /// What the tools read of the node `bound` made.
+    #[must_use]
+    pub fn of(bound: &Bound) -> Self {
+        bound.offers.node(&bound.own, &bound.team)
     }
 }
 
@@ -138,6 +185,20 @@ impl Offers {
         self.own = Some(own.clone());
 
         Bound { offers: self, own, team }
+    }
+
+    /// What the Beep MCP server's tools read of this node: the sessions,
+    /// the mesh and the node's own values.
+    pub(crate) fn node(&self, own: &Own, team: &TeamLink) -> Node {
+        Node {
+            agents: self.agents.clone(),
+            mesh: self.mesh.clone(),
+            transfers: self.transfers.clone(),
+            team: team.clone(),
+            project_tools: self.project_tools.clone(),
+            own: own.clone(),
+            log: self.log.clone(),
+        }
     }
 
     /// What every node serves, the CLI and the Mac app alike: the coding

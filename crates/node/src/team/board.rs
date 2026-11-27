@@ -51,7 +51,7 @@ impl Boards {
     }
 
     /// `repo`'s board now, and what changes on it from now on.
-    pub(in crate::team) fn watch(&self, repo: &TeamRepo) -> Option<Watched> {
+    pub(crate) fn watch(&self, repo: &TeamRepo) -> Option<Watched> {
         let board = self.0.get(repo)?;
 
         Some((board.cards.clone(), board.changes.subscribe()))

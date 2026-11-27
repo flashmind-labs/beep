@@ -9,7 +9,8 @@ use super::{
     server::Called,
 };
 use crate::agents::machine_list::{Machine, find_or_id_named};
-use crate::{agents::calls::command_name, link::Offers, run::device};
+use super::Node;
+use crate::{agents::calls::command_name, run::device};
 use anyhow::{Context, Result, bail};
 use beep_mesh::Mesh;
 use beep_proto::SessionId;
@@ -188,7 +189,7 @@ impl TryFrom<Value> for Action {
 
 /// Runs one `device` call for `session`, which keeps the device the call used.
 pub(super) async fn call(
-    offers: &Offers,
+    node: &Node,
     mesh: &Mesh,
     screens: &Screens,
     session: &SessionId,
@@ -198,7 +199,7 @@ pub(super) async fn call(
         Ok(action) => action,
         Err(e) => return Called::failed(e),
     };
-    let reach = Reach { offers, mesh };
+    let reach = Reach { node, mesh };
 
     let (called, used) = match run(&reach, screens, action).await {
         Ok(ran) => ran,
@@ -206,7 +207,7 @@ pub(super) async fn call(
     };
 
     if let Some(device) = used
-        && let Err(e) = offers.agents.set_device(session, Some(device)).await
+        && let Err(e) = node.agents.set_device(session, Some(device)).await
     {
         log::debug!("the session did not keep its device: {e:#}");
     }
@@ -218,7 +219,7 @@ pub(super) async fn call(
 type Ran = (Called, Option<SessionDevice>);
 
 struct Reach<'a> {
-    offers: &'a Offers,
+    node: &'a Node,
     mesh: &'a Mesh,
 }
 
@@ -610,7 +611,7 @@ impl Reach<'_> {
 
         let link = beep_proto::node::local_link();
         let (node_tx, node_rx) = link.node;
-        let agents = self.offers.agents.clone();
+        let agents = self.node.agents.clone();
         let task = tokio::spawn(async move {
             if let Err(e) = agents.serve_device(node_tx, node_rx).await {
                 log::debug!("an agent's device stream ended: {e:#}");
@@ -924,5 +925,5 @@ fn break_with(waiting: &mut Vec<oneshot::Sender<Result<Frame, String>>>, reason:
 }
 
 #[cfg(test)]
-#[path = "../../tests/agents_mcp_devices.rs"]
+#[path = "../tests/tools_devices.rs"]
 mod tests;

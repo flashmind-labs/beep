@@ -17,44 +17,44 @@ pub(in crate::agents) struct History {
 /// and thinking level when given) or an earlier one resumed by the agent's
 /// id.
 #[derive(Default)]
-pub(in crate::agents) struct Begin {
-    pub(in crate::agents) prompt: Option<String>,
+pub(crate) struct Begin {
+    pub(crate) prompt: Option<String>,
     /// Images that go with `prompt`.
-    pub(in crate::agents) images: Vec<Upload>,
-    pub(in crate::agents) resume: Option<SessionId>,
+    pub(crate) images: Vec<Upload>,
+    pub(crate) resume: Option<SessionId>,
     /// The resumed session's transcript from before the node restarted.
-    pub(in crate::agents) earlier: Vec<agent::Entry>,
-    pub(in crate::agents) timestamps: Option<(u64, u64)>,
-    pub(in crate::agents) title: Option<String>,
+    pub(crate) earlier: Vec<agent::Entry>,
+    pub(crate) timestamps: Option<(u64, u64)>,
+    pub(crate) title: Option<String>,
     /// Its parent gave `title`, which its agent's own names leave alone.
-    pub(in crate::agents) named: bool,
-    pub(in crate::agents) model: Option<ModelId>,
-    pub(in crate::agents) effort: Option<agent::Effort>,
-    pub(in crate::agents) fast: Option<bool>,
+    pub(crate) named: bool,
+    pub(crate) model: Option<ModelId>,
+    pub(crate) effort: Option<agent::Effort>,
+    pub(crate) fast: Option<bool>,
     /// The session mode it was in before the node restarted.
-    pub(in crate::agents) mode: Option<String>,
+    pub(crate) mode: Option<String>,
     /// A first line for the transcript, such as the branch it started on.
-    pub(in crate::agents) note: Option<String>,
+    pub(crate) note: Option<String>,
     /// Beep's word to the agent ahead of the first prompt.
-    pub(in crate::agents) brief: Option<Cow<'static, str>>,
+    pub(crate) brief: Option<Cow<'static, str>>,
     /// The linked worktrees it created, kept across restarts and moves.
-    pub(in crate::agents) worktrees: Vec<String>,
+    pub(crate) worktrees: Vec<String>,
     /// The session that started this one with `start_agent`.
-    pub(in crate::agents) parent: Option<ParentLink>,
+    pub(crate) parent: Option<ParentLink>,
     /// The parent's state when it runs here.
-    pub(in crate::agents) follows: Option<watch::Receiver<Live>>,
+    pub(crate) follows: Option<watch::Receiver<Live>>,
     /// A temporary reviewer (`agents::reviews`).
-    pub(in crate::agents) review: bool,
+    pub(crate) review: bool,
     /// The home assistant, as asked for (Cmd+N on Home) or as saved.
-    pub(in crate::agents) assistant: bool,
+    pub(crate) assistant: bool,
     /// The named account to sign in as; `None` for the default one.
-    pub(in crate::agents) account: Option<AccountName>,
+    pub(crate) account: Option<AccountName>,
     /// The custom agent it runs as.
-    pub(in crate::agents) persona: Option<Persona>,
+    pub(crate) persona: Option<Persona>,
     /// The custom agent's instructions, said once after Beep's brief.
-    pub(in crate::agents) instructions: Option<String>,
+    pub(crate) instructions: Option<String>,
     /// The session this one carries on (`SessionInfo::continues`).
-    pub(in crate::agents) continues: Option<SessionId>,
+    pub(crate) continues: Option<SessionId>,
     /// The team issue its first prompt names (`SessionInfo::issue`).
-    pub(in crate::agents) issue: Option<u64>,
+    pub(crate) issue: Option<u64>,
 }

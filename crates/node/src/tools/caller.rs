@@ -1,12 +1,7 @@
 //! Who calls a tool of this machine, and what it lets them do.
 
-use super::{Agents, desktop_call::ProjectTools};
-use crate::{
-    files::transfer::Transfers,
-    link::Offers,
-    run::tasks::Table,
-    team::link::TeamLink,
-};
+use super::{Node, ProjectTools};
+use crate::{agents::Agents, files::transfer::Transfers, run::tasks::Table, team::link::TeamLink};
 use beep_mesh::Mesh;
 use std::sync::Arc;
 
@@ -37,16 +32,16 @@ pub(crate) struct Caller {
 
 impl Caller {
     /// This node's own agent calling it.
-    pub(crate) fn local(offers: &Offers) -> Self {
+    pub(crate) fn of(node: &Node) -> Self {
         Self {
             table: Table::Shared,
             desktop_here: false,
             commands_off: None,
-            transfers: offers.transfers.get(),
-            agents: Some(offers.agents.clone()),
-            project_tools: offers.project_tools.clone(),
-            team: offers.team.clone(),
-            mesh: offers.mesh.get(),
+            transfers: node.transfers.get(),
+            agents: Some(node.agents.clone()),
+            project_tools: node.project_tools.clone(),
+            team: Some(node.team.clone()),
+            mesh: node.mesh.get(),
         }
     }
 }

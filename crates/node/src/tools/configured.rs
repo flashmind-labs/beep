@@ -330,5 +330,5 @@ fn write(path: &Path, original: &str, edited: &str) -> Result<()> {
 }
 
 #[cfg(test)]
-#[path = "../../tests/agents_mcp_configured.rs"]
+#[path = "../tests/tools_configured.rs"]
 mod tests;

@@ -30,7 +30,6 @@ host! {
     pub(crate) mod watchdog;
 
     pub use peers::{Bound, Offers};
-    pub(crate) use peers::Own;
     pub use serve::{listen_hooks, serve};
     pub use traffic::Traffic;
 }

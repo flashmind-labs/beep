@@ -1,7 +1,7 @@
 use beep_proto::SessionId;
 use super::*;
 use futures::future::BoxFuture;
-use crate::agents::desktop_call::{forward, from_desktop};
+use crate::peer_stream::{forward, from_desktop};
 use beep_mesh::Mesh;
 use beep_proto::node::tools::Tool;
 use beep_mesh::Key;
@@ -33,22 +33,21 @@ fn request() -> Request {
 
 #[tokio::test]
 async fn a_desktop_answers_for_its_own_sessions_and_for_a_node() {
-    let offers = Offers {
-        project_tools: Some(Arc::new(Echo)),
-        ..Offers::default()
-    };
+    let dir = tempfile::tempdir().unwrap();
+    let mut node = Node::test(dir.path()).await;
+    node.project_tools = Some(Arc::new(Echo));
     let expected = Reply::Done {
         text: r#"got {"action":"hosts"}"#.to_owned(),
         failed: false,
     };
 
-    assert_eq!(call(&offers, &request()).await, expected);
-    assert_eq!(answer(offers.project_tools.as_ref(), &request()).await, expected);
+    assert_eq!(call(&node, &request()).await, expected);
+    assert_eq!(answer(node.project_tools.as_ref(), &request()).await, expected);
 }
 
 #[tokio::test]
 async fn a_node_without_a_mesh_or_a_desktop_says_where_the_tool_runs() {
-    let Reply::Done { text, failed } = call(&Offers::default(), &request()).await else {
+    let Reply::Done { text, failed } = call(&Node::test(tempfile::tempdir().unwrap().path()).await, &request()).await else {
         panic!("not done");
     };
     assert!(

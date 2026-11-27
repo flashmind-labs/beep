@@ -3,7 +3,6 @@ use crate::agents::{child_reach::show_children, family::peer};
 use serde_json::json;
 use crate::{
     agents::{AgentKind, Begin},
-    machine::provision::Provision,
 };
 use beep_proto::AgentSlug;
 use beep_proto::node::agent::{Entry, EntryKind, Question, SessionInfo, State, Status, WorkPlace};
@@ -154,7 +153,7 @@ fn kind(name: &str) -> AgentKind {
     }
 }
 
-async fn tool(offers: &Offers, session: &SessionId, tool: Tool, args: Value) -> (bool, String) {
+async fn tool(node: &Node, session: &SessionId, tool: Tool, args: Value) -> (bool, String) {
     let request = Request {
         session: session.clone(),
         tool,
@@ -162,7 +161,7 @@ async fn tool(offers: &Offers, session: &SessionId, tool: Tool, args: Value) -> 
         approved: Default::default(),
     };
 
-    match call(offers, &request).await {
+    match call(node, &request).await {
         Reply::Done { text, failed } => (failed, text),
         other => panic!("not done: {other:?}"),
     }
@@ -200,14 +199,14 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
     )
     .await
     .unwrap();
-    let mut offers = Offers::local(&[], Provision::new(dir.path()));
-    offers.agents = Arc::new(Agents::new(vec![kind("top"), kind("kid")]));
-    offers.mesh.set(mesh);
-    offers.agents.serve_mesh(offers.mesh.clone());
-    let parent = offers
+    let mut node = Node::test(dir.path()).await;
+    node.agents = Arc::new(Agents::new(vec![kind("top"), kind("kid")]));
+    node.mesh.set(mesh);
+    node.agents.serve_mesh(node.mesh.clone());
+    let parent = node
         .agents
         .start(
-            &offers.agents.kinds()[0],
+            &node.agents.kinds()[0],
             Some(dir.path().to_str().unwrap()),
             Begin {
                 prompt: Some("hello".into()),
@@ -231,13 +230,13 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
         json!({"harness":"kid", "prompt":"work", "project":"missing"}),
         json!({"harness":"kid", "prompt":"work", "project":"example/app", "cwd":"/srv/other"}),
     ] {
-        let (failed, text) = tool(&offers, &parent_id, Tool::StartAgent, args).await;
+        let (failed, text) = tool(&node, &parent_id, Tool::StartAgent, args).await;
         assert!(failed, "{text}");
     }
 
     // A project limited to one harness refuses a session of another.
     let limit = |harnesses: Option<Vec<AgentSlug>>| {
-        let mesh = offers.mesh.get().unwrap();
+        let mesh = node.mesh.get().unwrap();
         async move {
             mesh.set(
                 Key::Project("example/app".to_owned()),
@@ -256,7 +255,7 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
     };
     limit(Some(vec![AgentSlug::new("top")])).await;
     let (failed, text) = tool(
-        &offers,
+        &node,
         &parent_id,
         Tool::StartAgent,
         json!({"harness":"kid", "prompt":"work", "project":"example/app"}),
@@ -266,7 +265,7 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
     limit(Some(vec![AgentSlug::new("top"), AgentSlug::new("kid")])).await;
 
     let (failed, text) = tool(
-        &offers,
+        &node,
         &parent_id,
         Tool::StartAgent,
         json!({"harness":"kid", "prompt":"work", "project":"example/app", "wait":true}),
@@ -274,15 +273,15 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
     .await;
     assert!(!failed, "{text}");
     let done = view(&text);
-    let who = offers.agents.caller(&parent_id).unwrap().1;
-    let child = offers
+    let who = node.agents.caller(&parent_id).unwrap().1;
+    let child = node
         .agents
         .child_of(&who, &ChildId::from(done.id.as_str()).session)
         .unwrap();
     assert_eq!(child.info().cwd, checkout.display().to_string());
     let mut child_live = child.live.clone();
     let (failed, text) = tool(
-        &offers,
+        &node,
         &parent_id,
         Tool::SendToAgent,
         json!({"id":done.id, "text":"continue"}),
@@ -299,7 +298,7 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
     .unwrap()
     .unwrap();
     let (failed, text) = tool(
-        &offers,
+        &node,
         &parent_id,
         Tool::AgentStatus,
         json!({"id":done.id}),
@@ -307,7 +306,7 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
     .await;
     assert!(!failed, "{text}");
     assert_eq!(view(&text).turns, 2);
-    offers.agents.shutdown().await;
+    node.agents.shutdown().await;
     endpoint.close().await;
 }
 
@@ -315,13 +314,13 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
 #[tokio::test]
 async fn a_thread_runs_on_its_chats_harness_unless_it_names_one() {
     let dir = tempfile::tempdir().expect("a temporary folder");
-    let mut offers = Offers::local(&[], Provision::new(dir.path()));
-    offers.agents = Arc::new(Agents::new(vec![kind("top"), kind("kid")]));
+    let mut node = Node::test(dir.path()).await;
+    node.agents = Arc::new(Agents::new(vec![kind("top"), kind("kid")]));
     let cwd = dir.path().to_string_lossy().into_owned();
-    let chat = offers
+    let chat = node
         .agents
         .start(
-            &offers.agents.kinds()[0],
+            &node.agents.kinds()[0],
             Some(&cwd),
             Begin {
                 prompt: Some("hello".to_owned()),
@@ -343,7 +342,7 @@ async fn a_thread_runs_on_its_chats_harness_unless_it_names_one() {
 
     // `start_thread` calls `start_agent` with what it takes: no harness.
     let (failed, text) = tool(
-        &offers,
+        &node,
         &chat,
         Tool::StartAgent,
         json!({ "title": "Pricing", "prompt": "work" }),
@@ -356,7 +355,7 @@ async fn a_thread_runs_on_its_chats_harness_unless_it_names_one() {
         ("top", Some("Pricing"))
     );
     let (failed, text) = tool(
-        &offers,
+        &node,
         &chat,
         Tool::StartAgent,
         json!({ "title": "Legal", "prompt": "work", "harness": "kid" }),
@@ -364,7 +363,7 @@ async fn a_thread_runs_on_its_chats_harness_unless_it_names_one() {
     .await;
     assert!(!failed, "{text}");
     assert_eq!(view(&text).harness, "kid");
-    offers.agents.shutdown().await;
+    node.agents.shutdown().await;
 }
 
 #[cfg(unix)]
@@ -381,13 +380,13 @@ async fn a_thread_runs_as_a_persona_on_its_harness_when_this_machine_has_it() {
         "name = \"researcher\"\ndeveloper_instructions = \"Cite sources.\"",
     );
     write(".claude/agents/writer.md", "---\nname: writer\n---\nWrite plainly.");
-    let mut offers = Offers::local(&[], Provision::new(dir.path()));
-    offers.agents = Arc::new(Agents::new(vec![kind("top"), kind("codex")]));
+    let mut node = Node::test(dir.path()).await;
+    node.agents = Arc::new(Agents::new(vec![kind("top"), kind("codex")]));
     let cwd = dir.path().to_string_lossy().into_owned();
-    let chat = offers
+    let chat = node
         .agents
         .start(
-            &offers.agents.kinds()[0],
+            &node.agents.kinds()[0],
             Some(&cwd),
             Begin {
                 prompt: Some("hello".to_owned()),
@@ -411,7 +410,7 @@ async fn a_thread_runs_as_a_persona_on_its_harness_when_this_machine_has_it() {
         if let Some(harness) = harness {
             args["harness"] = json!(harness);
         }
-        tool(&offers, &chat, Tool::StartAgent, args)
+        tool(&node, &chat, Tool::StartAgent, args)
     };
 
     // Its own harness, which this machine has.
@@ -419,7 +418,7 @@ async fn a_thread_runs_as_a_persona_on_its_harness_when_this_machine_has_it() {
     assert!(!failed, "{text}");
     let researcher = view(&text);
     assert_eq!(researcher.harness, "codex");
-    let session = offers.agents.get(&researcher.key).expect("the thread runs here");
+    let session = node.agents.get(&researcher.key).expect("the thread runs here");
     assert_eq!(session.info().persona.map(|persona| persona.name).as_deref(), Some("researcher"));
     // Claude's, which it has not: the chat's.
     let (failed, text) = start("writer", None).await;
@@ -433,21 +432,21 @@ async fn a_thread_runs_as_a_persona_on_its_harness_when_this_machine_has_it() {
     let (failed, text) = start("nobody", None).await;
     assert!(failed);
     assert!(text.starts_with("There is no custom agent called nobody. There are: writer, researcher"), "{text}");
-    offers.agents.shutdown().await;
+    node.agents.shutdown().await;
 }
 
 #[cfg(unix)]
 #[tokio::test]
 async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
     let dir = tempfile::tempdir().expect("a temporary folder");
-    let mut offers = Offers::local(&[], Provision::new(dir.path()));
-    offers.agents = Arc::new(Agents::new(vec![kind("top"), kind("kid")]));
+    let mut node = Node::test(dir.path()).await;
+    node.agents = Arc::new(Agents::new(vec![kind("top"), kind("kid")]));
     let cwd = dir.path().to_string_lossy().into_owned();
     let start = async |name: &str| {
-        offers
+        node
             .agents
             .start(
-                &offers.agents.kinds()[0],
+                &node.agents.kinds()[0],
                 Some(&cwd),
                 Begin {
                     prompt: Some(format!("hello {name}")),
@@ -475,7 +474,7 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
 
     // `wait` returns the answer once the child's turn ends.
     let (failed, text) = tool(
-        &offers,
+        &node,
         &mine,
         Tool::StartAgent,
         json!({ "harness": "kid", "prompt": "work", "wait": true }),
@@ -492,7 +491,7 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
 
     // A child that is still working returns at once without `wait`.
     let (failed, text) = tool(
-        &offers,
+        &node,
         &mine,
         Tool::StartAgent,
         json!({ "harness": "kid", "prompt": "hang about" }),
@@ -503,41 +502,41 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
     assert_eq!(busy.state, "working");
 
     // A child still waiting for ACP counts towards limits but has no id to list.
-    let (parent, who) = offers.agents.caller(&mine).unwrap();
+    let (parent, who) = node.agents.caller(&mine).unwrap();
     let mut unnamed_kind = kind("kid");
     unnamed_kind.args = vec!["-c".into(), "cat > /dev/null".into()];
-    let unnamed = offers
+    let unnamed = node
         .agents
         .start(
             &unnamed_kind,
             Some(&cwd),
             Begin {
-                parent: Some(offers.agents.link_for(&parent, &who).unwrap()),
+                parent: Some(node.agents.link_for(&parent, &who).unwrap()),
                 ..Begin::default()
             },
         )
         .await.unwrap();
-    assert_eq!(offers.agents.children_of(&who).len(), 3);
-    let (_, text) = tool(&offers, &mine, Tool::ListAgents, json!({})).await;
+    assert_eq!(node.agents.children_of(&who).len(), 3);
+    let (_, text) = tool(&node, &mine, Tool::ListAgents, json!({})).await;
     let listed: Vec<ChildView> = serde_json::from_str(&text).expect("a list");
     assert_eq!(listed.len(), 2, "{text}");
     unnamed.close().await;
 
     // Another agent neither checks nor stops them, and lists none as its own.
     for tool_name in [Tool::AgentStatus, Tool::StopAgent] {
-        let (failed, text) = tool(&offers, &theirs, tool_name, json!({ "id": done.id })).await;
+        let (failed, text) = tool(&node, &theirs, tool_name, json!({ "id": done.id })).await;
         assert!(failed && text.starts_with("You have no agent"), "{text}");
     }
 
-    let (_, text) = tool(&offers, &theirs, Tool::ListAgents, json!({})).await;
+    let (_, text) = tool(&node, &theirs, Tool::ListAgents, json!({})).await;
     assert_eq!(text, "[]");
 
     // It finds them among every agent and messages one.
-    let (_, text) = tool(&offers, &theirs, Tool::ListAgents, json!({ "all": true })).await;
+    let (_, text) = tool(&node, &theirs, Tool::ListAgents, json!({ "all": true })).await;
     let everyone: Vec<ChildView> = serde_json::from_str(&text).expect("a list");
     assert!(everyone.iter().any(|view| view.id == done.id), "{text}");
     let (failed, text) = tool(
-        &offers,
+        &node,
         &theirs,
         Tool::SendToAgent,
         json!({ "id": done.id, "text": "hi" }),
@@ -547,22 +546,22 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
 
     // Its own agent takes a message and reads its answer.
     let (failed, text) = tool(
-        &offers,
+        &node,
         &mine,
         Tool::SendToAgent,
         json!({ "id": done.id, "text": "once more" }),
     )
     .await;
     assert!(!failed, "{text}");
-    let (_, text) = tool(&offers, &mine, Tool::AgentStatus, json!({ "id": done.id })).await;
+    let (_, text) = tool(&node, &mine, Tool::AgentStatus, json!({ "id": done.id })).await;
     assert!(view(&text).turns >= 1);
 
     // Stopping one child leaves the other; the parent leaves neither.
-    let (failed, _) = tool(&offers, &mine, Tool::StopAgent, json!({ "id": busy.id })).await;
+    let (failed, _) = tool(&node, &mine, Tool::StopAgent, json!({ "id": busy.id })).await;
     assert!(!failed);
-    let (_, text) = tool(&offers, &mine, Tool::AgentStatus, json!({ "id": busy.id })).await;
+    let (_, text) = tool(&node, &mine, Tool::AgentStatus, json!({ "id": busy.id })).await;
     assert_eq!(view(&text).state, "ended");
-    let (_, text) = tool(&offers, &mine, Tool::AgentStatus, json!({ "id": done.id })).await;
+    let (_, text) = tool(&node, &mine, Tool::AgentStatus, json!({ "id": done.id })).await;
     assert_ne!(view(&text).state, "ended");
 
     // A child its parent no longer has shows as ended, not as it started.
@@ -576,27 +575,27 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
         serde_json::to_string(&gone).unwrap()
     );
     let mut entries = [Entry::new(EntryKind::Tool, call)];
-    show_children(&offers.agents, &parent, &mut entries);
+    show_children(&node.agents, &parent, &mut entries);
     assert!(
         entries[0].text.contains(&format!("[child] {} ended", gone.id)),
         "{}",
         entries[0].text
     );
-    offers.agents.shutdown().await;
+    node.agents.shutdown().await;
 }
 
 #[cfg(unix)]
 #[tokio::test]
 async fn an_agent_in_a_restricted_mode_starts_no_child_of_another_harness() {
     let dir = tempfile::tempdir().expect("a temporary folder");
-    let mut offers = Offers::local(&[], Provision::new(dir.path()));
+    let mut node = Node::test(dir.path()).await;
     // The harness named `claude` has a full access mode of its own.
-    offers.agents = Arc::new(Agents::new(vec![kind("claude"), kind("kid")]));
+    node.agents = Arc::new(Agents::new(vec![kind("claude"), kind("kid")]));
     let cwd = dir.path().to_string_lossy().into_owned();
-    let parent = offers
+    let parent = node
         .agents
         .start(
-            &offers.agents.kinds()[0],
+            &node.agents.kinds()[0],
             Some(&cwd),
             Begin {
                 prompt: Some("hello".into()),
@@ -617,7 +616,7 @@ async fn an_agent_in_a_restricted_mode_starts_no_child_of_another_harness() {
     .expect("the session is kept");
     let id = Agents::name_of(&parent);
     let (failed, text) = tool(
-        &offers,
+        &node,
         &id,
         Tool::StartAgent,
         json!({ "harness": "kid", "prompt": "go" }),
@@ -625,14 +624,14 @@ async fn an_agent_in_a_restricted_mode_starts_no_child_of_another_harness() {
     .await;
     assert!(failed && text.contains("below full access"), "{text}");
     let (failed, text) = tool(
-        &offers,
+        &node,
         &id,
         Tool::StartAgent,
         json!({ "harness": "claude", "prompt": "go", "wait": true }),
     )
     .await;
     assert!(!failed, "{text}");
-    offers.agents.shutdown().await;
+    node.agents.shutdown().await;
 }
 
 #[cfg(unix)]

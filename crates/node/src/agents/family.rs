@@ -58,7 +58,7 @@ pub(crate) const NO_AGENT: &str = "You have no agent";
 
 /// What the node knows of the family trees it takes part in.
 #[derive(Default)]
-pub(super) struct Family {
+pub(crate) struct Family {
     remote: Arc<Mutex<Vec<RemoteKid>>>,
     membership: Arc<SetOnce<Membership>>,
     /// Per parent with children elsewhere, the task that stops them when it
@@ -146,7 +146,7 @@ pub(crate) struct Review {
 impl Agents {
     /// Lets the family reach other machines, once the node serves the Beep
     /// MCP server. Only the first call counts.
-    pub(super) fn serve_mesh(&self, membership: Membership) {
+    pub(crate) fn serve_mesh(&self, membership: Membership) {
         let _ = self.family.membership.set(membership);
     }
 
@@ -162,14 +162,14 @@ impl Agents {
 
     /// The id a session goes by in links: the agent's own when it has one,
     /// which outlives a restart.
-    pub(super) fn name_of(session: &Session) -> SessionId {
+    pub(crate) fn name_of(session: &Session) -> SessionId {
         watched::read(&session.live, |live| live.agent_session.clone())
             .unwrap_or_else(|| session.id.clone())
     }
 
     /// The calling session `session` of this node, and who it is to its
     /// children.
-    pub(super) fn caller(&self, session: &SessionId) -> Option<(Arc<Session>, Who)> {
+    pub(crate) fn caller(&self, session: &SessionId) -> Option<(Arc<Session>, Who)> {
         let found = self.get(session)?;
         let who = self.who_of(&found);
         Some((found, who))
@@ -184,7 +184,7 @@ impl Agents {
     }
 
     /// The link a child of `parent` carries, or why it may not be started.
-    pub(super) fn link_for(&self, parent: &Session, who: &Who) -> Result<ParentLink, String> {
+    pub(crate) fn link_for(&self, parent: &Session, who: &Who) -> Result<ParentLink, String> {
         let info = parent.info();
         let above = info.parent.as_ref();
         let depth = above.map_or(0, |link| link.depth).saturating_add(1);
@@ -268,7 +268,7 @@ impl Agents {
     }
 
     /// The live children of `who` that run here.
-    pub(super) fn children_of(&self, who: &Who) -> Vec<Arc<Session>> {
+    pub(crate) fn children_of(&self, who: &Who) -> Vec<Arc<Session>> {
         let mut kids: Vec<Arc<Session>> = self
             .session_map()
             .values()
@@ -296,7 +296,7 @@ impl Agents {
     /// The child `id` of `who` that runs here; the same refusal for a
     /// session that is not there and one that is not `who`'s, so an agent
     /// learns nothing of the others.
-    pub(super) fn child_of(&self, who: &Who, id: &SessionId) -> Result<Arc<Session>, String> {
+    pub(crate) fn child_of(&self, who: &Who, id: &SessionId) -> Result<Arc<Session>, String> {
         self.get(id)
             .filter(|session| watched::read(&session.live, |live| is_child_of(live, who)))
             .ok_or_else(|| format!("{NO_AGENT} {id}."))
@@ -328,7 +328,7 @@ impl Agents {
 
     /// Hands `text`, from the agent `from`, to the live session `id` here,
     /// which counts it against `PEER_MESSAGES`.
-    pub(super) async fn message(&self, from: &SessionId, id: &SessionId, text: String) -> Result<(), String> {
+    pub(crate) async fn message(&self, from: &SessionId, id: &SessionId, text: String) -> Result<(), String> {
         let session = self
             .peers(None)
             .into_iter()
@@ -343,14 +343,14 @@ impl Agents {
     /// Hands `text`, from its parent, to the child `child` here. What the
     /// child does with it is the parent's to hear the end of, whoever began
     /// the turn it joins.
-    pub(super) async fn tell_child(child: &Session, text: String) -> Result<(), String> {
+    pub(crate) async fn tell_child(child: &Session, text: String) -> Result<(), String> {
         child.set_user_turn(false).await;
         child.order(Command::Steer(text.into())).await
     }
 
     /// Starts the child `link` describes, here. The node that starts it
     /// checks the limits, whichever machine the parent is on.
-    pub(super) async fn start_child(
+    pub(crate) async fn start_child(
         &self,
         link: ParentLink,
         start: ChildStart,
@@ -469,7 +469,7 @@ impl Agents {
     /// go with the parent's own Stop all. They stop at once,
     /// side by side, so one machine that does not answer holds up none of
     /// the others; what already ended is left alone.
-    pub(in crate::agents) async fn cancel_family(&self, session: &Arc<Session>) {
+    pub(crate) async fn cancel_family(&self, session: &Arc<Session>) {
         let mut local: Vec<Arc<Session>> = Vec::new();
         let mut remote: Vec<(SessionId, RemoteKid)> = Vec::new();
         let mut queue = vec![session.clone()];

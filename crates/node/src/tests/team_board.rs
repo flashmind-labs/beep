@@ -1,5 +1,6 @@
 use super::*;
 use crate::team::home::TeamForge;
+use crate::tools::Node;
 use crate::team::link::{
     TeamLink,
     board_io::{Followed, Heard, follow},
@@ -130,10 +131,18 @@ pub(crate) struct Pair {
 
 /// A device of the team on its own endpoint, served.
 pub(crate) async fn device() -> (TeamLink, Router) {
+    device_of(|node| node).await
+}
+
+/// A device of the team served as the node `of` makes from a bare one.
+pub(crate) async fn device_of(of: impl FnOnce(Node) -> Node) -> (TeamLink, Router) {
     let endpoint = Endpoint::builder(presets::Minimal).bind().await.unwrap();
     let link = TeamLink::new(endpoint.clone(), Arc::new(Forge));
     let router = Router::builder(endpoint)
-        .accept(beep_proto::team::ALPN, link.handler())
+        .accept(
+            beep_proto::team::ALPN,
+            crate::tools::team_link::TeamAlpn::new(of(Node::of_link(&link))),
+        )
         .spawn();
 
     (link, router)
@@ -141,7 +150,12 @@ pub(crate) async fn device() -> (TeamLink, Router) {
 
 impl Pair {
     pub(crate) async fn new() -> Self {
-        let (gateway, gateway_router) = device().await;
+        Self::served_as(|node| node).await
+    }
+
+    /// The pair, whose gateway serves as the node `of` makes from a bare one.
+    pub(crate) async fn served_as(of: impl FnOnce(Node) -> Node) -> Self {
+        let (gateway, gateway_router) = device_of(of).await;
         let (laptop, laptop_router) = device().await;
         let lookup = MemoryLookup::new();
         lookup.add_endpoint_info(gateway.endpoint().addr());
