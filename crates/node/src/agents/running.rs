@@ -1,7 +1,11 @@
 //! Starting, finding and stopping the sessions this node runs.
 
 use super::{
-    AgentKind, Agents, Session, checkout, harnesses, machine_list, projects,
+    AgentKind, Agents, Session, checkout, family,
+    family::{ChildStart, links::MAX_DEPTH},
+    harnesses,
+    live::Mark,
+    machine_list, projects,
     session::{Begin, Start},
     sessions::new_id,
 };
@@ -9,7 +13,7 @@ use crate::machine::env::locate::folder;
 use crate::{agents::child_reach, process::spawn_env};
 use anyhow::{Context, Result};
 use beep_proto::SessionId;
-use beep_proto::node::agent::{self, CheckoutPlan, Status};
+use beep_proto::node::agent::{self, CheckoutPlan, ParentLink, Persona, Status};
 use beep_proto::watched;
 use beep_proto::{AccountName, AgentAccount};
 use std::time::Duration;
@@ -63,7 +67,7 @@ impl Agents {
             }
         }
 
-        child_reach::show_children(self, session, &mut entries);
+        child_reach::show_children(&self.family, session, &mut entries);
         let start = native + earlier.saturating_sub(dropped);
         if let Some(history) = history
             && earlier == dropped
@@ -467,6 +471,74 @@ fn own_folder(cwd: Option<&str>, begin: &Begin) -> Result<Option<String>> {
 }
 
 impl Agents {
+    /// Starts the child `link` describes, here. The node that starts it
+    /// checks the limits, whichever machine the parent is on.
+    pub(crate) async fn start_child(
+        &self,
+        link: ParentLink,
+        start: ChildStart,
+    ) -> Result<Arc<Session>, String> {
+        if link.depth == 0 || link.depth > MAX_DEPTH {
+            return Err(family::too_deep());
+        }
+
+        let kind = self.catalog.kind_or_refusal(&start.harness)?;
+        let mode = match &start.review {
+            Some(_) => family::review_mode(&link, &kind.name)?,
+            None => family::child_mode(&link, &kind.name)?,
+        };
+        let follows = self.family.parent_live_of(&link);
+        let parent = (link.machine == self.links.me())
+            .then(|| self.sessions.get(&link.session))
+            .flatten();
+        let root = (link.root_machine, link.root.clone());
+        let title = start.title.filter(|title| !title.trim().is_empty());
+        let begin = Begin {
+            prompt: Some(start.prompt),
+            named: title.is_some(),
+            title,
+            model: start.model,
+            effort: start.review.as_ref().and_then(|review| review.effort),
+            fast: start.review.as_ref().and_then(|review| review.fast),
+            mode,
+            parent: Some(link),
+            follows,
+            review: start.review.is_some(),
+            account: start
+                .account
+                .filter(|_| AgentAccount::from_str(&kind.name).is_ok()),
+            persona: start.persona.as_ref().map(Into::<Persona>::into),
+            instructions: start
+                .persona
+                .as_ref()
+                .map(crate::custom_agents::persona_brief),
+            ..Begin::default()
+        };
+        let elsewhere = self.family.live_elsewhere(&root).await;
+        // Held until the child is listed. It then counts twice for an
+        // instant, which can refuse a start but never admit one too many.
+        let place = self.family.take_place(&root, elsewhere)?;
+        let session = self
+            .start_in(&kind, start.cwd.as_deref(), None, begin)
+            .await
+            .map_err(|e| format!("{e:#}"))?;
+        drop(place);
+        self.family.watch_parent(&session);
+
+        // Its prompt says what the parent knew: it has seen the parent so far.
+        if let Some(parent) = parent {
+            session
+                .see(vec![(
+                    parent.id.clone(),
+                    watched::read(&parent.live, |live| Into::<Mark>::into(live)),
+                )])
+                .await;
+        }
+
+        session.named_info().await?;
+        Ok(session)
+    }
+
     /// The subfolder of its own, made now, that a child called `title`
     /// starts in when its parent names none and `parent` is in an assistant
     /// conversation's folder. `None` anywhere else: it starts in the parent's.

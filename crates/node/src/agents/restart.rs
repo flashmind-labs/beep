@@ -320,7 +320,7 @@ impl Agents {
         let follows = open
             .parent
             .as_ref()
-            .and_then(|link| self.parent_live_of(link));
+            .and_then(|link| self.family.parent_live_of(link));
         let session = self
             .start(
                 &kind,
@@ -348,7 +348,7 @@ impl Agents {
                 },
             )
             .await?;
-        self.watch_parent(&session);
+        self.family.watch_parent(&session);
 
         if open.device.is_some() {
             session

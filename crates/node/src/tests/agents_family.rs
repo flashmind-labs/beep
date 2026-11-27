@@ -1,9 +1,10 @@
 use super::*;
-use crate::agents::Parts;
+use crate::agents::family::Family;
 use crate::agents::{
     AgentKind, OpenSession, SavedSession,
     family::links::{Links, Waits},
 };
+use crate::agents::{Agents, Begin, Parts};
 use crate::team::{asks::Delivery, link::TeamLink};
 use beep_proto::node::agent::{Persona, Request};
 use beep_proto::watched;
@@ -103,8 +104,8 @@ async fn child_of(
     prompt: &str,
     dir: &Path,
 ) -> Arc<Session> {
-    let who = agents.who_of(parent);
-    let link = agents.link_for(parent, &who).expect("within limits");
+    let who = agents.family.who_of(parent);
+    let link = agents.family.link_for(parent, &who).expect("within limits");
     agents
         .start_child(link, start(harness, prompt, dir))
         .await
@@ -151,7 +152,7 @@ async fn a_child_is_a_session_linked_to_its_parent() {
     assert_eq!(link.root, link.session);
     assert_eq!(link.depth, 1);
     assert_eq!(info.agent, "kid");
-    let who = rig.agents.who_of(&parent);
+    let who = rig.agents.family.who_of(&parent);
     assert_eq!(rig.agents.sessions.children_of(&who).len(), 1);
     rig.agents.shutdown().await;
 }
@@ -165,7 +166,7 @@ async fn child_completions_reach_the_parent_without_user_alerts() {
     let child = child_of(&rig.agents, &parent, "kid", "work", rig.dir.path()).await;
     until(&child, |live| live.info.turns == 1).await;
     assert!(rig.agents.alerts.drain().is_empty());
-    let who = rig.agents.who_of(&parent);
+    let who = rig.agents.family.who_of(&parent);
     let children = rig.agents.sessions.children_of(&who);
     assert_eq!(children.len(), 1);
     assert!(Arc::ptr_eq(&children[0], &child));
@@ -180,8 +181,8 @@ async fn a_chain_may_go_three_deep_and_no_deeper() {
     let second = child_of(&rig.agents, &first, "kid", "two", rig.dir.path()).await;
     let third = child_of(&rig.agents, &second, "kid", "three", rig.dir.path()).await;
     assert_eq!(third.info().parent.expect("a link").depth, MAX_DEPTH);
-    let who = rig.agents.who_of(&third);
-    let refused = rig.agents.link_for(&third, &who).unwrap_err();
+    let who = rig.agents.family.who_of(&third);
+    let refused = rig.agents.family.link_for(&third, &who).unwrap_err();
     assert!(refused.contains("3 levels deep"), "{refused}");
     // Every child of the chain still counts towards the root.
     let root_id = sessions::name_of(&parent);
@@ -246,7 +247,12 @@ async fn a_root_may_not_have_more_than_eight_agents_across_machines() {
     // Starts under way count too: each holds a place until its child is listed.
     let root = (Some(far), SessionId::from("p0"));
     let places: Vec<_> = (0..MAX_CHILDREN)
-        .map(|_| rig.agents.take_place(&root, 0).expect("within the limit"))
+        .map(|_| {
+            rig.agents
+                .family
+                .take_place(&root, 0)
+                .expect("within the limit")
+        })
         .collect();
     let refused = rig
         .agents
@@ -285,7 +291,7 @@ async fn a_root_may_not_have_more_than_eight_agents_across_machines() {
 async fn a_session_may_not_have_more_than_eight_children() {
     let rig = Rig::new();
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
-    let who = rig.agents.who_of(&parent);
+    let who = rig.agents.family.who_of(&parent);
     // The node itself runs eight sessions at most, so the children are
     // kept on another machine for this count.
     for at in 0..MAX_CHILDREN {
@@ -300,12 +306,12 @@ async fn a_session_may_not_have_more_than_eight_children() {
         crate::lock(&rig.agents.links.remote).push(kid);
     }
 
-    let refused = rig.agents.link_for(&parent, &who).unwrap_err();
+    let refused = rig.agents.family.link_for(&parent, &who).unwrap_err();
     assert!(refused.contains("8 children"), "{refused}");
     // One that ended frees its place but stays there to read.
     let first = rig.agents.links.remote_kids(&who.session)[0].clone();
     rig.agents.links.end_remote(&first);
-    assert!(rig.agents.link_for(&parent, &who).is_ok());
+    assert!(rig.agents.family.link_for(&parent, &who).is_ok());
     assert_eq!(
         rig.agents.links.remote_kids(&who.session).len(),
         MAX_CHILDREN
@@ -320,8 +326,8 @@ async fn an_agent_reaches_only_its_own_children() {
     let theirs = root(&rig.agents, &rig.top, rig.dir.path()).await;
     let child = child_of(&rig.agents, &mine, "kid", "work", rig.dir.path()).await;
     let id = sessions::name_of(&child);
-    let me = rig.agents.who_of(&mine);
-    let other = rig.agents.who_of(&theirs);
+    let me = rig.agents.family.who_of(&mine);
+    let other = rig.agents.family.who_of(&theirs);
     assert!(rig.agents.sessions.child_of(&me, &id).is_ok());
     let refused = rig
         .agents
@@ -557,7 +563,11 @@ async fn news_for_a_message_a_session_did_not_take_comes_with_the_next() {
     })
     .await;
     // Worked out for a message the session then refuses: not seen yet.
-    let (refused, _) = rig.agents.heard(&parent, String::from("go").into()).await;
+    let (refused, _) = rig
+        .agents
+        .family
+        .heard(&parent, String::from("go").into())
+        .await;
     assert!(refused.context.is_some());
     rig.agents
         .send_session("top", &parent.id, said("go"))
@@ -621,7 +631,7 @@ async fn a_parents_message_makes_the_turn_its_own() {
         .expect("the thread takes the user's message");
     assert!(child.user_turn());
     // What the parent now asks of it is the parent's to hear the end of.
-    Agents::tell_child(&child, "more".to_owned())
+    Family::tell_child(&child, "more".to_owned())
         .await
         .expect("the thread takes its parent's message");
     assert!(!child.user_turn());
@@ -649,8 +659,12 @@ async fn a_thread_that_ended_still_tells_whether_the_user_began_its_last_turn() 
 async fn a_reviewer_is_no_thread_of_its_parents_chat() {
     let rig = Rig::new();
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
-    let who = rig.agents.who_of(&parent);
-    let link = rig.agents.link_for(&parent, &who).expect("within limits");
+    let who = rig.agents.family.who_of(&parent);
+    let link = rig
+        .agents
+        .family
+        .link_for(&parent, &who)
+        .expect("within limits");
     let reviewer = rig
         .agents
         .start_child(
@@ -684,14 +698,22 @@ async fn a_thread_keeps_the_name_its_parent_gave_when_its_agent_names_it() {
         title: title.map(str::to_owned),
         ..start("kid", "name it", rig.dir.path())
     };
-    let who = rig.agents.who_of(&parent);
-    let link = rig.agents.link_for(&parent, &who).expect("within limits");
+    let who = rig.agents.family.who_of(&parent);
+    let link = rig
+        .agents
+        .family
+        .link_for(&parent, &who)
+        .expect("within limits");
     let given = rig
         .agents
         .start_child(link, named(Some("Solid-state timelines")))
         .await
         .expect("the child starts");
-    let link = rig.agents.link_for(&parent, &who).expect("within limits");
+    let link = rig
+        .agents
+        .family
+        .link_for(&parent, &who)
+        .expect("within limits");
     let unnamed = rig
         .agents
         .start_child(link, named(None))
@@ -754,8 +776,12 @@ async fn a_users_steer_into_a_working_thread_still_tells_the_main_chat() {
 async fn a_thread_takes_the_title_its_parent_gives() {
     let rig = Rig::new();
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
-    let who = rig.agents.who_of(&parent);
-    let link = rig.agents.link_for(&parent, &who).expect("within limits");
+    let who = rig.agents.family.who_of(&parent);
+    let link = rig
+        .agents
+        .family
+        .link_for(&parent, &who)
+        .expect("within limits");
     let child = rig
         .agents
         .start_child(
@@ -877,7 +903,7 @@ async fn stopping_a_parent_stops_its_children_s_turns() {
     let grandchild = child_of(&rig.agents, &child, "kid", "hang too", rig.dir.path()).await;
     until(&child, |live| live.status() == Status::Working).await;
     until(&grandchild, |live| live.status() == Status::Working).await;
-    rig.agents.cancel_family(&parent).await;
+    rig.agents.family.cancel_family(&parent).await;
     until(&child, |live| live.status() == Status::Idle).await;
     until(&grandchild, |live| live.status() == Status::Idle).await;
     assert!(rig.read("kid.log").contains("session/cancel"));
@@ -886,6 +912,31 @@ async fn stopping_a_parent_stops_its_children_s_turns() {
     assert!(!watched::read(&grandchild.live, |live| live.stopped_by_user));
     // Stop only ends turns: the sessions stay.
     assert!(rig.agents.sessions.runs(&sessions::name_of(&child)));
+    rig.agents.shutdown().await;
+}
+
+/// A `Family` built from the node's own `Sessions`, `Links` and `Delete` sees
+/// its children and stops them, with no `Agents` method in the reads.
+#[tokio::test]
+async fn a_family_built_from_the_nodes_owners_finds_and_stops_a_child() {
+    let rig = Rig::new();
+    let family = Family::new(
+        rig.agents.sessions.clone(),
+        rig.agents.links.clone(),
+        rig.agents.delete.clone(),
+    );
+    assert!(Arc::ptr_eq(&family.sessions, &rig.agents.sessions));
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let child = child_of(&rig.agents, &parent, "kid", "hang on", rig.dir.path()).await;
+    until(&child, |live| live.status() == Status::Working).await;
+
+    let who = family.who_of(&parent);
+    let kids = family.sessions.children_of(&who);
+    assert_eq!(kids.len(), 1);
+    assert!(Arc::ptr_eq(&kids[0], &child));
+
+    family.cancel_family(&parent).await;
+    until(&child, |live| live.status() == Status::Idle).await;
     rig.agents.shutdown().await;
 }
 
@@ -913,7 +964,7 @@ async fn the_link_survives_a_restart_and_the_family_still_stops_together() {
         .sessions
         .get(&before.session)
         .expect("the parent is back");
-    let who = after.who_of(&resumed);
+    let who = after.family.who_of(&resumed);
     let kids = after.sessions.children_of(&who);
     assert_eq!(kids.len(), 1);
     assert_eq!(kids[0].info().parent, Some(before));
@@ -927,8 +978,12 @@ async fn the_link_survives_a_restart_and_the_family_still_stops_together() {
 async fn a_thread_started_as_a_persona_hears_its_instructions_and_keeps_its_name() {
     let rig = Rig::new();
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
-    let who = rig.agents.who_of(&parent);
-    let link = rig.agents.link_for(&parent, &who).expect("within limits");
+    let who = rig.agents.family.who_of(&parent);
+    let link = rig
+        .agents
+        .family
+        .link_for(&parent, &who)
+        .expect("within limits");
     let researcher = beep_proto::CustomAgent {
         name: "researcher".into(),
         harness: beep_proto::CustomAgentHarness::Claude {},
@@ -1091,8 +1146,12 @@ fn every_harness_is_held_to_any_mode_but_its_own_full_access() {
 async fn a_resumed_session_goes_on_under_its_parent_in_its_mode() {
     let rig = Rig::new();
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
-    let who = rig.agents.who_of(&parent);
-    let mut link = rig.agents.link_for(&parent, &who).expect("within limits");
+    let who = rig.agents.family.who_of(&parent);
+    let mut link = rig
+        .agents
+        .family
+        .link_for(&parent, &who)
+        .expect("within limits");
     link.agent = "kid".into();
     link.mode = Some("plan".into());
     let child = rig
@@ -1532,27 +1591,33 @@ async fn a_parents_node_says_which_remote_children_it_keeps() {
     let mut kid = RemoteKid::expected(&name, there, "box");
     kid.id = "k1".into();
     rig.agents.links.adopt_remote(&parent, kid.clone());
-    assert!(
-        rig.agents
-            .keeps_child(there, &name, &SessionId::from("k1"), &SessionId::default())
-    );
+    assert!(rig.agents.family.keeps_child(
+        there,
+        &name,
+        &SessionId::from("k1"),
+        &SessionId::default()
+    ));
     // By the id it started under, too.
-    assert!(rig.agents.keeps_child(
+    assert!(rig.agents.family.keeps_child(
         there,
         &name,
         &SessionId::from("agent-id"),
         &SessionId::from("k1")
     ));
     // Not another machine's, not another child.
-    assert!(
-        !rig.agents
-            .keeps_child(other, &name, &SessionId::from("k1"), &SessionId::default())
-    );
-    assert!(
-        !rig.agents
-            .keeps_child(there, &name, &SessionId::from("k2"), &SessionId::default())
-    );
-    assert!(!rig.agents.keeps_child(
+    assert!(!rig.agents.family.keeps_child(
+        other,
+        &name,
+        &SessionId::from("k1"),
+        &SessionId::default()
+    ));
+    assert!(!rig.agents.family.keeps_child(
+        there,
+        &name,
+        &SessionId::from("k2"),
+        &SessionId::default()
+    ));
+    assert!(!rig.agents.family.keeps_child(
         there,
         &SessionId::from("no-such-parent"),
         &SessionId::from("k1"),
@@ -1560,16 +1625,18 @@ async fn a_parents_node_says_which_remote_children_it_keeps() {
     ));
     // One that ended is no longer kept.
     rig.agents.links.end_remote(&kid);
-    assert!(
-        !rig.agents
-            .keeps_child(there, &name, &SessionId::from("k1"), &SessionId::default())
-    );
+    assert!(!rig.agents.family.keeps_child(
+        there,
+        &name,
+        &SessionId::from("k1"),
+        &SessionId::default()
+    ));
     // A start that got no answer is kept for a while, whichever id the
     // machine gave it.
     rig.agents
         .links
         .adopt_remote(&parent, RemoteKid::expected(&name, other, "far"));
-    assert!(rig.agents.keeps_child(
+    assert!(rig.agents.family.keeps_child(
         other,
         &name,
         &SessionId::from("anything"),
@@ -1577,7 +1644,7 @@ async fn a_parents_node_says_which_remote_children_it_keeps() {
     ));
     // A parent that ended for good keeps nothing.
     parent.close().await;
-    assert!(!rig.agents.keeps_child(
+    assert!(!rig.agents.family.keeps_child(
         other,
         &name,
         &SessionId::from("anything"),
@@ -1605,6 +1672,7 @@ async fn a_settle_note_wakes_a_wait_and_goes_in_no_prompt() {
     let turns = parent.info().turns;
     // With no wait it is told to nobody.
     rig.agents
+        .family
         .note_from(there, &name, &note)
         .await
         .expect("the note is taken");
@@ -1612,6 +1680,7 @@ async fn a_settle_note_wakes_a_wait_and_goes_in_no_prompt() {
 
     let waiting = rig.agents.links.waits.hold(&name, "k1@box");
     rig.agents
+        .family
         .note_from(there, &name, &note)
         .await
         .expect("the note is taken");
@@ -1627,7 +1696,7 @@ async fn a_start_with_no_answer_holds_its_place_until_it_expires_and_a_refusal_f
     let rig = Rig::new();
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
     let name = sessions::name_of(&parent);
-    let who = rig.agents.who_of(&parent);
+    let who = rig.agents.family.who_of(&parent);
     let there = SecretKeyFor::id();
 
     for _ in 0..MAX_CHILDREN {
@@ -1636,11 +1705,11 @@ async fn a_start_with_no_answer_holds_its_place_until_it_expires_and_a_refusal_f
             .adopt_remote(&parent, RemoteKid::expected(&name, there, "box"));
     }
     // A retry cannot start a ninth behind the eight that may be running.
-    let refused = rig.agents.link_for(&parent, &who).unwrap_err();
+    let refused = rig.agents.family.link_for(&parent, &who).unwrap_err();
     assert!(refused.contains("8 children"), "{refused}");
     // One the machine turned down never started.
     rig.agents.links.forget_expected(&name, there);
-    assert!(rig.agents.link_for(&parent, &who).is_ok());
+    assert!(rig.agents.family.link_for(&parent, &who).is_ok());
     // One that answered takes the id it was given, once.
     rig.agents
         .links
@@ -1974,6 +2043,7 @@ async fn a_teammate_reaches_no_session_the_user_stopped() {
     for delivery in [Delivery::Ask, Delivery::Reply] {
         let given = rig
             .agents
+            .family
             .deliver_from_teammate(&id, &card, delivery, "Can I take #52?".to_owned())
             .await;
         assert_eq!(given, Err(format!("{card} was stopped by its user")));
@@ -2167,8 +2237,12 @@ async fn a_background_child_that_closes_is_handed_to_the_deleter_at_once() {
     let rig = Rig::new();
     let mut closed = rig.agents.delete.take_closed().expect("the deleter's end");
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
-    let who = rig.agents.who_of(&parent);
-    let mut link = rig.agents.link_for(&parent, &who).expect("within limits");
+    let who = rig.agents.family.who_of(&parent);
+    let mut link = rig
+        .agents
+        .family
+        .link_for(&parent, &who)
+        .expect("within limits");
     link.background = true;
     let child = rig
         .agents

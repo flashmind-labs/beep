@@ -75,6 +75,7 @@ async fn run_review(node: &Node, request: &Request) -> Result<Reply, String> {
     let args: ReviewArgs = parse(&request.args)?;
     let agents = &node.agents;
     let (caller, who) = agents
+        .family
         .caller(&request.session)
         .ok_or("This session is not one this node runs.")?;
 

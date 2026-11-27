@@ -3,10 +3,9 @@
 //! counting a root's agents, asking about a parent, and reading a child's
 //! state without making a transcript read wait for it.
 
-use super::links::{ChildNote, NO_AGENT, Parent, RemoteKid, Views};
-use crate::agents::sessions;
+use super::links::{ChildNote, Links, NO_AGENT, Parent, RemoteKid, Views};
+use crate::agents::sessions::{self, Sessions};
 use crate::agents::{
-    Agents,
     child_view::ChildView,
     machine_list::{Machine, machine_name},
     reply::json_of,
@@ -367,9 +366,9 @@ struct PeerList {
 
 /// The agents this node runs that other machines may list, as `args` asks,
 /// each with its project.
-pub(crate) fn listed(agents: &Agents, args: &str) -> Reply {
+pub(crate) fn listed(sessions: &Sessions, links: &Links, args: &str) -> Reply {
     let PeerList { ended_since } = serde_json::from_str(args).unwrap_or_default();
-    let views: Vec<ChildView> = listed_here(agents, ended_since)
+    let views: Vec<ChildView> = listed_here(sessions, links, ended_since)
         .into_iter()
         .map(|listed| listed.view)
         .collect();
@@ -385,11 +384,14 @@ pub(crate) struct Listed {
     pub(crate) folder: Option<String>,
 }
 
-pub(crate) fn listed_here(agents: &Agents, ended_since: Option<u64>) -> Vec<Listed> {
-    let mesh = agents.links.mesh();
+pub(crate) fn listed_here(
+    sessions: &Sessions,
+    links: &Links,
+    ended_since: Option<u64>,
+) -> Vec<Listed> {
+    let mesh = links.mesh();
 
-    agents
-        .sessions
+    sessions
         .peers(ended_since)
         .iter()
         .map(|session| {
@@ -413,7 +415,8 @@ pub(crate) fn listed_here(agents: &Agents, ended_since: Option<u64>) -> Vec<List
 /// answers in time, each named by its machine. With `ended_since`, Unix
 /// seconds, the sessions that ended then or later too.
 pub(crate) async fn in_the_mesh(
-    agents: &Agents,
+    sessions: &Sessions,
+    links: &Links,
     mesh: Option<&Mesh>,
     caller: &SessionId,
     only: Option<&BTreeSet<EndpointId>>,
@@ -428,7 +431,7 @@ pub(crate) async fn in_the_mesh(
         })
         .map(|status| status.device.name)
         .unwrap_or_default();
-    let mut listed: Vec<Listed> = listed_here(agents, ended_since)
+    let mut listed: Vec<Listed> = listed_here(sessions, links, ended_since)
         .into_iter()
         .filter(|listed| listed.view.id != *caller)
         .map(|listed| Listed {

@@ -234,6 +234,8 @@ pub struct Agents {
     pub listings: Arc<listings::Listings>,
     /// Deletes ended sessions and the background children that closed.
     pub(crate) delete: Arc<delete::Delete>,
+    /// Who is whose child, and what the children tell their parents.
+    pub(crate) family: Arc<family::Family>,
     /// The watchers of the agents' stores, while clients follow them.
     pub(crate) bridge: Arc<follow::sources::EventBridge>,
 }
@@ -300,15 +302,23 @@ impl Agents {
             sessions.clone(),
         ));
 
+        let delete = Arc::new(delete::Delete::new(
+            sessions.clone(),
+            reopen.clone(),
+            listings.clone(),
+            parts.occupancy.clone(),
+            search.clone(),
+        ));
+        let family = Arc::new(family::Family::new(
+            sessions.clone(),
+            links.clone(),
+            delete.clone(),
+        ));
+
         Self {
             bridge,
-            delete: Arc::new(delete::Delete::new(
-                sessions.clone(),
-                reopen.clone(),
-                listings.clone(),
-                parts.occupancy.clone(),
-                search.clone(),
-            )),
+            delete,
+            family,
             listings,
             events: events.clone(),
             usage: Arc::new(usage::Usage::new(catalog.clone())),

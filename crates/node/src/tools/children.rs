@@ -10,6 +10,7 @@
 use super::Node;
 use crate::agents::child_reach::{ChildId, Found, Reach};
 use crate::agents::child_view::{ChildView, full_id};
+use crate::agents::family::Family;
 use crate::agents::machine_list::Machine;
 use crate::agents::reply::{fail, json_of, ok, parse};
 use crate::agents::sessions;
@@ -59,16 +60,19 @@ pub(crate) struct PeerStart {
 /// Answers one agent tool for the session that called it.
 pub(super) async fn call(node: &Node, request: &Request) -> Reply {
     let agents = &node.agents;
-    let Some((session, who)) = agents.caller(&request.session) else {
+    let Some((session, who)) = agents.family.caller(&request.session) else {
         return fail("This session is not one this node runs.");
     };
-    let reach = Reach {
+    let calls = Calls {
         agents,
-        mesh: agents.links.mesh(),
-        who: &who,
+        reach: Reach {
+            family: &agents.family,
+            mesh: agents.links.mesh(),
+            who: &who,
+        },
     };
 
-    reach.dispatch(&session, request).await.unwrap_or_else(fail)
+    calls.dispatch(&session, request).await.unwrap_or_else(fail)
 }
 
 /// Answers an agent tool another node's agent called on this machine. The
@@ -130,7 +134,13 @@ struct StartParts {
     persona: Option<CustomAgent>,
 }
 
-impl Reach<'_> {
+/// The caller's reach and the node's agents the tools start children on.
+struct Calls<'a> {
+    agents: &'a Agents,
+    reach: Reach<'a>,
+}
+
+impl Calls<'_> {
     /// `text` as the caller `sender` sends it, tagged with `id`, the id
     /// the receiver answers to, so its log tells it from the user's words.
     fn tagged(sender: &Session, id: &str, text: &str) -> String {
@@ -184,8 +194,8 @@ impl Reach<'_> {
             return Err(format!("{model:?} is not a model name."));
         }
 
-        let prompt = Self::tagged(parent, self.who.session.as_ref(), &prompt);
-        let target = self.target(machine.as_deref())?;
+        let prompt = Self::tagged(parent, self.reach.who.session.as_ref(), &prompt);
+        let target = self.reach.target(machine.as_deref())?;
         let cwd = match project {
             Some(project) => {
                 if cwd.is_some() {
@@ -193,6 +203,7 @@ impl Reach<'_> {
                 }
 
                 let mesh = self
+                    .reach
                     .mesh
                     .as_ref()
                     .ok_or("This machine is in no mesh, so it has no registered projects.")?;
@@ -236,7 +247,7 @@ impl Reach<'_> {
 
         let link = ParentLink {
             background,
-            ..self.agents.link_for(parent, self.who)?
+            ..self.agents.family.link_for(parent, self.reach.who)?
         };
         let parts = StartParts {
             harness,
@@ -297,7 +308,7 @@ impl Reach<'_> {
 
         let child = child?;
 
-        Ok(self.view_here(&child))
+        Ok(self.reach.view_here(&child))
     }
 
     /// Sends the start to `machine`, which starts the child and checks the
@@ -311,7 +322,7 @@ impl Reach<'_> {
         link: ParentLink,
         start: StartParts,
     ) -> Result<ChildView, String> {
-        let mesh = self.mesh()?;
+        let mesh = self.reach.mesh()?;
         let cwd = match start.cwd {
             Some(cwd) => cwd,
             None => project_folder(mesh, &parent.info().cwd, machine.id)?,
@@ -325,7 +336,7 @@ impl Reach<'_> {
             account: parent.account.clone(),
             title: start.title,
         };
-        let me = &self.who.session;
+        let me = &self.reach.who.session;
         self.agents
             .links
             .adopt_remote(parent, RemoteKid::expected(me, machine.id, &machine.name));
@@ -359,7 +370,7 @@ impl Reach<'_> {
         if let Some(run) = self
             .agents
             .reviews
-            .review_for(self.who, &ChildId::from(id).session)
+            .review_for(self.reach.who, &ChildId::from(id).session)
         {
             return Ok(super::review::standing(run));
         }
@@ -368,14 +379,14 @@ impl Reach<'_> {
     }
 
     async fn view_of(&self, id: &str) -> Result<ChildView, String> {
-        match self.find(id)? {
-            Found::Here(child) => Ok(self.view_here(&child)),
+        match self.reach.find(id)? {
+            Found::Here(child) => Ok(self.reach.view_here(&child)),
             Found::There(kid) => self.view_there(&kid).await,
         }
     }
 
     async fn view_there(&self, kid: &RemoteKid) -> Result<ChildView, String> {
-        let view = fetch_view(self.mesh()?, &self.who.session, kid).await?;
+        let view = fetch_view(self.reach.mesh()?, &self.reach.who.session, kid).await?;
 
         if view.state == "ended" {
             self.agents.links.end_remote(kid);
@@ -389,19 +400,19 @@ impl Reach<'_> {
             return Err("Give the `text` to send.".to_owned());
         }
 
-        let Ok(found) = self.find(id) else {
+        let Ok(found) = self.reach.find(id) else {
             return self.message(parent, id, &text).await;
         };
-        let text = Self::tagged(parent, self.who.session.as_ref(), &text);
+        let text = Self::tagged(parent, self.reach.who.session.as_ref(), &text);
 
         match found {
             Found::Here(child) => {
-                Agents::tell_child(&child, text).await?;
+                Family::tell_child(&child, text).await?;
                 Ok(ok("Sent. It reads it at its next step."))
             }
             Found::There(kid) => {
                 let args = PeerCall::message(kid.id.clone(), text);
-                let reply = Call::to_kid(self.mesh()?, &self.who.session, &kid)
+                let reply = Call::to_kid(self.reach.mesh()?, &self.reach.who.session, &kid)
                     .ask_ok(Tool::SendToAgent, &args, REMOTE_LIMIT)
                     .await?;
                 Ok(ok(reply))
@@ -414,20 +425,21 @@ impl Reach<'_> {
     async fn message(&self, sender: &Session, id: &str, text: &str) -> Result<Reply, String> {
         let text = Self::tagged(
             sender,
-            &full_id(self.who.session.as_ref(), &self.my_name()),
+            &full_id(self.reach.who.session.as_ref(), &self.reach.my_name()),
             text,
         );
         let id = ChildId::from(id);
 
-        match self.target(id.machine)? {
+        match self.reach.target(id.machine)? {
             None => {
                 self.agents
-                    .message(&self.who.session, &id.session, text)
+                    .family
+                    .message(&self.reach.who.session, &id.session, text)
                     .await?
             }
             Some(machine) => {
                 let args = PeerCall::message(id.session, text);
-                Call::to_machine(self.mesh()?, &self.who.session, &machine)
+                Call::to_machine(self.reach.mesh()?, &self.reach.who.session, &machine)
                     .ask_ok(Tool::SendToAgent, &args, REMOTE_LIMIT)
                     .await?;
             }
@@ -445,6 +457,7 @@ impl Reach<'_> {
             None => None,
             Some(name) => {
                 let mesh = self
+                    .reach
                     .mesh
                     .as_ref()
                     .ok_or("This machine is in no mesh, so it has no registered projects.")?;
@@ -452,9 +465,10 @@ impl Reach<'_> {
             }
         };
         let mut views: Vec<ChildView> = in_the_mesh(
-            self.agents,
-            self.mesh.as_ref(),
-            &self.who.session,
+            &self.agents.sessions,
+            &self.agents.links,
+            self.reach.mesh.as_ref(),
+            &self.reach.who.session,
             None,
             None,
         )
@@ -471,11 +485,11 @@ impl Reach<'_> {
     }
 
     async fn stop(&self, id: &str) -> Result<Reply, String> {
-        match self.find(id)? {
+        match self.reach.find(id)? {
             Found::Here(child) => child.close().await,
             Found::There(kid) => {
                 // It keeps its place until its machine says it stopped.
-                stop_remote(self.mesh()?, &self.who.session, &kid, false)
+                stop_remote(self.reach.mesh()?, &self.reach.who.session, &kid, false)
                     .await
                     .map_err(|e| {
                         format!("{e} It is not stopped and still counts as running: try again.")
@@ -491,9 +505,9 @@ impl Reach<'_> {
 
     /// Every child of the caller, here and elsewhere.
     async fn list(&self) -> Reply {
-        let here = self.my_name();
-        let children = self.agents.sessions.children_of(self.who);
-        self.shown(children.iter().map(|child| &**child));
+        let here = self.reach.my_name();
+        let children = self.agents.sessions.children_of(self.reach.who);
+        self.reach.shown(children.iter().map(|child| &**child));
         let mut views: Vec<ChildView> = children
             .iter()
             .filter_map(|child| {
@@ -504,7 +518,7 @@ impl Reach<'_> {
             })
             .collect();
         // One whose start got no answer has no id to ask for yet.
-        let mut kids = self.agents.links.remote_kids(&self.who.session);
+        let mut kids = self.agents.links.remote_kids(&self.reach.who.session);
         kids.retain(|kid| !kid.pending());
         let there = futures::future::join_all(kids.iter().map(|kid| self.view_there(kid))).await;
 
@@ -528,8 +542,11 @@ impl Reach<'_> {
     /// note every settle is also read every `WAIT_RECHECK`.
     async fn waited(&self, view: ChildView) -> ChildView {
         // What this wait answers goes in no note.
-        let waiting = self.agents.hold_wait(&self.who.session, &view.id);
-        let (live, remote) = match self.find(&view.id) {
+        let waiting = self
+            .agents
+            .family
+            .hold_wait(&self.reach.who.session, &view.id);
+        let (live, remote) = match self.reach.find(&view.id) {
             Ok(Found::Here(child)) => (Some(child.live.clone()), false),
             Ok(Found::There(_)) => (None, true),
             Err(_) => (None, false),
@@ -680,7 +697,9 @@ async fn serve_peer(agents: &Agents, peer: EndpointId, request: &Request) -> Res
         Tool::AgentParent => {
             let call: PeerCall = parse(&request.args)?;
             let key = Into::<SessionId>::into(call.text.unwrap_or_default());
-            let keeps = agents.keeps_child(peer, &request.session, &call.id, &key);
+            let keeps = agents
+                .family
+                .keeps_child(peer, &request.session, &call.id, &key);
 
             Ok(ok(if keeps { KEPT } else { GONE }))
         }
@@ -688,7 +707,10 @@ async fn serve_peer(agents: &Agents, peer: EndpointId, request: &Request) -> Res
         // session is its parent here.
         Tool::AgentNote => {
             let note: ChildNote = parse(&request.args)?;
-            agents.note_from(peer, &request.session, &note).await?;
+            agents
+                .family
+                .note_from(peer, &request.session, &note)
+                .await?;
 
             Ok(ok("Told."))
         }
@@ -702,7 +724,7 @@ async fn serve_peer(agents: &Agents, peer: EndpointId, request: &Request) -> Res
                 .to_string()))
         }
         // Another machine's agent lists the agents here.
-        Tool::ListAgents => Ok(listed(agents, &request.args)),
+        Tool::ListAgents => Ok(listed(&agents.sessions, &agents.links, &request.args)),
         // To its own child, or to any agent here as a message from another.
         Tool::SendToAgent => {
             let call: PeerCall = parse(&request.args)?;
@@ -711,8 +733,8 @@ async fn serve_peer(agents: &Agents, peer: EndpointId, request: &Request) -> Res
             };
 
             match agents.sessions.child_of(&who, &call.id) {
-                Ok(child) => Agents::tell_child(&child, text).await?,
-                Err(_) => agents.message(&who.session, &call.id, text).await?,
+                Ok(child) => Family::tell_child(&child, text).await?,
+                Err(_) => agents.family.message(&who.session, &call.id, text).await?,
             }
 
             Ok(ok("Sent. It reads it at its next step."))
@@ -726,7 +748,7 @@ async fn serve_peer(agents: &Agents, peer: EndpointId, request: &Request) -> Res
                 _ if call.turn_only => {
                     // Refused when no turn runs. A parent's node from 0.5.0
                     // and before asks without `stop_all`.
-                    agents.stop_turn(&child, call.stop_all).await;
+                    agents.family.stop_turn(&child, call.stop_all).await;
                     ok("Its turn is stopped.")
                 }
                 _ => {

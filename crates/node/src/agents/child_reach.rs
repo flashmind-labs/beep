@@ -2,9 +2,9 @@
 //! transcript shows for each `start_agent` call (`show_children`).
 
 use super::{
-    Agents, Session,
+    Session,
     child_view::ChildView,
-    family::{RemoteKid, Who},
+    family::{Family, RemoteKid, Who},
     live::Mark,
     machine_list::{Machine, find_named, machine_name},
 };
@@ -26,7 +26,7 @@ const STARTED: &str = "Beep: Start ";
 /// to with a `[child]` line. A call whose result cannot be read stays a
 /// plain call. A child on another machine shows as last read: the read
 /// never waits for the machine. A child that is gone shows as ended.
-pub(crate) fn show_children(agents: &Agents, session: &Session, entries: &mut [Entry]) {
+pub(crate) fn show_children(family: &Family, session: &Session, entries: &mut [Entry]) {
     let calls: Vec<usize> = entries
         .iter()
         .enumerate()
@@ -38,12 +38,12 @@ pub(crate) fn show_children(agents: &Agents, session: &Session, entries: &mut [E
         return;
     }
 
-    let Some((_, who)) = agents.caller(&session.id) else {
+    let Some((_, who)) = family.caller(&session.id) else {
         return;
     };
     let reach = Reach {
-        agents,
-        mesh: agents.links.mesh(),
+        family,
+        mesh: family.links.mesh(),
         who: &who,
     };
 
@@ -58,7 +58,7 @@ pub(crate) fn show_children(agents: &Agents, session: &Session, entries: &mut [E
 
 /// The caller, and the ways it has to its children.
 pub(crate) struct Reach<'a> {
-    pub(crate) agents: &'a Agents,
+    pub(crate) family: &'a Family,
     pub(crate) mesh: Option<Mesh>,
     pub(crate) who: &'a Who,
 }
@@ -106,7 +106,7 @@ impl Reach<'_> {
     /// Notes that the caller was shown `children` as they stand, so its next
     /// turn is not told of them again.
     pub(crate) fn shown<'a>(&self, children: impl IntoIterator<Item = &'a Session>) {
-        if let Some(caller) = self.agents.sessions.get(&self.who.session) {
+        if let Some(caller) = self.family.sessions.get(&self.who.session) {
             caller.see_soon(
                 children
                     .into_iter()
@@ -140,10 +140,10 @@ impl Reach<'_> {
 
         match self.target(id.machine).map_err(|_| none())? {
             None => Ok(Found::Here(
-                self.agents.sessions.child_of(self.who, &id.session)?,
+                self.family.sessions.child_of(self.who, &id.session)?,
             )),
             Some(machine) => self
-                .agents
+                .family
                 .links
                 .remote_kids(&self.who.session)
                 .into_iter()
@@ -168,7 +168,7 @@ impl Reach<'_> {
             Found::There(kid) => self
                 .mesh
                 .as_ref()
-                .and_then(|mesh| self.agents.links.views.of(mesh, &self.who.session, &kid))
+                .and_then(|mesh| self.family.links.views.of(mesh, &self.who.session, &kid))
                 .map_or_else(|| started.clone(), |view| view.named(&kid.name)),
         }
     }

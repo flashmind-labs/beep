@@ -8,18 +8,13 @@
 //! child, from the link the caller passes, so a chain across machines
 //! cannot get around them.
 
-use super::{
-    Agents, Begin, Session,
-    live::{Live, Mark},
-    session::Command,
-};
+use super::{Session, delete::Delete, live::Live, session::Command};
 use crate::agents::sessions;
 use crate::known::known;
-use beep_proto::AgentAccount;
 use beep_proto::SessionId;
-use beep_proto::node::agent::{ParentLink, Persona, SessionInfo, Status};
+use beep_proto::node::agent::{ParentLink, SessionInfo, Status};
 use beep_proto::watched;
-use std::{str::FromStr, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 use tokio::sync::watch;
 
 mod changes;
@@ -35,7 +30,27 @@ use links::{MAX_CHILDREN, MAX_DEPTH, Root};
 
 /// How long the count of a root's agents on another machine may take.
 const COUNT_LIMIT: Duration = Duration::from_secs(3);
-impl Agents {
+/// The family trees the node takes part in: who is whose child, here and on
+/// other machines, and what they tell each other.
+pub(crate) struct Family {
+    pub(super) sessions: Arc<sessions::Sessions>,
+    pub(super) links: Arc<links::Links>,
+    pub(super) delete: Arc<Delete>,
+}
+
+impl Family {
+    pub(crate) fn new(
+        sessions: Arc<sessions::Sessions>,
+        links: Arc<links::Links>,
+        delete: Arc<Delete>,
+    ) -> Self {
+        Self {
+            sessions,
+            links,
+            delete,
+        }
+    }
+
     /// The calling session `session` of this node, and who it is to its
     /// children.
     pub(crate) fn caller(&self, session: &SessionId) -> Option<(Arc<Session>, Who)> {
@@ -87,7 +102,7 @@ impl Agents {
     /// The live sessions on other machines that descend from `root`, as
     /// each online machine says of its own. A machine that does not answer
     /// in time counts none.
-    async fn live_elsewhere(&self, root: &Root) -> usize {
+    pub(super) async fn live_elsewhere(&self, root: &Root) -> usize {
         let Some(mesh) = self.links.mesh() else {
             return 0;
         };
@@ -104,7 +119,7 @@ impl Agents {
     /// Takes a place under `root` for a child that is starting, held until
     /// what it returns is dropped. Refused when the root's live agents,
     /// `elsewhere` and here, and the starts under way here fill it.
-    fn take_place(&self, root: &Root, elsewhere: usize) -> Result<Arc<()>, String> {
+    pub(super) fn take_place(&self, root: &Root, elsewhere: usize) -> Result<Arc<()>, String> {
         let mut starting = crate::lock(&self.links.starting);
         starting.retain(|(_, held)| held.strong_count() > 0);
         let here = self.sessions.live_descendants(root.0, &root.1)
@@ -158,74 +173,6 @@ impl Agents {
     pub(crate) async fn tell_child(child: &Session, text: String) -> Result<(), String> {
         child.set_user_turn(false).await;
         child.order(Command::Steer(text.into())).await
-    }
-
-    /// Starts the child `link` describes, here. The node that starts it
-    /// checks the limits, whichever machine the parent is on.
-    pub(crate) async fn start_child(
-        &self,
-        link: ParentLink,
-        start: ChildStart,
-    ) -> Result<Arc<Session>, String> {
-        if link.depth == 0 || link.depth > MAX_DEPTH {
-            return Err(too_deep());
-        }
-
-        let kind = self.catalog.kind_or_refusal(&start.harness)?;
-        let mode = match &start.review {
-            Some(_) => review_mode(&link, &kind.name)?,
-            None => child_mode(&link, &kind.name)?,
-        };
-        let follows = self.parent_live_of(&link);
-        let parent = (link.machine == self.links.me())
-            .then(|| self.sessions.get(&link.session))
-            .flatten();
-        let root = (link.root_machine, link.root.clone());
-        let title = start.title.filter(|title| !title.trim().is_empty());
-        let begin = Begin {
-            prompt: Some(start.prompt),
-            named: title.is_some(),
-            title,
-            model: start.model,
-            effort: start.review.as_ref().and_then(|review| review.effort),
-            fast: start.review.as_ref().and_then(|review| review.fast),
-            mode,
-            parent: Some(link),
-            follows,
-            review: start.review.is_some(),
-            account: start
-                .account
-                .filter(|_| AgentAccount::from_str(&kind.name).is_ok()),
-            persona: start.persona.as_ref().map(Into::<Persona>::into),
-            instructions: start
-                .persona
-                .as_ref()
-                .map(crate::custom_agents::persona_brief),
-            ..Begin::default()
-        };
-        let elsewhere = self.live_elsewhere(&root).await;
-        // Held until the child is listed. It then counts twice for an
-        // instant, which can refuse a start but never admit one too many.
-        let place = self.take_place(&root, elsewhere)?;
-        let session = self
-            .start_in(&kind, start.cwd.as_deref(), None, begin)
-            .await
-            .map_err(|e| format!("{e:#}"))?;
-        drop(place);
-        self.watch_parent(&session);
-
-        // Its prompt says what the parent knew: it has seen the parent so far.
-        if let Some(parent) = parent {
-            session
-                .see(vec![(
-                    parent.id.clone(),
-                    watched::read(&parent.live, |live| Into::<Mark>::into(live)),
-                )])
-                .await;
-        }
-
-        session.named_info().await?;
-        Ok(session)
     }
 
     /// Puts `session`, which came from another machine, in its family
@@ -343,7 +290,7 @@ fn held_to(info: &SessionInfo) -> Result<Option<String>, String> {
 /// The mode a child starts in. A parent held below full access passes only
 /// its own mode on, to a child of the same harness, so a child is never
 /// freer than its parent.
-fn child_mode(link: &ParentLink, harness: &str) -> Result<Option<String>, String> {
+pub(super) fn child_mode(link: &ParentLink, harness: &str) -> Result<Option<String>, String> {
     match &link.mode {
         None => Ok(None),
         Some(mode) if link.agent == harness => Ok(Some(mode.clone())),
@@ -365,7 +312,7 @@ pub(super) fn review_mode(link: &ParentLink, harness: &str) -> Result<Option<Str
     }
 }
 
-fn too_deep() -> String {
+pub(super) fn too_deep() -> String {
     format!(
         "Not started: agents may start agents at most {MAX_DEPTH} levels deep, and this one is \
          at the limit."

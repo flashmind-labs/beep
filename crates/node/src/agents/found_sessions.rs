@@ -866,13 +866,14 @@ impl Agents {
         let mut begin = self.resumed_begin(id, before.unwrap_or_default());
         begin.model = model.or(begin.model);
         let session = self.start(kind, Some(&cwd), begin).await?;
-        self.watch_parent(&session);
+        self.family.watch_parent(&session);
 
         let bare_resume = prompt.as_deref().is_none_or(|text| text.trim().is_empty());
         if bare_resume && !held.is_empty() {
             session.set_user_turn(true).await;
             for waiting in held {
-                self.order_by_user(&session, Command::Prompt(waiting))
+                self.family
+                    .order_by_user(&session, Command::Prompt(waiting))
                     .await
                     .map_err(anyhow::Error::msg)?;
             }
@@ -896,7 +897,8 @@ impl Agents {
         prompt: Option<String>,
     ) -> Result<Arc<Session>> {
         if let Some(text) = prompt {
-            self.order_by_user(&session, Command::Prompt(text.into()))
+            self.family
+                .order_by_user(&session, Command::Prompt(text.into()))
                 .await
                 .map_err(anyhow::Error::msg)?;
         }
@@ -918,7 +920,7 @@ impl Agents {
         let follows = info
             .parent
             .as_ref()
-            .and_then(|link| self.parent_live_of(link));
+            .and_then(|link| self.family.parent_live_of(link));
         Begin {
             resume: Some(id.clone()),
             title: info.title,

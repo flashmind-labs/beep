@@ -21,7 +21,7 @@ use super::peer::NoteFailed;
 use crate::agents::child_view::{ChildView, full_id};
 use crate::agents::live::Mark;
 use crate::agents::sessions;
-use crate::agents::{Agents, Session, live::Live, session::Command};
+use crate::agents::{Session, family::Family, live::Live, session::Command};
 use crate::membership::Membership;
 use beep_proto::SessionId;
 use beep_proto::node::agent::{Status, StopReason};
@@ -62,7 +62,7 @@ enum To {
     There { peer: EndpointId, parent: SessionId },
 }
 
-impl Agents {
+impl Family {
     /// Has `session`, a child, tell its parent when it finishes a turn or
     /// asks the user, for as long as it runs.
     pub(in crate::agents) fn tell_parent(&self, session: &Arc<Session>) {
@@ -120,7 +120,7 @@ impl Agents {
     }
 }
 
-impl Agents {
+impl Family {
     /// Puts `text` from a teammate's agent into the live session `id` here,
     /// which the team knows as `card`: an ask as a message from an agent, an
     /// answer as a note, the way a child's notes go in. Neither goes in while

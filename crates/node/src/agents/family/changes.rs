@@ -10,7 +10,7 @@
 use crate::agents::acp::Prompt;
 use crate::agents::child_view::full_id;
 use crate::agents::live::{Mark, Stand};
-use crate::agents::{Agents, Session, live::Live, session::Command};
+use crate::agents::{Session, family::Family, live::Live, session::Command};
 use crate::text::cut;
 use beep_proto::SessionId;
 use beep_proto::node::agent::{SessionInfo, Status};
@@ -37,7 +37,7 @@ pub(super) struct News {
     seen: Vec<(SessionId, Mark)>,
 }
 
-impl Agents {
+impl Family {
     /// Orders what the user sent `session`: a message counts as the user's,
     /// and takes what changed among the session's relatives ahead of it. A
     /// message the session refuses leaves that for the next.

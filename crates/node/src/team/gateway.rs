@@ -696,7 +696,8 @@ impl Cards {
         // The machines that push their sessions are heard; the others are asked.
         let sessions = async {
             let mut listed = in_the_mesh(
-                agents,
+                &agents.sessions,
+                &agents.links,
                 Some(mesh),
                 &caller,
                 Some(refused),

@@ -47,13 +47,14 @@ impl Agents {
         let (session, parent, parent_key) = match &order.parent {
             Some(id) => {
                 let (parent, who) = self
+                    .family
                     .caller(id)
                     .ok_or_else(|| format!("There is no session {id} here."))?;
                 if parent.reviewer {
                     return Err("A reviewer does not start reviews.".to_owned());
                 }
 
-                let link = self.link_for(&parent, &who)?;
+                let link = self.family.link_for(&parent, &who)?;
                 let start = ChildStart {
                     title: None,
                     harness: order.agent.clone(),

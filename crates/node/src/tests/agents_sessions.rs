@@ -308,7 +308,7 @@ async fn a_node_with_no_children_counts_none() {
         .start(&kind, Some("/"), Begin::default())
         .await
         .unwrap();
-    let who = agents.who_of(&session);
+    let who = agents.family.who_of(&session);
 
     assert_eq!(agents.sessions.local_children(&who), 0);
     assert!(agents.sessions.peers(None).is_empty());

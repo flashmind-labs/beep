@@ -276,7 +276,7 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
     .await;
     assert!(!failed, "{text}");
     let done = view(&text);
-    let who = node.agents.caller(&parent_id).unwrap().1;
+    let who = node.agents.family.caller(&parent_id).unwrap().1;
     let child = node
         .agents
         .sessions
@@ -535,7 +535,7 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
     assert_eq!(busy.state, "working");
 
     // A child still waiting for ACP counts towards limits but has no id to list.
-    let (parent, who) = node.agents.caller(&mine).unwrap();
+    let (parent, who) = node.agents.family.caller(&mine).unwrap();
     let mut unnamed_kind = kind("kid");
     unnamed_kind.args = vec!["-c".into(), "cat > /dev/null".into()];
     let unnamed = node
@@ -544,7 +544,7 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
             &unnamed_kind,
             Some(&cwd),
             Begin {
-                parent: Some(node.agents.link_for(&parent, &who).unwrap()),
+                parent: Some(node.agents.family.link_for(&parent, &who).unwrap()),
                 ..Begin::default()
             },
         )
@@ -609,7 +609,7 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
         serde_json::to_string(&gone).unwrap()
     );
     let mut entries = [Entry::new(EntryKind::Tool, call)];
-    show_children(&node.agents, &parent, &mut entries);
+    show_children(&node.agents.family, &parent, &mut entries);
     assert!(
         entries[0]
             .text
@@ -709,7 +709,7 @@ async fn another_machine_lists_the_sessions_ended_since_only_when_asked() {
     ended.close().await;
     let ended_at = ended.info().last_activity;
     let names = |args: &str| {
-        let Reply::Done { text, .. } = listed(&agents, args) else {
+        let Reply::Done { text, .. } = listed(&agents.sessions, &agents.links, args) else {
             panic!("not done");
         };
         let views: Vec<ChildView> = serde_json::from_str(&text).expect("a list");

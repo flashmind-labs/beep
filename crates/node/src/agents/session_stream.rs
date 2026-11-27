@@ -95,10 +95,10 @@ impl Agents {
             Refused::Request(_) => "this request cannot order an existing session".to_owned(),
         })?;
 
-        self.order_by_user(&session, command).await?;
+        self.family.order_by_user(&session, command).await?;
 
         if cascade {
-            self.cancel_family(&session).await;
+            self.family.cancel_family(&session).await;
         }
 
         Ok(session.info())
@@ -275,13 +275,13 @@ pub async fn serve_session(
                         continue;
                     }
                 };
-                let error = agents.order_by_user(&session, command).await.err();
+                let error = agents.family.order_by_user(&session, command).await.err();
 
                 if cascade {
                     // The session keeps the task, so it ends with it; it is
                     // bounded by the time each machine has to answer.
                     let (agents, family) = (agents.clone(), session.clone());
-                    session.keep(tokio::spawn(async move { agents.cancel_family(&family).await }));
+                    session.keep(tokio::spawn(async move { agents.family.cancel_family(&family).await }));
                 }
 
                 tx.send(&Event::Ack { error }).await?;

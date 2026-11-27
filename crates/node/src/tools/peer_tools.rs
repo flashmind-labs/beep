@@ -162,7 +162,7 @@ async fn agent_call(request: Request, caller: &Caller) -> Reply {
     };
 
     if request.tool == Tool::ListAgents {
-        return crate::agents::family::peer::listed(agents, &request.args);
+        return crate::agents::family::peer::listed(&agents.sessions, &agents.links, &request.args);
     }
 
     let Some(peer) = caller.from else {

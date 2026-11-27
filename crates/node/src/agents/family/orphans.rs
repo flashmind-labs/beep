@@ -8,7 +8,7 @@
 use super::links::Parent;
 use crate::agents::session::{NODE_STOPPED, ended_for_good};
 use crate::agents::sessions;
-use crate::agents::{Agents, Session, live::Live};
+use crate::agents::{Session, family::Family, live::Live};
 use crate::machine::elect::online;
 use crate::membership::Membership;
 use crate::peer_stream::{PeerWatch, Refused};
@@ -160,7 +160,7 @@ pub(super) async fn orphaned(mut heard: mpsc::Receiver<Parent>) -> bool {
     }
 }
 
-impl Agents {
+impl Family {
     /// Has `session`, a child, tell its parent how it stands, and when the
     /// parent is on another machine check on it, for as long as it runs.
     pub(in crate::agents) fn watch_parent(&self, session: &Arc<Session>) {

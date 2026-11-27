@@ -223,7 +223,7 @@ async fn a_submitted_review_stays_with_the_parent_and_the_reviewer_goes() {
         rig.agents.reviews.reviews_of(&sessions::name_of(&parent)),
         std::slice::from_ref(&done)
     );
-    let who = rig.agents.who_of(&parent);
+    let who = rig.agents.family.who_of(&parent);
     assert_eq!(rig.agents.reviews.review_for(&who, &run.id), Some(done));
     rig.agents.shutdown().await;
 }
@@ -326,7 +326,7 @@ fn the_prompt_names_the_base_and_the_tool() {
 async fn a_wait_on_a_review_ends_when_the_review_does() {
     let rig = Rig::new();
     let parent = rig.root().await;
-    let who = rig.agents.who_of(&parent);
+    let who = rig.agents.family.who_of(&parent);
     let run = rig
         .agents
         .start_review(rig.order("HOLD", Some(parent.id.clone())))

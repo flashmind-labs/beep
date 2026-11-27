@@ -499,6 +499,7 @@ async fn handed_here(
         text,
     } = handed;
     let session = agents
+        .family
         .teammates_session(&session_of(&card))
         .ok_or_else(|| format!("{card} no longer runs"))?;
     let folder = PathBuf::from(session.info().cwd);
@@ -520,6 +521,7 @@ async fn handed_here(
 /// Puts `text` into the session on the card `card`, which runs here.
 async fn here(agents: &Agents, card: &str, delivery: Delivery, text: String) -> Result<(), String> {
     agents
+        .family
         .deliver_from_teammate(&session_of(card), card, delivery, text)
         .await
 }
