@@ -84,6 +84,7 @@ apps/desktop/src/shell/center/palette-search.ts | type | setTimeout#1 | debounce
 apps/desktop/src/parts/center/refresh.ts | refresh | setTimeout#1 | retry | reloads Home after a failed read every RETRY_MS
 apps/desktop/src/parts/center/refresh.ts | refresh | setTimeout#2 | deadline | shows still connecting once the wait passes its limit
 apps/desktop/src/stores/center/state.ts | keepPages | setTimeout#1 | debounce | saves changed project pages once after edits settle
+apps/desktop/src/parts/session/compose.tsx | ComposeField | setTimeout#1 | debounce | saves the composer draft once typing settles
 apps/desktop/src/parts/session/diagrams.tsx | makeFrame | setTimeout#1 | deadline | fails a diagram frame that does not render in time
 apps/desktop/src/parts/session/diagrams.tsx | next | setTimeout#1 | deadline | fails a diagram render after 20 s
 apps/desktop/src/parts/session/dictation.tsx | onKeyDown | setTimeout#1 | ui | starts dictation after the key is held long enough

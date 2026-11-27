@@ -30,7 +30,7 @@ const stubs = new Map(Object.entries({
   "stores/center/state.ts": "export const { state } = globalThis.navigationTest; export const $ = selector => document.querySelector(selector);",
   "ui/tauri.ts": "export const invoke = async () => {}; export const recordTiming = () => {}; export const buildCapabilities = async () => ({ metrics_recording: false });",
   "ui/mesh-events.ts": "export const refreshTopicSubscriptions = () => {};",
-  "ui/active.ts": "export const SLOW_MS = 2000; export const shownChanged = () => {}; export const pageShown = () => true;",
+  "ui/active.ts": "export const SLOW_MS = 2000; export const shownChanged = () => {}; export const pageShown = () => true; export const onShownChange = () => () => {};",
   "shell/center/sidebar.tsx": "export const drawSide = () => {};",
   "parts/project/addflow.ts": "export const openProjects = () => {};",
   "shell/center/screens.ts": "",

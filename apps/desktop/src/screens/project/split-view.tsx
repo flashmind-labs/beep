@@ -1,4 +1,4 @@
-import { Fragment, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { moveLabel } from "../../stores/agents/move-store.ts";
 import { closingNote } from "../../stores/agents/closing.ts";
 import { agentName, runningKey, runningWhen, type RunningAgent } from "../../stores/agents/running-state.ts";
@@ -95,47 +95,84 @@ export function RailList({ head = null, running, past, current, more, noun = "se
   const needle = filter.trim().toLowerCase();
   // The painting shows clearer while no row reaches into it.
   const list = useRef<HTMLDivElement>(null), [clear, setClear] = useState(false);
-  useLayoutEffect(() => {
+  const checkClear = useCallback(() => {
     const box = list.current, art = box?.parentElement?.querySelector<HTMLElement>(":scope > .painted-art");
     if (!box || !art) return;
-    const check = () => {
-      const end = box.lastElementChild?.getBoundingClientRect().bottom ?? 0, top = art.getBoundingClientRect();
-      setClear(box.scrollHeight <= box.clientHeight && end < top.top + top.height * 0.3);
-    };
-    check();
-    const sized = new ResizeObserver(check);
+    const end = box.lastElementChild?.getBoundingClientRect().bottom ?? 0, top = art.getBoundingClientRect();
+    setClear(box.scrollHeight <= box.clientHeight && end < top.top + top.height * 0.3);
+  }, []);
+  useEffect(() => {
+    const box = list.current;
+    if (!box) return;
+    const sized = new ResizeObserver(checkClear);
     sized.observe(box);
     return () => sized.disconnect();
-  });
+  }, [checkClear]);
   const matches = (row: AgentRow) => !needle || (row.title || agentName(row.agent)).toLowerCase().includes(needle);
   const live = running.filter(matches), ended = past.filter(matches);
-  const row = (session: AgentRow, right: ReactNode, sub: ReactNode, close?: () => void) => <Row key={runningKey(session)} picked={current} nav={false} openTile={() => {}} onMiddleClick={close} item={{
-    key: runningKey(session), lead: <HarnessIcon agent={session.agent} />, title: session.title || agentName(session.agent), sub, right,
-    open: () => go("pane", { agent: session }),
-    menu: event => void sessionMenu(event, session, picked => go("pane", { agent: picked })),
-  }} />;
-
-  const liveRow = (session: RunningAgent) => row(session, <><RunningStatus row={session} /><LineCounts changes={session.changes} /></>, <><PersonaTag persona={session.persona} />{workLine(session)}</>,
-    session.status === "idle" && sessionOffers(session).close ? () => void closeAgentSession(session) : undefined);
+  const shownPast = ended.slice(0, RAIL_PAST);
+  useLayoutEffect(checkClear, [checkClear, live.length, shownPast.length, head !== null]);
 
   return <>
     <input className="ip-field rail-filter" type="search" placeholder={`Filter ${noun}`} aria-label={`Filter ${noun}`} {...NO_AUTO} value={filter} onChange={e => setFilter(e.currentTarget.value)} />
     <div className="rail-scroll" ref={list} data-clear={clear || undefined}>
     {(!!head || !!live.length) && <h4>Running<span className="n">{live.length + (head ? 1 : 0)}</span></h4>}
-    {(!!head || !!live.length) && <div className="rail-live">{head && liveRow(head)}{head ? !!live.length && <div className="rail-live rail-threads">{live.map(liveRow)}</div> : live.map(liveRow)}</div>}
+    {(!!head || !!live.length) && <div className="rail-live">{head && <RailLiveRow session={head} current={runningKey(head) === current} />}{head ? !!live.length && <div className="rail-live rail-threads">{live.map(session => <RailLiveRow key={runningKey(session)} session={session} current={runningKey(session) === current} />)}</div> : live.map(session => <RailLiveRow key={runningKey(session)} session={session} current={runningKey(session) === current} />)}</div>}
     {!!ended.length && <h4>Past<span className="n">{ended.length}</span></h4>}
-    {ended.slice(0, RAIL_PAST).map(session => row(session, formatAgo(session.last_activity, "short"), <PersonaTag persona={session.persona} />))}
+    {shownPast.map(session => <RailPastRow key={runningKey(session)} session={session} current={runningKey(session) === current} />)}
     {ended.length > RAIL_PAST && <Button look="quiet" className="rail-all" onClick={more}>All {ended.length} {noun}</Button>}
     </div>
   </>;
 }
+
+const sameChanges = (a: RunningAgent["changes"], b: RunningAgent["changes"]) =>
+  (a?.additions ?? 0) === (b?.additions ?? 0) && (a?.deletions ?? 0) === (b?.deletions ?? 0);
+
+const samePersona = (a: AgentRow["persona"], b: AgentRow["persona"]) =>
+  a === b || (!!a && !!b && a.name === b.name && a.color === b.color);
+
+const noopTile = () => {};
+
+const RailLiveRow = memo(function RailLiveRow({ session, current }: { session: RunningAgent; current: boolean }) {
+  const key = runningKey(session);
+  const close = session.status === "idle" && sessionOffers(session).close ? () => void closeAgentSession(session) : undefined;
+  return <Row picked={current ? key : null} nav={false} openTile={noopTile} onMiddleClick={close} item={{
+    key, lead: <HarnessIcon agent={session.agent} />, title: session.title || agentName(session.agent),
+    sub: <><PersonaTag persona={session.persona} />{workLine(session)}</>,
+    right: <><RunningStatus row={session} /><LineCounts changes={session.changes} /></>,
+    open: () => go("pane", { agent: session }),
+    menu: event => void sessionMenu(event, session, picked => go("pane", { agent: picked })),
+  }} />;
+}, (prev, next) => {
+  if (prev.current !== next.current) return false;
+  const a = prev.session, b = next.session;
+  return a === b || (a.machine_id === b.machine_id && a.id === b.id && a.agent === b.agent && a.title === b.title
+    && a.status === b.status && a.doing === b.doing && a.reply_html === b.reply_html && a.last_activity === b.last_activity
+    && a.started_at === b.started_at && a.external === b.external && samePersona(a.persona, b.persona) && sameChanges(a.changes, b.changes));
+});
+
+const RailPastRow = memo(function RailPastRow({ session, current }: { session: AgentRow & Pick<AgentSession, "last_activity">; current: boolean }) {
+  const key = runningKey(session);
+  return <Row picked={current ? key : null} nav={false} openTile={noopTile} item={{
+    key, lead: <HarnessIcon agent={session.agent} />, title: session.title || agentName(session.agent),
+    sub: <PersonaTag persona={session.persona} />,
+    right: formatAgo(session.last_activity, "short"),
+    open: () => go("pane", { agent: session }),
+    menu: event => void sessionMenu(event, session, picked => go("pane", { agent: picked })),
+  }} />;
+}, (prev, next) => {
+  if (prev.current !== next.current) return false;
+  const a = prev.session, b = next.session;
+  return a === b || (a.machine_id === b.machine_id && a.id === b.id && a.agent === b.agent && a.title === b.title
+    && a.last_activity === b.last_activity && samePersona(a.persona, b.persona));
+});
 
 /// What the rail's card shows of its project, as its page's rows count it; `null` counts are
 /// still being read.
 export interface RailCard { prs: number | null; issues: number | null; actions: string; failed: boolean; machines: string }
 
 /// The project's rows that are not sessions, each opening that tab of its page.
-function ProjectCard({ project, card }: { project: string; card: RailCard }) {
+const ProjectCard = memo(function ProjectCard({ project, card }: { project: string; card: RailCard }) {
   const open = (tile: string) => () => go("projects", { project, tile });
   const count = (n: number | null) => n === null ? "" : `${n} open`;
   return <div className="rail-card">
@@ -144,7 +181,8 @@ function ProjectCard({ project, card }: { project: string; card: RailCard }) {
     <Button look="quiet" className="rail-card-li" onClick={open("actions")}><Icon name="run" /><span>Actions</span><small className={card.failed ? "bad" : undefined}>{card.actions}</small></Button>
     <Button look="quiet" className="rail-card-li" onClick={open("machines")}><Icon name="sync" /><span>Machines</span><small>{card.machines}</small></Button>
   </div>;
-}
+}, (prev, next) => prev.project === next.project && prev.card.prs === next.card.prs && prev.card.issues === next.card.issues
+  && prev.card.actions === next.card.actions && prev.card.failed === next.card.failed && prev.card.machines === next.card.machines);
 
 /// A running row's second line: what it does, else the first line of its last reply, with
 /// its emphasis and code as notifications show them.

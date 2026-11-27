@@ -9,18 +9,52 @@ import { conversationAppearance } from "../../ui/conversation-appearance.ts";
 import { PaneDock, PaneDropZone, PaneMain, PaneShell } from "./dock-view.tsx";
 import { onLogDrawn, promptMarks, revealLogUnit } from "./logwindow.tsx";
 import { syncJump } from "./logview.tsx";
-import type { AgentHintsModel, Frame, FrameState, Slot } from "../../stores/agents/session-frame-state.ts";
+import type { AgentHintsModel, FrameState, Slot } from "../../stores/agents/session-frame-state.ts";
 
 const SlotView = memo(function SlotView({ slot }: { slot: Slot }) {
   const view = useStore(slot.view);
   return slot.host ? createPortal(view, slot.host) : view;
 });
 
-/// The bar's session page, drawn from its frame's store.
+/// The bar's session page, drawn from its frame's store. Each slot subscribes to
+/// its own slice so head, hints or portal updates leave the log, composer and pane alone.
 export function SessionFrame({ store }: { store: StoreApi<FrameState> }) {
-  const { frame, revision, slots } = useStore(store);
-  return <><FrameView frame={frame} revision={revision} />{slots.map(entry => <SlotView key={entry.key} slot={entry} />)}</>;
+  return <>
+    <SessionHeadSlot store={store} />
+    <PaneShell>
+      <PaneMain>
+        <SessionConversation store={store} />
+        <PaneDock dock="bottom" />
+      </PaneMain>
+      <PaneDock dock="right" />
+      <PaneDropZone />
+    </PaneShell>
+    <SessionSlots store={store} />
+  </>;
 }
+
+const SessionHeadSlot = memo(function SessionHeadSlot({ store }: { store: StoreApi<FrameState> }) {
+  const head = useStore(store, state => state.frame.head);
+  const revision = useStore(store, state => state.revision);
+  return <div className="dhead ag-head" data-tauri-drag-region="" key={`head:${revision}`}>{head}</div>;
+});
+
+const SessionConversation = memo(function SessionConversation({ store }: { store: StoreApi<FrameState> }) {
+  const body = useStore(store, state => state.frame.body);
+  const field = useStore(store, state => state.frame.field);
+  const revision = useStore(store, state => state.revision);
+  return <div className="agconv" id="agconv" key={`conversation:${revision}`}><BodySlot body={body} />{field}<SessionHintsSlot store={store} /></div>;
+});
+
+const SessionHintsSlot = memo(function SessionHintsSlot({ store }: { store: StoreApi<FrameState> }) {
+  const hints = useStore(store, state => state.frame.hints);
+  return <AgentHints value={hints} />;
+});
+
+const SessionSlots = memo(function SessionSlots({ store }: { store: StoreApi<FrameState> }) {
+  const slots = useStore(store, state => state.slots);
+  return <>{slots.map(entry => <SlotView key={entry.key} slot={entry} />)}</>;
+});
 function BodySlot({ body }: { body: ChatBody }) {
   const host = useRef<HTMLDivElement>(null);
   const scrollbar = useStore(conversationAppearance, state => state.scrollbar);
@@ -48,10 +82,10 @@ function ConversationRail({ body }: { body: ChatBody }) {
       const box = rail.current, total = body.scrollHeight, shown = body.clientHeight;
       if (!box || total <= shown + 1) return setView(NO_RAIL);
       const height = box.clientHeight, scale = height / total;
-      const thumbHeight = Math.max(THUMB_MIN, shown * scale);
-      const thumbTop = (body.scrollTop / (total - shown)) * (height - thumbHeight);
-      const ticks = (promptMarksEnabled ? promptMarks(body) : []).map(mark => ({ key: mark.key, prompt: mark.prompt, top: Math.min(height - 2, mark.top * scale) }));
-      setView({ thumb: { top: thumbTop, height: thumbHeight }, ticks });
+      const thumbHeight = Math.round(Math.max(THUMB_MIN, shown * scale) * 2) / 2;
+      const thumbTop = Math.round(((body.scrollTop / (total - shown)) * (height - thumbHeight)) * 2) / 2;
+      const ticks = (promptMarksEnabled ? promptMarks(body) : []).map(mark => ({ key: mark.key, prompt: mark.prompt, top: Math.round(Math.min(height - 2, mark.top * scale) * 2) / 2 }));
+      setView(prior => sameRailView(prior, thumbTop, thumbHeight, ticks) ? prior : { thumb: { top: thumbTop, height: thumbHeight }, ticks });
     };
     const later = () => { frame ||= requestAnimationFrame(read); };
     const sized = new ResizeObserver(later);
@@ -102,12 +136,14 @@ function ConversationRail({ body }: { body: ChatBody }) {
   </div>;
 }
 
+function sameRailView(prior: RailView, top: number, height: number, ticks: RailView["ticks"]) {
+  return prior.thumb !== null && prior.thumb.top === top && prior.thumb.height === height
+    && prior.ticks.length === ticks.length
+    && prior.ticks.every((tick, i) => tick.key === ticks[i].key && tick.top === ticks[i].top && tick.prompt === ticks[i].prompt);
+}
+
 const AgentHints = memo(function AgentHints({ value }: { value: AgentHintsModel }) {
   const sections = SHORTCUTS.filter(section => ["Agent session", "Side pane", "Terminals"].includes(section.title));
   return <div className="agkeys"><HintView value={value.value} slim /><StashIndicator project={value.project} /><details id="agshortcuts"><summary>Show more</summary><div className="agkeys-list">{sections.map(section => <section key={section.title}><b>{section.title}</b>{section.rows.map(row => <span key={`${row.keys}:${row.does}`}><kbd>{row.keys}</kbd>{row.does}</span>)}</section>)}<StashActions /></div></details></div>;
-});
-
-const FrameView = memo(function FrameView({ frame, revision }: { frame: Frame; revision: number }) {
-  return <><div className="dhead ag-head" data-tauri-drag-region="" key={`head:${revision}`}>{frame.head}</div><PaneShell><PaneMain><div className="agconv" id="agconv" key={`conversation:${revision}`}><BodySlot body={frame.body} />{frame.field}<AgentHints value={frame.hints} /></div><PaneDock dock="bottom" /></PaneMain><PaneDock dock="right" /><PaneDropZone /></PaneShell></>;
 });
 

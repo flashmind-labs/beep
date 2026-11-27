@@ -55,3 +55,18 @@ test("an idle window with reduced motion runs few callbacks, and nothing once hi
   expect(hidden.infinite).toBe(0);
   expect(hidden.timers).toBeLessThan(5);
 });
+
+test("center-hidden stops paintings and infinite animations even when document.hidden stays false", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.addInitScript(countCallbacks);
+  await openDesktop(page);
+  await expect(page.getByRole("tab", { name: "Board" })).toBeVisible();
+
+  await page.evaluate(() => { window.__navigation.emit("center-hidden", null); });
+  await page.waitForTimeout(300);
+  const hidden = await idle(page, 2000);
+  test.info().annotations.push({ type: "idle-normal-motion-hidden", description: JSON.stringify(hidden) });
+
+  expect(hidden.frames).toBe(0);
+  expect(hidden.infinite).toBe(0);
+});

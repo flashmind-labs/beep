@@ -27,14 +27,19 @@ export const visibilitySnapshot = () => ({
 });
 
 /// Runs `fn` each time the window shows or hides, or with `pane` each
-/// time `paneShown()` changes.
-export function onShownChange(fn: (shown: boolean) => void, pane = false) {
+/// time `paneShown()` changes. Returns a callback that stops listening.
+export function onShownChange(fn: (shown: boolean) => void, pane = false): () => void {
   const now = pane ? paneShown : pageShown;
   let was = now();
-  told.push(() => {
+  const listener = () => {
     const is = now();
     if (is !== was) { was = is; fn(is); }
-  });
+  };
+  told.push(listener);
+  return () => {
+    const at = told.indexOf(listener);
+    if (at >= 0) told.splice(at, 1);
+  };
 }
 
 const changed = () => { for (const fn of told) fn(); };
@@ -152,9 +157,11 @@ function setHidden(hidden: boolean, event: string) {
 // this with no page, so it hooks in only where there is one.
 if (typeof window !== "undefined") {
   // `event.listen` would also hear other windows hiding and pause this one.
-  const own = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
-  for (const [name, hidden] of [["center-hidden", true], ["center-shown", false], ["bar-hidden", true], ["bar-shown", false]] as const) {
-    void own.listen(name, () => { nativeHidden = hidden; setHidden(hidden, name); });
+  const own = window.__TAURI__?.webviewWindow?.getCurrentWebviewWindow?.();
+  if (own) {
+    for (const [name, hidden] of [["center-hidden", true], ["center-shown", false], ["bar-hidden", true], ["bar-shown", false]] as const) {
+      void own.listen(name, () => { nativeHidden = hidden; setHidden(hidden, name); });
+    }
   }
 
   document.addEventListener("visibilitychange", () => { lastEvent = "visibilitychange"; changed(); });

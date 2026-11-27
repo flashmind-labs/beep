@@ -83,7 +83,7 @@ export function appendQuote(field: HTMLTextAreaElement, selected: string): boole
 
 /// A composer's field: a textarea with the layer behind it that draws its
 /// pills and code outlines, and the preview of a clicked pill.
-export function ComposeField({ draft, images, grow, removeLast, ref, className, onInput, onFocus, onScroll, onPaste, onKeyDown, onClick, onSelect, onKeyUp, onMouseUp, onCompositionStart, onCompositionEnd, ...rest }: ComposeFieldProps) {
+export function ComposeField({ draft, images, grow, removeLast, ref, className, onInput, onFocus, onBlur, onScroll, onPaste, onKeyDown, onClick, onSelect, onKeyUp, onMouseUp, onCompositionStart, onCompositionEnd, ...rest }: ComposeFieldProps) {
   const field = useRef<HTMLTextAreaElement | null>(null), layer = useRef<HTMLDivElement>(null), pillNodes = useRef(new Map<number, HTMLSpanElement>());
   const draftKey = draft === undefined ? null : draftKeyOf(draft);
   const [initial] = useState(() => keptDraft(draftKey));
@@ -93,9 +93,11 @@ export function ComposeField({ draft, images, grow, removeLast, ref, className, 
   const [pop, setPop] = useState<number | null>(null);
   /// The caret before the last move, to skip a pill in the direction it went.
   const caret = useRef(0), composing = useRef(false);
+  const measured = useRef<{ height: number | null; length: number; size: number }>({ height: null, length: initial.length, size: 0 });
+  const pendingDraft = useRef<{ timer: ReturnType<typeof setTimeout> | null; text: string | null }>({ timer: null, text: null });
   const pills = pillsIn(value), fences = fenceSpans(value, pastes), shown = pills.length > 0 || fences.length > 0;
 
-  const saveDraft = (text: string) => {
+  const writeDraft = useCallback((text: string) => {
     if (!draftKey) return;
 
     try {
@@ -105,8 +107,33 @@ export function ComposeField({ draft, images, grow, removeLast, ref, className, 
       if (kept) localStorage.setItem(draftKey, kept);
       else localStorage.removeItem(draftKey);
     } catch { /* Keep the field usable when storage is full or unavailable. */ }
-  };
-  const changed = (text: string) => { saveDraft(text); setValue(text); };
+  }, [draftKey]);
+
+  const flushDraft = useCallback(() => {
+    const pending = pendingDraft.current;
+    if (pending.timer !== null) { clearTimeout(pending.timer); pending.timer = null; }
+    if (pending.text !== null) {
+      const text = pending.text;
+      pending.text = null;
+      writeDraft(text);
+    }
+  }, [writeDraft]);
+
+  const scheduleDraft = useCallback((text: string, immediate: boolean) => {
+    const pending = pendingDraft.current;
+    if (pending.timer !== null) { clearTimeout(pending.timer); pending.timer = null; }
+    if (immediate || !text) {
+      pending.text = null;
+      writeDraft(text);
+      return;
+    }
+    pending.text = text;
+    pending.timer = setTimeout(flushDraft, DRAFT_SAVE_MS);
+  }, [flushDraft, writeDraft]);
+
+  useEffect(() => () => flushDraft(), [flushDraft]);
+
+  const changed = useCallback((text: string, immediate = true) => { scheduleDraft(text, immediate); setValue(text); }, [scheduleDraft]);
 
   // Text set from code (sending, a queued message put back, the mention menu)
   // draws and saves too. Callers set `value` directly; until they all go
@@ -117,14 +144,28 @@ export function ComposeField({ draft, images, grow, removeLast, ref, className, 
     if (!node || !VALUE?.get || !VALUE.set) return;
 
     const { get, set } = VALUE;
-    Object.defineProperty(node, "value", { configurable: true, get() { return get.call(this); }, set(text: string) { set.call(this, text); changed(text); } });
-  }, [ref, draftKey]);
+    Object.defineProperty(node, "value", { configurable: true, get() { return get.call(this); }, set(text: string) { set.call(this, text); changed(text, true); } });
+  }, [ref, changed]);
 
   const closePop = useCallback(() => setPop(null), []);
 
   useLayoutEffect(() => {
     const node = field.current;
     if (!node || !grow) return;
+
+    const prev = measured.current;
+    // Growing on the same line needs no collapse-and-reflow pass: scrollHeight
+    // already reflects wrapping, so skip DOM writes unless the height changes.
+    if (prev.height !== null && prev.size === size && value.length >= prev.length) {
+      const needed = Math.min(node.scrollHeight, grow);
+      prev.length = value.length;
+      if (needed <= prev.height) return;
+      const log = sessionBody(), top = log?.scrollTop ?? 0;
+      node.style.height = `${needed}px`;
+      prev.height = needed;
+      if (log && log.scrollTop !== top) log.scrollTop = top;
+      return;
+    }
 
     // Collapsing the field to measure it makes the log above taller for a
     // moment, which moves a log scrolled to its end.
@@ -134,6 +175,9 @@ export function ComposeField({ draft, images, grow, removeLast, ref, className, 
     const height = Math.min(node.scrollHeight, grow);
     node.style.minHeight = "";
     node.style.height = `${height}px`;
+    prev.height = height;
+    prev.length = value.length;
+    prev.size = size;
     if (log && log.scrollTop !== top) log.scrollTop = top;
   }, [value, grow, size]);
 
@@ -147,7 +191,7 @@ export function ComposeField({ draft, images, grow, removeLast, ref, className, 
     for (const k of COPIED) next[k] = cs[k];
     setBox(old => old && COPIED_BOX.every(k => old[k] === next[k]) ? old : next);
     if (layer.current) layer.current.scrollTop = node.scrollTop;
-  });
+  }, [value, shown, size]);
 
   // A resize, of the window or of the field moved to another host, lays it out again.
   useEffect(() => {
@@ -167,8 +211,9 @@ export function ComposeField({ draft, images, grow, removeLast, ref, className, 
   return <>
     <div ref={layer} className="cx-layer" aria-hidden="true" hidden={!shown} style={box ?? undefined}>{shown && <ComposeOverlay value={value} pills={pills} fences={fences} pillNode={(id, node) => { if (node) pillNodes.current.set(id, node); else pillNodes.current.delete(id); }} />}</div>
     <textarea ref={attach} defaultValue={initial} className={className ? `${className} cx-field` : "cx-field"} {...(onPhone() ? PHONE_TYPING : NO_AUTO)} {...rest}
-      onInput={event => { changed(event.currentTarget.value); setPop(null); onInput?.(event); }}
+      onInput={event => { changed(event.currentTarget.value, false); setPop(null); onInput?.(event); }}
       onFocus={event => { setSize(n => n + 1); onFocus?.(event); }}
+      onBlur={event => { flushDraft(); onBlur?.(event); }}
       onScroll={event => { if (layer.current) layer.current.scrollTop = event.currentTarget.scrollTop; onScroll?.(event); }}
       onPaste={event => { paste(event.currentTarget, event.nativeEvent, images); onPaste?.(event); }}
       onKeyDown={event => {
@@ -192,6 +237,7 @@ export function ComposeField({ draft, images, grow, removeLast, ref, className, 
   </>;
 }
 
+const DRAFT_SAVE_MS = 250;
 const COPIED = ["fontFamily", "fontSize", "fontWeight", "fontStyle", "fontStretch", "letterSpacing", "wordSpacing", "lineHeight", "textTransform", "textIndent", "tabSize",
   "paddingTop", "paddingRight", "paddingBottom", "paddingLeft"] as const;
 const COPIED_BOX = [...COPIED, "left", "top", "width", "height"] as const;

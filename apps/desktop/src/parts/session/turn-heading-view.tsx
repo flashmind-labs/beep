@@ -1,6 +1,6 @@
 // Parts a turn's rows share in a coding agent's log: the heading, a step's
 // mark and a running clock.
-import { memo, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { memo, useCallback, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { clock, duration, heading, type TurnState } from "./agentturns.ts";
 import { Icon } from "../../ui/icons.tsx";
 import { Spinner } from "../../ui/kit.tsx";
@@ -54,8 +54,9 @@ export function Since({ start, className, title }: { start: number; className?: 
   const el = useRef<HTMLSpanElement | null>(null), seen = useRef(second);
   const shown = () => { if (el.current?.isConnected !== false) seen.current = second; return seen.current; };
   useSyncExternalStore(subscribeSecond, shown, shown);
-  useLayoutEffect(tickClocks);
-  return <span ref={node => { el.current = node; return placeClock(node); }} className={className} data-since={start} title={title}>{duration(Date.now() - start)}</span>;
+  useLayoutEffect(() => { tickClocks(); }, []);
+  const attach = useCallback((node: HTMLSpanElement | null) => { el.current = node; return placeClock(node); }, []);
+  return <span ref={attach} className={className} data-since={start} title={title}>{duration(Date.now() - start)}</span>;
 }
 
 // One timer serves every clock, and stops while none is in the page or the

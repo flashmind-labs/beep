@@ -16,6 +16,7 @@
 // a new light. The dawn haze lies behind lists and stays still, and with Reduce motion on every
 // scene is drawn finished and still.
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { onShownChange, pageShown } from "./active.ts";
 import haystacks from "./scenes/haystacks.svg";
 import haze from "./scenes/haze.svg";
 import lilies from "./scenes/lilies.svg";
@@ -73,11 +74,17 @@ function PaintedArt({ scene }: { scene: Scene }) {
     // `life` is the finished painting, kept to move it; it is dropped when the strokes are laid again.
     // A finished painting beats on a timer, so the page wakes once a beat instead of on every display frame.
     // `picture` is the scene's SVG drawn at the canvas's size; nothing is painted before it.
-    let frame = 0, timer = 0, strokes: Stroke[] = [], last = 0, seen = false, life: Life | null = null, glLife: GlLife | null = null, picture: Picture | null = null, gone = false;
+    let frame = 0, timer = 0, strokes: Stroke[] = [], last = 0, seen = false, focused = true, life: Life | null = null, glLife: GlLife | null = null, picture: Picture | null = null, gone = false;
     const still = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const alive = !still && scene !== "haze";
     const glView = alive ? initGl(target) : null;
     const stage = glView ? document.createElement("canvas") : target;
+    const concealed = () => !pageShown() || !!target.closest("[inert], [hidden]");
+    const mayBeat = () => seen && focused && !concealed();
+    const stopLoop = () => {
+      if (frame) { cancelAnimationFrame(frame); frame = 0; }
+      if (timer) { window.clearTimeout(timer); timer = 0; }
+    };
     const paint = (now: number) => {
       frame = 0;
       if (!picture) return;
@@ -85,8 +92,10 @@ function PaintedArt({ scene }: { scene: Scene }) {
       const done = still ? 1 : Math.min(1, (now - (began.get(scene) ?? now)) / PLAY_MS[scene]);
 
       if (glLife) {
+        if (!mayBeat()) return;
         beatGl(glLife, now);
       } else if (life) {
+        if (!mayBeat()) return;
         beat(target, life, now);
       } else if (done === 1 || now - last >= FRAME_MS) {
         last = now;
@@ -104,13 +113,13 @@ function PaintedArt({ scene }: { scene: Scene }) {
         }
       }
 
-      if (done < 1) frame = requestAnimationFrame(paint);
-      else if ((glLife || life) && seen && !document.hidden) timer = window.setTimeout(wake, BEAT_MS);
+      if (done < 1 && !concealed()) frame = requestAnimationFrame(paint);
+      else if ((glLife || life) && mayBeat()) timer = window.setTimeout(wake, BEAT_MS);
     };
     function wake() {
       window.clearTimeout(timer);
       timer = 0;
-      if (!frame) frame = requestAnimationFrame(paint);
+      if (!frame && (!life && !glLife ? !concealed() : mayBeat())) frame = requestAnimationFrame(paint);
     }
 
     const resized = new ResizeObserver(() => {
@@ -131,21 +140,34 @@ function PaintedArt({ scene }: { scene: Scene }) {
     const watch = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver(entries => {
       seen = entries[entries.length - 1].intersectionRatio > 0;
       if (seen) wake();
+      else if (life || glLife) stopLoop();
     }, { threshold: [0, 0.001] });
     seen = watch === null;
-    const shown = () => { if (!document.hidden) wake(); };
+    const onFocus = () => { focused = true; wake(); };
+    const onBlur = () => { focused = false; if (life || glLife) stopLoop(); };
+    const unwatchShown = onShownChange(shown => { if (shown) wake(); else stopLoop(); });
+    // Rail and sidebar hide via `inert` / `visibility: hidden` without unmounting; pause while concealed.
+    const parent = target.parentElement;
+    const attrs = alive && parent && typeof MutationObserver !== "undefined" ? new MutationObserver(() => {
+      if (mayBeat()) wake();
+      else if (life || glLife) stopLoop();
+    }) : null;
+    attrs?.observe(parent!, { attributes: true, attributeFilter: ["inert", "hidden"] });
     if (alive) {
       watch?.observe(target);
-      document.addEventListener("visibilitychange", shown);
+      window.addEventListener("focus", onFocus);
+      window.addEventListener("blur", onBlur);
     }
 
     return () => {
       gone = true;
       resized.disconnect();
       watch?.disconnect();
-      document.removeEventListener("visibilitychange", shown);
-      if (frame) cancelAnimationFrame(frame);
-      window.clearTimeout(timer);
+      attrs?.disconnect();
+      unwatchShown();
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+      stopLoop();
       glView?.dispose();
     };
   }, [scene]);

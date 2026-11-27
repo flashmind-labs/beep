@@ -10,7 +10,7 @@ html:where(:has(> body.cbody)), body.cbody { background: var(--ink) }
 .cc-err.cc-progress, .cc-pjc .cc-err.cc-progress { color: var(--muted) }
 .cc-comp input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14px; caret-color: var(--accent); padding: 0; -webkit-user-select: text; user-select: text }
 .cc-comp input::placeholder { color: var(--dim) }
-.cc-side { display: flex; flex-direction: column; padding: 10px 8px 0; min-width: 0; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--ink) 55%, transparent); overflow: hidden; min-height: 0 }
+.cc-side { display: flex; flex-direction: column; padding: 10px 8px 0; min-width: 0; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--ink) 55%, transparent); overflow: hidden; min-height: 0; contain: layout style paint }
 .cc-side-list { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding-bottom: 10px; overflow-y: auto; scrollbar-width: none }
 .cc-brand { display: flex; align-items: center; gap: 10px; padding: 0 6px }
 .cc-brand b { font-family: var(--display); font-weight: 800; font-size: 18px; letter-spacing: -0.03em }
@@ -1077,8 +1077,8 @@ html[data-material="vibrant"] .side-collapsed .cc-top { padding-left: 32px }
 .cwin.rail-on.side-over > .cc-side { z-index: 3; opacity: 1; visibility: visible; translate: none; transition-delay: 0s; background: color-mix(in srgb, var(--ink) max(92%, var(--glass-solid)), transparent); box-shadow: 0 24px 70px -12px color-mix(in srgb, var(--shade) 60%, transparent) }
 .cc-rail:not([hidden]) { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; padding: 10px 8px 10px; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--ink) 55%, transparent) }
 .cc-rail > .cc-brand { justify-content: space-between }
-.cc-rail { position: relative; isolation: isolate }
-.rail-card { flex: none; display: grid; margin: 8px 0 0; padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--ink) 72%, transparent); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px) }
+.cc-rail { position: relative; isolation: isolate; contain: layout style paint }
+.rail-card { flex: none; display: grid; margin: 8px 0 0; padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--ink) 86%, transparent) }
 .rail-card > .rail-card-li { display: flex; align-items: center; justify-content: flex-start; gap: 10px; min-width: 0; padding: 5px 6px; font-weight: 400; text-align: left }
 .rail-card-li > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .rail-card-li > small { font: 11px var(--mono); color: var(--dim) }

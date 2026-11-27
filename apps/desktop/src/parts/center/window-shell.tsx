@@ -104,8 +104,8 @@ export function windowHost(name: Host): HTMLElement {
   return host;
 }
 
-export function CenterWindow() {
-  const { view, assistant, parts, side } = useStore(shell);
+function SideEffects() {
+  const side = useStore(shell, s => s.side);
   const collapsed = sideCollapsed(side), rail = !!side.rail && !side.railHidden, over = rail && side.over;
 
   useLayoutEffect(() => {
@@ -125,31 +125,74 @@ export function CenterWindow() {
     return () => main.removeEventListener("pointerdown", closeSideOver);
   }, [over]);
 
+  return null;
+}
+
+function PartSlot({ name }: { name: ShellPart }) {
+  return useStore(shell, s => s.parts[name] ?? null);
+}
+
+function HiddenPartSpan({ name, id, className, spanRef }: { name: ShellPart; id: string; className: string; spanRef: (el: HTMLElement | null) => void }) {
+  const part = useStore(shell, s => s.parts[name]);
+  return <span id={id} className={className} hidden={part == null} ref={spanRef}>{part}</span>;
+}
+
+function SideAside() {
+  const sidebar = useStore(shell, s => s.parts.sidebar);
+  const inert = useStore(shell, s => !!s.side.rail && !s.side.railHidden && !s.side.over);
+  return <aside className="cc-side" id="side" ref={refs.side} inert={inert}><HazeArt />{sidebar}</aside>;
+}
+
+function RailAside() {
+  const railKind = useStore(shell, s => s.side.rail?.kind ?? null);
+  const inert = useStore(shell, s => !(!!s.side.rail && !s.side.railHidden) || s.side.over);
+  const content = useStore(shell, s => s.parts.rail);
+  return <aside className="cc-rail pj-list" id="rail" aria-label={railKind === "chat" ? "Chat threads" : "Project sessions"} hidden={!railKind} inert={inert}>{railKind && content}</aside>;
+}
+
+function HomeBox() {
+  const hidden = useStore(shell, s => s.view !== null && s.view !== "home");
+  const initial = useStore(shell, s => s.view === null);
+  const opening = useStore(shell, s => s.parts.opening);
+  const home = useStore(shell, s => s.parts.home);
+  const composer = useStore(shell, s => s.parts["home-composer"]);
+  return <div className="cc-box" id="home-box" hidden={hidden} ref={refs.homeBox}>
+    <div className="cc-view" id="view" ref={refs.view}>{initial && opening ? opening : home}</div>
+    {(!initial || !opening) && composer}
+  </div>;
+}
+
+function PaneBox() {
+  const hidden = useStore(shell, s => s.view !== "pane");
+  const assistant = useStore(shell, s => s.assistant);
+  const content = useStore(shell, s => s.parts.assistant);
+  return <div className={`cc-box${assistant ? ` pj-split${assistant.picked ? " picked" : ""}` : ""}`} id="pane-box" hidden={hidden} ref={refs.paneBox}>{content}</div>;
+}
+
+export function CenterWindow() {
   return <>
-    <aside className="cc-side" id="side" ref={refs.side} inert={rail && !over}><HazeArt />{parts.sidebar}</aside>
+    <SideEffects />
+    <SideAside />
     <WidthGrip column={SIDEBAR} id="side-grip" />
-    <aside className="cc-rail pj-list" id="rail" aria-label={side.rail?.kind === "chat" ? "Chat threads" : "Project sessions"} hidden={!side.rail} inert={!rail || over}>{side.rail && parts.rail}</aside>
+    <RailAside />
     <div className="cc-main" id="main" ref={refs.main}>
-      {parts["project-back"]}
+      <PartSlot name="project-back" />
       <div className="cc-top" data-tauri-drag-region="" ref={refs.top}>
-        {parts["mobile-back"]}
-        <h2 data-tauri-drag-region="" id="title">{parts.title}</h2>
-        <span id="scope">{parts.scope}</span>
-        <small id="date" data-tauri-drag-region="">{parts.date}</small>
-        <span className="tools" id="tools">{parts.tools}</span>
-        <span id="usage" className="us" hidden={parts.usage == null} ref={refs.usage}>{parts.usage}</span>
-        <span id="bell" className="nt" hidden={parts.notices == null} ref={refs.bell}>{parts.notices}</span>
-        {parts["mobile-settings"]}
+        <PartSlot name="mobile-back" />
+        <h2 data-tauri-drag-region="" id="title"><PartSlot name="title" /></h2>
+        <span id="scope"><PartSlot name="scope" /></span>
+        <small id="date" data-tauri-drag-region=""><PartSlot name="date" /></small>
+        <span className="tools" id="tools"><PartSlot name="tools" /></span>
+        <HiddenPartSpan name="usage" id="usage" className="us" spanRef={refs.usage} />
+        <HiddenPartSpan name="notices" id="bell" className="nt" spanRef={refs.bell} />
+        <PartSlot name="mobile-settings" />
       </div>
-      <div className="cc-box" id="home-box" hidden={view !== null && view !== "home"} ref={refs.homeBox}>
-        <div className="cc-view" id="view" ref={refs.view}>{view === null && parts.opening ? parts.opening : parts.home}</div>
-        {(view !== null || !parts.opening) && parts["home-composer"]}
-      </div>
+      <HomeBox />
       {/* The Assistant page sets its chats beside the pane's bar, which `adoptBar` appends after them. */}
-      <div className={`cc-box${assistant ? ` pj-split${assistant.picked ? " picked" : ""}` : ""}`} id="pane-box" hidden={view !== "pane"} ref={refs.paneBox}>{parts.assistant}</div>
-      {parts.pages}
+      <PaneBox />
+      <PartSlot name="pages" />
     </div>
-    <nav className="mb-tabs" id="mb-tabs" aria-label="Sections">{parts["mobile-tabs"]}</nav>
-    {parts.palette}
+    <nav className="mb-tabs" id="mb-tabs" aria-label="Sections"><PartSlot name="mobile-tabs" /></nav>
+    <PartSlot name="palette" />
   </>;
 }
