@@ -116,8 +116,28 @@ def rust_resolve(path: str, here: tuple, mods: set, reexports: dict):
     return at
 
 
-CFG_TEST = re.compile(r"#\[cfg\(\s*(?:test|all\((?=[^\]]*\btest\b)[^\]]*\))\s*\)\]")
 OPENERS, CLOSERS = "([{", ")]}"
+CFG_START = re.compile(r"#\[\s*cfg\s*\(")
+ITEM_WORD = re.compile(r"(?:pub(?:\([^)]*\))?\s+)?(?:fn|impl|struct|enum|mod|trait|use|const|static|type|unsafe|async|extern|union|macro_rules)\b")
+
+
+def top_level_args(pred: str):
+    args, depth, cur = [], 0, ""
+    for ch in pred:
+        depth += (ch in OPENERS) - (ch in CLOSERS)
+        if ch == "," and depth == 0:
+            args.append(cur.strip())
+            cur = ""
+        else:
+            cur += ch
+    return args + [cur.strip()]
+
+
+def requires_test(pred: str):
+    """True for `test` and `all(test, ..)`: test is a positive requirement. Not `not`, `any`, features."""
+    pred = pred.strip()
+    m = re.fullmatch(r"all\s*\((.*)\)", pred, re.S)
+    return pred == "test" or bool(m and "test" in top_level_args(m.group(1)))
 
 
 def skip_lexeme(text: str, i: int):
@@ -150,10 +170,9 @@ def skip_lexeme(text: str, i: int):
 
 
 def cfg_test_item_end(text: str, i: int):
-    """The end of the item starting at i: past its `;`, or past the `}` closing its body.
-    `use`, `const`, `static` and `type` end at their `;` even when braces come first."""
-    kw = re.compile(r"(?:pub(?:\([^)]*\))?\s+)?(\w+)").match(text, i)
-    to_semi = bool(kw) and kw.group(1) in ("use", "const", "static", "type")
+    """The end of the item (or field, variant, arm) starting at i: past its `;`, past the `}` of its
+    first top-level block, or at a top-level `,` or an enclosing closer (neither consumed)."""
+    comma_ends = not ITEM_WORD.match(text, i)
     depth, j, n = 0, i, len(text)
     while j < n:
         end = skip_lexeme(text, j)
@@ -161,12 +180,16 @@ def cfg_test_item_end(text: str, i: int):
             j = end
             continue
         c = text[j]
+        if c in CLOSERS and depth == 0:
+            return j
+        if c == "," and depth == 0 and comma_ends:
+            return j
         j += 1
         if c in OPENERS:
             depth += 1
         elif c in CLOSERS:
             depth -= 1
-            if c == "}" and depth == 0 and not to_semi:
+            if c == "}" and depth == 0:
                 return j
         elif c == ";" and depth == 0:
             return j
@@ -175,32 +198,66 @@ def cfg_test_item_end(text: str, i: int):
 
 def without_cfg_test(text: str):
     """The text with each `#[cfg(test)]` or `#[cfg(all(test, ..))]` item blanked, newlines kept,
-    so a test-only item hides itself and nothing after it."""
-    out, last = [], 0
-    for m in CFG_TEST.finditer(text):
-        if m.start() < last:
+    so a test-only item hides itself and nothing after it. Markers in comments and strings are ignored."""
+    out, last, i, n = [], 0, 0, len(text)
+    while i < n:
+        end = skip_lexeme(text, i)
+        if end is not None:
+            i = end
             continue
-        i = m.end()
-        while True:
-            ws = re.compile(r"\s*(?:#\[|///[^\n]*|//![^\n]*)").match(text, i)
-            if not ws:
-                break
-            i = ws.end()
-            if text[i - 1] == "[":
-                depth = 1
-                while i < len(text) and depth:
-                    end = skip_lexeme(text, i)
-                    if end is not None:
-                        i = end
-                        continue
-                    depth += (text[i] == "[") - (text[i] == "]")
-                    i += 1
+        m = CFG_START.match(text, i)
+        if not m:
+            i += 1
+            continue
+        close = cfg_close(text, m.end())
+        if close is None or not text.startswith("]", close):
+            i = m.end()
+            continue
+        pred, i2 = text[m.end(): close - 1], close + 1
+        if not requires_test(pred):
+            i = i2
+            continue
+        while i2 < n:
+            ws = re.compile(r"\s*").match(text, i2).end()
+            if text.startswith("#[", ws):
+                i2 = skip_brackets(text, ws + 2)
+            elif text.startswith("//", ws) or text.startswith("/*", ws):
+                i2 = skip_lexeme(text, ws)
             else:
-                i = text.find("\n", i) if "\n" in text[i:] else len(text)
-        end = cfg_test_item_end(text, re.compile(r"\s*").match(text, i).end())
-        out += [text[last:m.start()], re.sub(r"[^\n]", " ", text[m.start():end])]
-        last = end
+                i2 = ws
+                break
+        stop = cfg_test_item_end(text, i2)
+        out += [text[last:i], re.sub(r"[^\n]", " ", text[i:stop])]
+        last = i = stop
     return "".join(out) + text[last:]
+
+
+def skip_brackets(text: str, i: int):
+    """The index past the `]` closing the `[` just before i."""
+    depth = 1
+    while i < len(text) and depth:
+        end = skip_lexeme(text, i)
+        if end is not None:
+            i = end
+            continue
+        depth += (text[i] == "[") - (text[i] == "]")
+        i += 1
+    return i
+
+
+def cfg_close(text: str, i: int):
+    """The index just past the `)` closing the `(` before i, or None."""
+    depth = 1
+    while i < len(text):
+        end = skip_lexeme(text, i)
+        if end is not None:
+            i = end
+            continue
+        depth += (text[i] == "(") - (text[i] == ")")
+        i += 1
+        if depth == 0:
+            return i
+    return None
 
 
 def rust_edges(root: Path, depth: int):
