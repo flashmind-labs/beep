@@ -171,13 +171,7 @@ where
         Listing::Failed(_) => BOOTING_LIST_FRESH,
     };
     let held = devices.clone();
-    let fetch = move || async move {
-        match fetch().await {
-            Ok(devices) => Ok(Listing::Devices(devices)),
-            Err(e) if held.peek(&machine).is_none() => Ok(Listing::Failed(e.to_string())),
-            Err(e) => Err(e),
-        }
-    };
+    let fetch = move || listing(held, machine, fetch);
 
     match devices
         .read_fast_with_fresh(machine, fresh_for, PartialEq::eq, notify, fetch)
@@ -186,6 +180,36 @@ where
         Ok(Listing::Devices(devices)) => Some(Ok(devices)),
         Ok(Listing::Failed(reason)) => Some(Err(DesktopError::BadRequest(reason))),
         Err(e) => Some(Err(e)),
+    }
+}
+
+/// `machine`'s list from `fetch`, within `DEVICE_LIST_LIMIT` all told: reaching
+/// the machine counts, so a node that never answers ends here, before the
+/// projection's own limit. A failure becomes `Failed` unless the machine has
+/// devices held, which it keeps.
+async fn listing<F, Fut>(
+    held: Arc<Projected<EndpointId, Listing>>,
+    machine: EndpointId,
+    fetch: F,
+) -> Result<Listing>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<Vec<Device>>>,
+{
+    let read = timeout(DEVICE_LIST_LIMIT, fetch())
+        .await
+        .unwrap_or_else(|_| {
+            Err(DesktopError::TimedOut(
+                "The machine did not list its devices in time.".to_owned(),
+            ))
+        });
+
+    match read {
+        Ok(devices) => Ok(Listing::Devices(devices)),
+        Err(e) if !matches!(held.peek(&machine), Some(Listing::Devices(_))) => {
+            Ok(Listing::Failed(e.to_string()))
+        }
+        Err(e) => Err(e),
     }
 }
 

@@ -604,7 +604,7 @@ impl Default for Projections {
             devices: Projected::new(
                 Duration::from_secs(10),
                 Duration::from_millis(600),
-                DEVICE_LIST_LIMIT,
+                DEVICE_LIST_LIMIT + Duration::from_secs(5),
             ),
             reviews: Projected::new(
                 Duration::from_secs(8),

@@ -414,3 +414,26 @@ async fn a_list_that_fails_after_the_first_wait_tells_the_window() {
     let again = read_devices(devices, machine, || {}, || async { Ok(Vec::new()) }).await;
     assert!(matches!(again, Some(Err(_))));
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_machine_that_never_answers_ends_as_a_failed_list() {
+    let machine = iroh::SecretKey::from_bytes(&[7; 32]).public();
+    let held = Projected::new(
+        Duration::from_secs(10),
+        Duration::from_millis(600),
+        DEVICE_LIST_LIMIT,
+    );
+
+    let listed = listing(held.clone(), machine, || {
+        std::future::pending::<Result<Vec<Device>>>()
+    })
+    .await;
+    assert!(matches!(listed, Ok(Listing::Failed(_))));
+
+    held.put(machine, Listing::Failed("old".to_owned()));
+    let again = listing(held, machine, || async {
+        Err::<Vec<Device>, _>(DesktopError::Other(anyhow::anyhow!("newer")))
+    })
+    .await;
+    assert!(matches!(again, Ok(Listing::Failed(text)) if text.contains("newer")));
+}

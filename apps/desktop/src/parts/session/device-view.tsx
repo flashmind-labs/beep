@@ -27,7 +27,7 @@ export const DevicePane = memo(function DevicePane({ hidden }: { hidden: boolean
   const anyDevice = model.machines.some(m => m.devices.length > 0);
   const listing = model.machines.filter(m => m.loading);
   if (model.listed && !anyDevice && listing.length > 0) {
-    return <div className="agpview device" hidden={hidden}><EmptyPanel spin text={`Listing devices on ${listing.map(m => m.machine_name).join(" and ")}…`} /></div>;
+    return <div className="agpview device" hidden={hidden}><EmptyPanel spin text={listing.length === 1 ? `Listing devices on ${listing[0].machine_name}…` : "Listing devices…"} /></div>;
   }
   if (model.listed && !anyDevice) {
     const names = model.machines.map(m => m.machine_name).join(" or ");

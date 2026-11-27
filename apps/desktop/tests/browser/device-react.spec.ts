@@ -98,6 +98,14 @@ test("a machine still listing says so, not that it has no devices", async ({ pag
   await expect(page.getByText("No machine has an iOS simulator")).toHaveCount(0);
 });
 
+test("several machines still listing get one line without names", async ({ page }) => {
+  const other = { machine_id: "mac-box", machine_name: "mac-box" };
+  await openDesktop(page, true, { device_hosts: [host, other], device_platforms: ["Ios"], device_list: [{ ...host, devices: [], error: null, loading: true }, { ...other, devices: [], error: null, loading: true }] });
+  await page.evaluate(agent => window.__navigation.open({ agent }), session);
+  await page.getByRole("tab", { name: "Device" }).click();
+  await expect(page.locator(".cc-empty")).toHaveText("Listing devices…");
+});
+
 test("a phone shows without Boot or Shut down", async ({ page }) => {
   const phone = { ...pixel, id: "R5CT1234ABC", name: "Pixel 8 Pro", phone: true };
   await openDesktop(page, true, { device_hosts: [host], device_platforms: ["Android"], device_list: [{ ...host, devices: [phone], error: null }] });
