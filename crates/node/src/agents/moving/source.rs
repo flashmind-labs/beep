@@ -44,14 +44,14 @@ pub(super) async fn run(
         return Ok(());
     }
 
-    if !env.agents.reopen.reopened() {
+    if !env.moves.reopen.reopened() {
         log::info!(
             "session {}: waiting for the sessions open before the restart to resume",
             record.id
         );
     }
 
-    env.agents.reopen.until_reopened().await;
+    env.moves.reopen.until_reopened().await;
     let next = Outgoing {
         at: record.at,
         to: record.to,
@@ -68,13 +68,13 @@ pub(super) async fn run(
             env.state.clear(&record.id, old.at);
             saved = None;
         } else if before != Previous::Released {
-            env.agents.moves.refuse(&record.id, MOVED_AWAY);
+            env.moves.refuse(&record.id, MOVED_AWAY);
             return Err(anyhow!(MOVED_AWAY));
         }
     }
 
     // A target reads the session as running until it ended here.
-    let held = env.agents.moves.hold(&record.id);
+    let held = env.moves.hold(&record.id);
     // Set once the session ended here: a restart finds it in what is kept.
     let mut open = saved
         .filter(|saved| saved.at == record.at)
@@ -94,7 +94,7 @@ pub(super) async fn run(
 }
 
 fn live(env: &Env, id: &SessionId) -> Option<Arc<Session>> {
-    env.agents
+    env.moves
         .sessions
         .get(id)
         .filter(|session| watched::read(&session.live, Live::status) != Status::Ended)
@@ -148,7 +148,7 @@ async fn end(
 
     // Kept before the session closes, so a move taken back at any point
     // after finds how to start it again.
-    let open = env.agents.reopen.open_session(&record.id);
+    let open = env.moves.reopen.open_session(&record.id);
     // Worktrees sent before a restart stay noted: the target does not ask
     // for them again.
     let sent = env
@@ -236,7 +236,7 @@ async fn fail(
     why: &anyhow::Error,
 ) -> Result<()> {
     let reason = format!("{why:#}");
-    env.agents.moves.refuse(&record.id, &reason);
+    env.moves.refuse(&record.id, &reason);
 
     match (live(env, &record.id), open) {
         (Some(session), _) => {
@@ -245,7 +245,7 @@ async fn fail(
             }
         }
         (None, Some(open)) => {
-            if let Err(e) = env.agents.starter.reopen_one(open).await {
+            if let Err(e) = env.starter.reopen_one(open).await {
                 log::warn!(
                     "session {} could not start again after its move failed: {e:#}",
                     record.id
@@ -313,7 +313,7 @@ pub(super) async fn cancel(env: &Env, id: &SessionId, at: u64, to: EndpointId) -
     }
 
     if let Some(open) = closed.open
-        && let Err(e) = env.agents.starter.reopen_one(open).await
+        && let Err(e) = env.starter.reopen_one(open).await
     {
         log::warn!("session {id} could not start again after its move was cancelled: {e:#}");
     }

@@ -6,13 +6,13 @@
 use super::{
     Env, MAX_MOVES,
     dial::watch_target,
-    progress::{Target, Tracker},
+    progress::{Moves, Target, Tracker},
     saved::{Folder, Phase, valid_id},
     source,
     store::StoreRoots,
     target,
 };
-use crate::agents::Agents;
+use crate::agents::{catalog::Catalog, family::Family, running::Starter, usage::Usage};
 use beep_mesh::{Key, Mesh};
 use beep_proto::SessionId;
 use beep_proto::node::{
@@ -86,16 +86,33 @@ fn drop_copies(state_dir: &Path) {
 }
 
 /// Follows the mesh's move records until the node stops.
-pub(crate) async fn follow(mesh: Mesh, endpoint: Endpoint, dir: PathBuf, agents: Arc<Agents>) {
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one owner per lower owner it reads"
+)]
+pub(crate) async fn follow(
+    mesh: Mesh,
+    endpoint: Endpoint,
+    dir: PathBuf,
+    moves: Arc<Moves>,
+    starter: Arc<Starter>,
+    family: Arc<Family>,
+    usage: Arc<Usage>,
+    catalog: Arc<Catalog>,
+) {
     let old = dir.clone();
     let _ = tokio::task::spawn_blocking(move || drop_copies(&old)).await;
     let (Some(roots), Some(home)) = (StoreRoots::locate(), dirs::home_dir()) else {
         log::warn!("not moving sessions: no home folder to find the agents' stores in");
         return;
     };
-    agents.moves.keep_in(Folder::new(&dir));
+    moves.keep_in(Folder::new(&dir));
     let env = Arc::new(Env {
-        agents,
+        moves,
+        starter,
+        family,
+        usage,
+        catalog,
         mesh,
         endpoint,
         state: Folder::new(&dir),
@@ -114,7 +131,7 @@ pub(crate) async fn follow(mesh: Mesh, endpoint: Endpoint, dir: PathBuf, agents:
                     return;
                 }
             }
-            () = env.agents.moves.ended.notified() => {}
+            () = env.moves.ended.notified() => {}
         }
     }
 }
@@ -193,20 +210,20 @@ pub(super) async fn reconcile(env: &Arc<Env>, running: &mut HashMap<SessionId, R
             && old.phase == Phase::Working
         {
             let (work, session, at) = (env.clone(), id.clone(), old.at);
-            env.agents.moves.clean(&id, async move {
+            env.moves.clean(&id, async move {
                 target::take_back(&work, &session, at).await;
                 work.state.clear(&session, at);
             });
         }
 
         let side = if record.to == env.mesh.me() {
-            Side::Target(env.agents.moves.begin(&id, record.at, record.from))
+            Side::Target(env.moves.begin(&id, record.at, record.from))
         } else {
-            env.agents.moves.forget(&id);
+            env.moves.forget(&id);
             Side::Source { to: record.to }
         };
         let at = record.at;
-        let before = env.agents.moves.cleaned(&id);
+        let before = env.moves.cleaned(&id);
         let task = spawn(env.clone(), record, side.clone(), before);
         running.insert(id, Running { at, side, task });
     }
@@ -251,7 +268,7 @@ fn spawn(
             Err(e) => log::warn!("the move of session {} did not finish: {e:#}", record.id),
         }
 
-        env.agents.moves.ended.notify_one();
+        env.moves.ended.notify_one();
     }))
 }
 
@@ -260,7 +277,7 @@ async fn cancelled(env: &Arc<Env>, id: &SessionId, one: &Running) {
         Side::Target(tracker) => {
             // Git work: beside the loop, which has other moves to start.
             let (work, session, at, tracker) = (env.clone(), id.clone(), one.at, tracker.clone());
-            env.agents.moves.clean(id, async move {
+            env.moves.clean(id, async move {
                 target::take_back(&work, &session, at).await;
                 work.state.clear(&session, at);
                 tracker.finish(MovePhase::Cancelled, None);

@@ -74,9 +74,7 @@ fn old_background_copies_go_and_versions_that_lost_stay() {
 
 #[tokio::test]
 async fn one_sessions_worktree_placing_does_not_hold_up_another() {
-    use crate::agents::moving::progress::Moves;
-
-    let moves = Moves::default();
+    let moves = crate::agents::Agents::default().moves;
     let (a, b) = (SessionId::from("a"), SessionId::from("b"));
     let placing = moves.placing(&a);
     let _held = placing.lock().await;
@@ -87,10 +85,9 @@ async fn one_sessions_worktree_placing_does_not_hold_up_another() {
 
 #[tokio::test]
 async fn a_take_back_runs_beside_the_caller_and_the_next_one_waits_for_it() {
-    use crate::agents::moving::progress::Moves;
     use tokio::sync::oneshot;
 
-    let moves = Moves::default();
+    let moves = crate::agents::Agents::default().moves;
     let id = SessionId::from("a");
     let (release, held) = oneshot::channel::<()>();
     let (first_done, first) = oneshot::channel::<()>();
@@ -114,10 +111,9 @@ async fn a_take_back_runs_beside_the_caller_and_the_next_one_waits_for_it() {
 
 #[tokio::test]
 async fn a_take_back_goes_on_when_the_next_move_stops_waiting() {
-    use crate::agents::moving::progress::Moves;
     use tokio::sync::mpsc;
 
-    let moves = Moves::default();
+    let moves = crate::agents::Agents::default().moves;
     let (open, gate) = tokio::sync::oneshot::channel::<()>();
     let (ended, mut ends) = mpsc::unbounded_channel();
     moves.clean(&SessionId::from("s1"), async move {
@@ -139,10 +135,9 @@ async fn a_take_back_goes_on_when_the_next_move_stops_waiting() {
 
 #[tokio::test]
 async fn take_backs_of_one_session_run_one_at_a_time() {
-    use crate::agents::moving::progress::Moves;
     use tokio::sync::mpsc;
 
-    let moves = Moves::default();
+    let moves = crate::agents::Agents::default().moves;
     let (open, gate) = tokio::sync::oneshot::channel::<()>();
     let (said, mut order) = mpsc::unbounded_channel();
     let first = said.clone();

@@ -9,11 +9,11 @@
 
 use super::{
     Harness, files,
-    progress::{Landing, Target},
+    progress::{Landing, Moves, Target},
     saved::{MOVED_AWAY, Outgoing, Previous, SentTree},
     worktree::{self, MovingWorktree, Work},
 };
-use crate::agents::{Agents, SavedSession};
+use crate::agents::SavedSession;
 use crate::logs::found::Agent;
 use anyhow::{Context, Result, bail};
 use beep_proto::{
@@ -314,7 +314,7 @@ pub(super) fn valid_file_name(name: &str) -> bool {
 pub(super) async fn serve(
     mut tx: LinkTx,
     mut rx: LinkRx,
-    agents: &Agents,
+    moves: &Moves,
     me: &str,
     mut access: Access<'_>,
 ) -> Result<()> {
@@ -348,7 +348,7 @@ pub(super) async fn serve(
         let Some(generation) = outgoing(id) else {
             return tx.send(&refuse(message)).await;
         };
-        if agents.moves.preceding(id, generation).await != Previous::Released {
+        if moves.preceding(id, generation).await != Previous::Released {
             return tx.send(&refuse(MOVED_AWAY)).await;
         }
     }
@@ -362,13 +362,13 @@ pub(super) async fn serve(
             worktree: _,
             follow,
         } => {
-            agents.moves.contact(&id);
+            moves.contact(&id);
 
-            if let Some(why) = agents.moves.refusal(&id) {
+            if let Some(why) = moves.refusal(&id) {
                 return tx.send(&refuse(&why)).await;
             }
 
-            let found = match locate(agents, me, &agent, &id).await {
+            let found = match locate(moves, me, &agent, &id).await {
                 Ok(found) => found,
                 Err(message) => return tx.send(&Reply::Refused { message }).await,
             };
@@ -377,8 +377,7 @@ pub(super) async fn serve(
             // ended. A session that may still be coming back from a
             // restart, or that the source is still finishing with, counts
             // as running.
-            let mut live =
-                !agents.reopen.reopened() || agents.sessions.runs(&id) || agents.moves.holds(&id);
+            let mut live = !moves.reopen.reopened() || moves.sessions.runs(&id) || moves.holds(&id);
             // Whether the source says when it is done: not for a move still
             // settling from an earlier one, which the target asks again.
             let mut settling = false;
@@ -386,7 +385,7 @@ pub(super) async fn serve(
                 let Some(generation) = outgoing(&id) else {
                     return tx.send(&refuse("no move of that session to you")).await;
                 };
-                match agents.moves.preceding(&id, generation).await {
+                match moves.preceding(&id, generation).await {
                     Previous::Departed => return tx.send(&refuse(MOVED_AWAY)).await,
                     Previous::Settling => {
                         live = true;
@@ -394,7 +393,7 @@ pub(super) async fn serve(
                     }
                     Previous::Released => {
                         // A cancelled move may have reopened it during the read.
-                        live |= agents.sessions.runs(&id) || agents.moves.holds(&id);
+                        live |= moves.sessions.runs(&id) || moves.holds(&id);
                     }
                 }
             }
@@ -402,7 +401,7 @@ pub(super) async fn serve(
             match send_after(&mut tx, &found, from, &prefix_hash, live).await {
                 Ok(()) => {
                     if follow && live && !settling {
-                        until_done(agents, &id).await;
+                        until_done(moves, &id).await;
                         tx.send(&Reply::End {
                             size: 0,
                             live: false,
@@ -428,7 +427,7 @@ pub(super) async fn serve(
                     .send(&refuse("this machine does not keep the project"))
                     .await;
             };
-            let session = agents.reopen.saved(&id).map(Box::new);
+            let session = moves.reopen.saved(&id).map(Box::new);
             let reply = spawn_blocking(move || -> Result<Reply> {
                 Ok(match leaving {
                     Leaving::Project { folder, worktrees } => Reply::Checkout {
@@ -466,7 +465,7 @@ pub(super) async fn serve(
             // While the sessions come back from a restart, or the source
             // ends this one again, the target asks again: no refusal, which
             // would end the move.
-            if !agents.reopen.reopened() || agents.sessions.runs(&id) {
+            if !moves.reopen.reopened() || moves.sessions.runs(&id) {
                 return Ok(());
             }
 
@@ -485,7 +484,7 @@ pub(super) async fn serve(
             match sent {
                 Ok((dir, work, bytes)) => {
                     let held = work.fingerprint();
-                    agents.moves.sent(&id, SentTree { dir, held }).await;
+                    moves.sent(&id, SentTree { dir, held }).await;
                     tx.send(&Reply::Work { head: work.head }).await?;
 
                     for piece in bytes.iter().flat_map(|bytes| bytes.chunks(CHUNK)) {
@@ -510,7 +509,7 @@ pub(super) async fn serve(
         }
         Request::Files { id } => {
             // As for a worktree: the target asks again.
-            if !agents.reopen.reopened() || agents.sessions.runs(&id) {
+            if !moves.reopen.reopened() || moves.sessions.runs(&id) {
                 log::info!(
                     "session {id}: its files are asked for, but it still runs here or the sessions are not read yet; the target asks again"
                 );
@@ -542,7 +541,7 @@ pub(super) async fn serve(
                 .await
         }
         Request::Follow { id, at } => {
-            let Some(tracker) = agents.moves.tracker(&id, at) else {
+            let Some(tracker) = moves.tracker(&id, at) else {
                 // The move is not here yet: it is asked again.
                 tx.send(&state(&Target::Unknown)).await?;
                 return tx.finish().await;
@@ -566,7 +565,7 @@ pub(super) async fn serve(
             }
         }
         Request::State { id, at } => {
-            tx.send(&state(&agents.moves.target(&id, at))).await?;
+            tx.send(&state(&moves.target(&id, at))).await?;
             tx.finish().await
         }
     }
@@ -590,16 +589,14 @@ fn state(target: &Target) -> Reply {
 }
 
 /// Waits until session `id` no longer runs here and the source is done with it.
-async fn until_done(agents: &Agents, id: &SessionId) {
+async fn until_done(moves: &Moves, id: &SessionId) {
     // Subscribed before the check, so a change between the two is not missed.
-    let mut released = agents.moves.released();
+    let mut released = moves.released();
 
     loop {
-        agents.reopen.until_reopened().await;
+        moves.reopen.until_reopened().await;
 
-        if !(agents.sessions.runs(id) || agents.moves.holds(id))
-            || released.changed().await.is_err()
-        {
+        if !(moves.sessions.runs(id) || moves.holds(id)) || released.changed().await.is_err() {
             return;
         }
     }
@@ -654,7 +651,7 @@ struct Found {
 }
 
 async fn locate(
-    agents: &Agents,
+    moves: &Moves,
     me: &str,
     agent: &AgentSlug,
     id: &SessionId,
@@ -665,9 +662,9 @@ async fn locate(
         .ok()
         .and_then(|agent| Harness::try_from(agent).ok())
         .ok_or_else(|| format!("{agent} sessions cannot move"))?;
-    let path = match agents.listings.transcript_file(movable, id).await {
+    let path = match moves.listings.transcript_file(movable, id).await {
         Some(path) => path,
-        None if movable == Harness::Flsh && agents.listings.flsh_in_database(id).await => {
+        None if movable == Harness::Flsh && moves.listings.flsh_in_database(id).await => {
             return Err(super::flsh::outdated(me));
         }
         None => return Err(format!("this machine has no {agent} session {id}")),

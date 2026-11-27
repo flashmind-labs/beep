@@ -4,6 +4,7 @@
 //! with it, and that it gave a move up.
 
 use super::saved::{Folder, Outgoing, Previous, SentTree, valid_id};
+use crate::agents::{listings::Listings, reopen::Reopen, sessions::Sessions};
 use crate::{AsyncMutex, lock};
 use beep_proto::node::agent::{MoveEntry, MovePhase, MoveProgress};
 use beep_proto::node::events::{MOVE_PROGRESS_TOPIC, Topic};
@@ -195,8 +196,12 @@ impl Targets {
     }
 }
 
-#[derive(Default)]
 pub(crate) struct Moves {
+    /// What the moves read of the node: the sessions that run, the sessions
+    /// kept across the last stop, and the transcripts found.
+    pub(super) sessions: Arc<Sessions>,
+    pub(super) reopen: Arc<Reopen>,
+    pub(super) listings: Arc<Listings>,
     tracked: Mutex<Targets>,
     held: Mutex<HashSet<SessionId>>,
     refused: Mutex<HashMap<SessionId, String>>,
@@ -244,6 +249,29 @@ impl Drop for Held<'_> {
 }
 
 impl Moves {
+    pub(crate) fn new(
+        sessions: Arc<Sessions>,
+        reopen: Arc<Reopen>,
+        listings: Arc<Listings>,
+    ) -> Self {
+        Self {
+            sessions,
+            reopen,
+            listings,
+            tracked: Mutex::default(),
+            held: Mutex::default(),
+            refused: Mutex::default(),
+            kept: OnceLock::new(),
+            noting: Arc::default(),
+            placing: Mutex::default(),
+            cleaning: Mutex::default(),
+            ended: Notify::new(),
+            released: watch::Sender::default(),
+            contacted: Mutex::default(),
+            reached: watch::Sender::default(),
+        }
+    }
+
     /// A fresh tracker for the move of session `id` that the record made at
     /// `at` asked for.
     pub(super) fn begin(&self, id: &SessionId, at: u64, source: EndpointId) -> Arc<Tracker> {

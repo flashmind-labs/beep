@@ -116,8 +116,16 @@ async fn set(own: Own, link: TeamLink, active: Mesh, offers: Offers) {
         reaches,
     );
     let search = crate::agents::follow_search(active.clone(), offers.agents.clone());
-    let moves =
-        crate::agents::follow_moves(active, own.endpoint.clone(), dir, offers.agents.clone());
+    let moves = crate::agents::follow_moves(
+        active,
+        own.endpoint.clone(),
+        dir,
+        offers.agents.moves.clone(),
+        offers.agents.starter.clone(),
+        offers.agents.family.clone(),
+        offers.agents.usage.clone(),
+        offers.agents.catalog.clone(),
+    );
 
     tokio::join!(
         follow, moves, runs, skills, libraries, search, team, gateway

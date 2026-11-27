@@ -3,13 +3,11 @@
 use super::{
     device_name,
     folder::project_folder,
+    progress::Moves,
     read::{Access, Asked, Leaving, serve},
     saved::Outgoing,
 };
-use crate::{
-    agents::{Agents, conversation},
-    membership::Membership,
-};
+use crate::{agents::conversation, membership::Membership};
 use beep_mesh::{Key, Mesh};
 use beep_proto::SessionId;
 use beep_proto::node::mesh_state::{SessionMove, StateValue};
@@ -28,13 +26,13 @@ const MAX_STREAMS: usize = 4;
 /// Answers other devices' reads of the sessions this node keeps.
 #[derive(Clone)]
 pub struct SessionsAlpn {
-    agents: Arc<Agents>,
+    moves: Arc<Moves>,
     membership: Membership,
 }
 
 impl SessionsAlpn {
-    pub(crate) fn new(agents: Arc<Agents>, membership: Membership) -> Self {
-        Self { agents, membership }
+    pub(crate) fn new(moves: Arc<Moves>, membership: Membership) -> Self {
+        Self { moves, membership }
     }
 
     fn allows(&self, peer: &EndpointId) -> bool {
@@ -133,7 +131,7 @@ impl ProtocolHandler for SessionsAlpn {
                     }
 
                     let (tx, rx) = beep_proto::node::link(send, recv);
-                    let agents = self.agents.clone();
+                    let moves = self.moves.clone();
                     let Some(mesh) = self.membership.get() else {
                         continue;
                     };
@@ -142,7 +140,7 @@ impl ProtocolHandler for SessionsAlpn {
                         let allow = |ask: Asked, id: &SessionId| {
                             mesh.is_member(peer)
                                 && (permits(record_of(&mesh, id).as_ref(), mesh.me(), peer, ask, id)
-                                    || matches!(ask, Asked::State(at) if agents.moves.owns_target(id, at, peer)))
+                                    || matches!(ask, Asked::State(at) if moves.owns_target(id, at, peer)))
                         };
                         let leaving = |id: &SessionId| leaving(&mesh, &record_of(&mesh, id)?);
                         let me = device_name(&mesh, &mesh.me());
@@ -152,7 +150,7 @@ impl ProtocolHandler for SessionsAlpn {
                                 .then_some(Outgoing { at: record.at, to: record.to })
                         };
                         let access = Access { check: &allow, updates, leaving: &leaving, outgoing: Some(&outgoing) };
-                        serve(tx, rx, &agents, &me, access).await
+                        serve(tx, rx, &moves, &me, access).await
                     }.in_current_span());
                 }
                 Some(ended) = streams.join_next() => {

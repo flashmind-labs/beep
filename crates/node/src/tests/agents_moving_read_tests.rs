@@ -1,9 +1,10 @@
 use super::saved::{Folder, Outgoing, Phase, Saved};
 use super::{
+    progress::Moves,
     read::{ALPN, Access, Leaving, Pulled, pull},
     worktree::MovingWorktree,
 };
-use crate::agents::Parts;
+use crate::agents::{Parts, reopen::Reopen};
 use crate::{agents::Agents, membership::Membership};
 use beep_proto::SessionId;
 use beep_proto::{AgentSlug, node::link};
@@ -20,7 +21,7 @@ const ID: &str = "0b1c2d3e-0000-4000-8000-0123456789ab";
 
 /// Serves reads with no check of who asks.
 #[derive(Clone)]
-struct Open(Arc<Agents>, Option<Outgoing>);
+struct Open(Arc<Moves>, Option<Outgoing>);
 
 impl std::fmt::Debug for Open {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -114,7 +115,14 @@ fn serving_move(
     agents: &Arc<Agents>,
     outgoing: Option<Outgoing>,
 ) -> impl std::future::Future<Output = Router> {
-    let handler = Open(agents.clone(), outgoing);
+    serving_over(agents.moves.clone(), outgoing)
+}
+
+fn serving_over(
+    moves: Arc<Moves>,
+    outgoing: Option<Outgoing>,
+) -> impl std::future::Future<Output = Router> {
+    let handler = Open(moves, outgoing);
     async move {
         let endpoint = endpoint().await;
         Router::builder(endpoint).accept(ALPN, handler).spawn()
@@ -157,6 +165,29 @@ async fn a_replacement_target_cannot_take_a_session_the_previous_target_may_run(
         .await
         .expect("the old move was cleared");
     assert!(!pulled.live);
+    server.shutdown().await.expect("the test router shuts down");
+}
+
+#[tokio::test]
+async fn a_read_is_answered_from_the_owners_the_moves_hold() {
+    let source = source(&header(""));
+    let own = Arc::new(Reopen::new(
+        source.agents.sessions.clone(),
+        source.agents.links.clone(),
+    ));
+    let moves = Arc::new(Moves::new(
+        source.agents.sessions.clone(),
+        own,
+        source.agents.listings.clone(),
+    ));
+    let server = serving_over(moves, None).await;
+    let mine = TempDir::new().expect("a temp folder");
+    let copy = mine.path().join("copy.jsonl");
+
+    assert!(
+        read_from(&server, &copy, ID).await.expect("a read").live,
+        "the moves' own reopen has not finished, so the source may still append"
+    );
     server.shutdown().await.expect("the test router shuts down");
 }
 
@@ -235,7 +266,8 @@ async fn the_copy_is_private() {
 #[tokio::test]
 async fn a_device_outside_the_mesh_is_turned_away() {
     let source = source(&header(""));
-    let handler = crate::agents::SessionsAlpn::new(source.agents.clone(), Membership::default());
+    let handler =
+        crate::agents::SessionsAlpn::new(source.agents.moves.clone(), Membership::default());
     let server = Router::builder(endpoint().await)
         .accept(ALPN, handler)
         .spawn();
@@ -273,7 +305,7 @@ impl ProtocolHandler for Strict {
             leaving: &|_| None,
             outgoing: None,
         };
-        let _ = super::read::serve(tx, rx, &self.0, "laptop", access).await;
+        let _ = super::read::serve(tx, rx, &self.0.moves, "laptop", access).await;
         connection.closed().await;
         Ok(())
     }
@@ -681,7 +713,7 @@ impl ProtocolHandler for Project {
             leaving: &leaving,
             outgoing: None,
         };
-        let _ = super::read::serve(tx, rx, &self.0, "laptop", access).await;
+        let _ = super::read::serve(tx, rx, &self.0.moves, "laptop", access).await;
         connection.closed().await;
         Ok(())
     }
@@ -819,7 +851,7 @@ impl ProtocolHandler for Leaves {
             leaving: &leaving,
             outgoing: None,
         };
-        let _ = super::read::serve(tx, rx, &self.0, "laptop", access).await;
+        let _ = super::read::serve(tx, rx, &self.0.moves, "laptop", access).await;
         connection.closed().await;
         Ok(())
     }
@@ -896,7 +928,7 @@ impl ProtocolHandler for Chat {
             leaving: &leaving,
             outgoing: None,
         };
-        let _ = super::read::serve(tx, rx, &self.0, "laptop", access).await;
+        let _ = super::read::serve(tx, rx, &self.0.moves, "laptop", access).await;
         connection.closed().await;
         Ok(())
     }

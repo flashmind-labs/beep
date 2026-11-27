@@ -167,7 +167,7 @@ async fn follow(
 pub(super) async fn watch_target(env: &Env, record: &SessionMove, said: watch::Sender<Target>) {
     let mut reached = None;
     let mut old = false;
-    let moves = &env.agents.moves;
+    let moves = &env.moves;
     let mut contact = moves.reached();
 
     while !old {

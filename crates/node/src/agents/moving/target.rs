@@ -100,7 +100,6 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
     }
 
     let kind = env
-        .agents
         .catalog
         .named(record.agent.as_ref())
         .with_context(|| format!("this machine has no {}", record.agent))?;
@@ -108,7 +107,7 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         flsh::check(&kind, &env.name_of(&env.mesh.me())).await?;
     }
 
-    if env.agents.sessions.runs(&record.id) {
+    if env.moves.sessions.runs(&record.id) {
         // A restart between starting and noting it.
         return Ok(());
     }
@@ -170,7 +169,7 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         // It lists as ended from the store; what the source saved of it
         // keeps its name and its place under its chat.
         if let Some(saved) = kept_here(&arrival, &folders.new, env.mesh.me()) {
-            env.agents.reopen.keep_arrived(saved);
+            env.moves.reopen.keep_arrived(saved);
         }
 
         return Ok(());
@@ -475,7 +474,7 @@ async fn worktrees(
         let (state, id, at) = (env.state.clone(), record.id.clone(), record.at);
         // Held until the worktree is noted, even if this task is stopped
         // meanwhile: taking the move back waits for it.
-        let placing = env.agents.moves.placing(&record.id).lock_owned().await;
+        let placing = env.moves.placing(&record.id).lock_owned().await;
         spawn_blocking(move || {
             let _placing = placing;
 
@@ -538,7 +537,7 @@ fn keep_placed(state: &Folder, id: &SessionId, at: u64, placed: PlacedTree) -> R
 /// not happen. One that changed since stays, and is logged.
 pub(super) async fn take_back(env: &Env, id: &SessionId, at: u64) {
     // A worktree being placed is noted first.
-    let placing = env.agents.moves.placing(id);
+    let placing = env.moves.placing(id);
     let _placing = placing.lock().await;
     let placed = env
         .state

@@ -39,7 +39,7 @@ pub(crate) use harness::Harness;
 pub(crate) use progress::Moves;
 pub use read::ALPN as SESSIONS_ALPN;
 
-use super::Agents;
+use crate::agents::{catalog::Catalog, family::Family, running::Starter, usage::Usage};
 use anyhow::{Context, Result};
 use beep_proto::SessionId;
 use iroh::{Endpoint, EndpointId};
@@ -55,7 +55,11 @@ const MAX_MOVES: usize = 8;
 
 /// What the moves of this node share.
 struct Env {
-    agents: Arc<Agents>,
+    moves: Arc<Moves>,
+    starter: Arc<Starter>,
+    family: Arc<Family>,
+    usage: Arc<Usage>,
+    catalog: Arc<Catalog>,
     mesh: beep_mesh::Mesh,
     endpoint: Endpoint,
     state: Folder,

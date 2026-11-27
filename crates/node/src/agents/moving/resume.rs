@@ -73,8 +73,8 @@ pub(super) async fn store(
     spawn_blocking(move || store::write(&at, &stored)).await??;
 
     if let Some(agent) = agent {
-        let (agents, id) = (env.agents.clone(), id.to_owned());
-        spawn_blocking(move || agents.usage.spend.mark_counted(agent, &id, &path))
+        let (usage, id) = (env.usage.clone(), id.to_owned());
+        spawn_blocking(move || usage.spend.mark_counted(agent, &id, &path))
             .await?
             .context("marking the copied usage as counted")?;
     }
@@ -108,13 +108,12 @@ pub(super) async fn resume(
     let follows = begin
         .parent
         .as_ref()
-        .and_then(|link| env.agents.family.parent_live_of(link));
+        .and_then(|link| env.family.parent_live_of(link));
     let session = env
-        .agents
         .starter
         .start(kind, Some(&cwd), Begin { follows, ..begin })
         .await?;
-    env.agents.family.join_family(&session);
+    env.family.join_family(&session);
     Ok(())
 }
 

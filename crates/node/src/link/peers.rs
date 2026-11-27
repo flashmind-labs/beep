@@ -288,7 +288,7 @@ impl Peers {
     /// this node's sessions through it.
     pub fn sessions_handler(&self) -> SessionsAlpn {
         let offers = self.inner.offers();
-        SessionsAlpn::new(offers.agents.clone(), offers.mesh.clone())
+        SessionsAlpn::new(offers.agents.moves.clone(), offers.mesh.clone())
     }
 
     /// Takes the mesh the node's folder holds, if it holds one.

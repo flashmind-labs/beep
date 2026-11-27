@@ -69,6 +69,7 @@ fn kind() -> AgentKind {
 
 struct Source {
     _dir: TempDir,
+    agents: Arc<Agents>,
     env: Env,
     work: PathBuf,
 }
@@ -92,7 +93,11 @@ async fn source_env() -> Source {
     }));
     agents.starter.reopen(Vec::new()).await;
     let env = Env {
-        agents,
+        moves: agents.moves.clone(),
+        starter: agents.starter.clone(),
+        family: agents.family.clone(),
+        usage: agents.usage.clone(),
+        catalog: agents.catalog.clone(),
         mesh,
         endpoint,
         state: Folder::new(dir.path()),
@@ -106,6 +111,7 @@ async fn source_env() -> Source {
     };
     Source {
         _dir: dir,
+        agents,
         env,
         work,
     }
@@ -131,7 +137,6 @@ fn record(env: &Env, stop: bool) -> SessionMove {
 
 async fn asking(source: &Source) -> Arc<crate::agents::Session> {
     let session = source
-        .env
         .agents
         .starter
         .start(
@@ -202,7 +207,7 @@ async fn the_source_stops_the_turn_when_told_to_and_ends_the_session() {
         .load(&SessionId::from("held-1"))
         .expect("it is kept");
     assert_eq!((saved.at, saved.phase), (record.at, Phase::Done));
-    source.env.agents.shutdown().await;
+    source.agents.shutdown().await;
 }
 
 #[tokio::test]
@@ -243,7 +248,7 @@ async fn the_source_waits_for_the_turn_and_runs_what_was_queued_before_the_move(
         info.turns, 2,
         "what was queued before the move was not lost"
     );
-    source.env.agents.shutdown().await;
+    source.agents.shutdown().await;
 }
 
 #[tokio::test]
@@ -261,7 +266,7 @@ async fn a_session_that_moves_takes_no_new_prompt() {
         let refused = session.order(command).await.expect_err("refused");
         assert!(refused.contains("moving to another machine"), "{refused}");
     }
-    source.env.agents.shutdown().await;
+    source.agents.shutdown().await;
 }
 
 #[tokio::test]
@@ -281,7 +286,7 @@ async fn a_thread_that_moves_outlives_a_parent_that_left_first() {
     // One that does not move ends with its parent.
     session.order(Command::ParentGone).await.expect("heard");
     ended(&session).await;
-    source.env.agents.shutdown().await;
+    source.agents.shutdown().await;
 }
 
 #[tokio::test]
@@ -303,7 +308,7 @@ async fn a_cancelled_move_lets_prompts_in_again() {
         .order(Command::Prompt("after".to_owned().into()))
         .await
         .expect("a prompt is taken again");
-    source.env.agents.shutdown().await;
+    source.agents.shutdown().await;
 }
 
 #[tokio::test]
@@ -331,7 +336,7 @@ async fn the_source_keeps_the_session_until_the_target_can_take_it() {
         .await
         .expect("it ends in time")
         .expect("the move is over");
-    source.env.agents.shutdown().await;
+    source.agents.shutdown().await;
 }
 
 #[tokio::test]
@@ -369,7 +374,6 @@ async fn a_target_that_gives_up_leaves_the_session_running_here() {
     assert_eq!(saved.reason.as_deref(), Some("this machine has no fake"));
     assert_eq!(
         source
-            .env
             .agents
             .moves
             .refusal(&SessionId::from("held-1"))
@@ -377,7 +381,7 @@ async fn a_target_that_gives_up_leaves_the_session_running_here() {
         Some("this machine has no fake"),
         "a target that asks hears why"
     );
-    source.env.agents.shutdown().await;
+    source.agents.shutdown().await;
 }
 
 #[tokio::test]
@@ -399,7 +403,7 @@ async fn a_target_that_gives_up_after_the_session_ended_has_it_start_again_here(
         .expect("it ends in time");
     assert!(done.is_err(), "the move did not happen");
     assert!(
-        source.env.agents.sessions.runs(&SessionId::from("held-1")),
+        source.agents.sessions.runs(&SessionId::from("held-1")),
         "the session runs again where it was"
     );
     assert_eq!(
@@ -410,7 +414,7 @@ async fn a_target_that_gives_up_after_the_session_ended_has_it_start_again_here(
             .map(|saved| saved.phase),
         Some(Phase::Failed)
     );
-    source.env.agents.shutdown().await;
+    source.agents.shutdown().await;
 }
 
 #[tokio::test]
@@ -436,10 +440,10 @@ async fn a_move_cancelled_after_the_session_ended_does_not_start_it_while_the_ta
     )
     .await;
     assert!(
-        !source.env.agents.sessions.runs(&SessionId::from("held-1")),
+        !source.agents.sessions.runs(&SessionId::from("held-1")),
         "the session does not run on two machines"
     );
-    source.env.agents.shutdown().await;
+    source.agents.shutdown().await;
 }
 
 #[tokio::test]
@@ -450,7 +454,6 @@ async fn a_move_taken_back_after_an_earlier_one_ended_here_still_frees_the_sessi
     let session = asking(&source).await;
     let env = Arc::new(source.env);
     let earlier = env
-        .agents
         .moves
         .begin(&SessionId::from("held-1"), 1, env.mesh.me());
     earlier.finish(MovePhase::Done, None);
@@ -496,7 +499,7 @@ async fn a_move_taken_back_after_an_earlier_one_ended_here_still_frees_the_sessi
         .order(Command::Prompt("again".to_owned().into()))
         .await
         .expect("the session takes prompts again: the old tracker did not hide the cancel");
-    env.agents.shutdown().await;
+    source.agents.shutdown().await;
 }
 
 #[tokio::test]
@@ -542,7 +545,7 @@ async fn a_replacement_move_releases_the_old_source_before_starting() {
         .order(Command::Prompt("again".to_owned().into()))
         .await
         .expect("the replaced move released the session");
-    env.agents.shutdown().await;
+    source.agents.shutdown().await;
 }
 
 #[tokio::test]
@@ -563,14 +566,14 @@ async fn a_move_that_ends_has_the_records_looked_at_again() {
         )
         .await
         .expect("the record is written");
-    let ended = env.agents.moves.ended.notified();
+    let ended = env.moves.ended.notified();
     let mut running = HashMap::new();
     reconcile(&env, &mut running).await;
 
     timeout(Duration::from_secs(30), ended)
         .await
         .expect("a record that found no room is taken up when a move ends");
-    env.agents.shutdown().await;
+    source.agents.shutdown().await;
 }
 
 #[test]
@@ -612,7 +615,7 @@ fn the_oldest_move_is_taken_up_first_and_a_chat_before_its_threads() {
 
 #[test]
 fn a_target_that_resumes_the_session_reads_as_landed() {
-    let moves = crate::agents::moving::Moves::default();
+    let moves = crate::agents::Agents::default().moves;
     let id = SessionId::from("held-1");
     let source = SecretKey::generate().public();
     let next_source = SecretKey::generate().public();
@@ -639,7 +642,7 @@ fn a_target_that_resumes_the_session_reads_as_landed() {
 /// A desktop that connects after a move failed still reads the failure from the push.
 #[test]
 fn a_failed_move_stays_in_the_push_after_the_session_moves_again() {
-    let moves = crate::agents::moving::Moves::default();
+    let moves = crate::agents::Agents::default().moves;
     let id = SessionId::from("held-2");
     let source = SecretKey::generate().public();
     moves
@@ -679,7 +682,7 @@ async fn the_source_waits_for_a_starting_target_to_run_the_session() {
         .await
         .expect("it ends in time")
         .expect("the move is over");
-    source.env.agents.shutdown().await;
+    source.agents.shutdown().await;
 }
 
 #[test]
