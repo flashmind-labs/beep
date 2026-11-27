@@ -116,6 +116,93 @@ def rust_resolve(path: str, here: tuple, mods: set, reexports: dict):
     return at
 
 
+CFG_TEST = re.compile(r"#\[cfg\(\s*(?:test|all\((?=[^\]]*\btest\b)[^\]]*\))\s*\)\]")
+OPENERS, CLOSERS = "([{", ")]}"
+
+
+def skip_lexeme(text: str, i: int):
+    """The end of the string, char or comment starting at i, or None when none starts there."""
+    n = len(text)
+    if text.startswith("//", i):
+        j = text.find("\n", i)
+        return n if j < 0 else j
+    if text.startswith("/*", i):
+        depth, j = 1, i + 2
+        while j < n and depth:
+            if text.startswith("/*", j):
+                depth, j = depth + 1, j + 2
+            elif text.startswith("*/", j):
+                depth, j = depth - 1, j + 2
+            else:
+                j += 1
+        return j
+    m = re.compile(r'b?r(#*)"').match(text, i)
+    if m:
+        j = text.find('"' + m.group(1), m.end())
+        return n if j < 0 else j + 1 + len(m.group(1))
+    if text[i] == '"':
+        j = i + 1
+        while j < n and text[j] != '"':
+            j += 2 if text[j] == "\\" else 1
+        return j + 1
+    m = re.compile(r"'(?:\\.[^']*|[^\\'])'").match(text, i)
+    return m.end() if m else None
+
+
+def cfg_test_item_end(text: str, i: int):
+    """The end of the item starting at i: past its `;`, or past the `}` closing its body.
+    `use`, `const`, `static` and `type` end at their `;` even when braces come first."""
+    kw = re.compile(r"(?:pub(?:\([^)]*\))?\s+)?(\w+)").match(text, i)
+    to_semi = bool(kw) and kw.group(1) in ("use", "const", "static", "type")
+    depth, j, n = 0, i, len(text)
+    while j < n:
+        end = skip_lexeme(text, j)
+        if end is not None:
+            j = end
+            continue
+        c = text[j]
+        j += 1
+        if c in OPENERS:
+            depth += 1
+        elif c in CLOSERS:
+            depth -= 1
+            if c == "}" and depth == 0 and not to_semi:
+                return j
+        elif c == ";" and depth == 0:
+            return j
+    return n
+
+
+def without_cfg_test(text: str):
+    """The text with each `#[cfg(test)]` or `#[cfg(all(test, ..))]` item blanked, newlines kept,
+    so a test-only item hides itself and nothing after it."""
+    out, last = [], 0
+    for m in CFG_TEST.finditer(text):
+        if m.start() < last:
+            continue
+        i = m.end()
+        while True:
+            ws = re.compile(r"\s*(?:#\[|///[^\n]*|//![^\n]*)").match(text, i)
+            if not ws:
+                break
+            i = ws.end()
+            if text[i - 1] == "[":
+                depth = 1
+                while i < len(text) and depth:
+                    end = skip_lexeme(text, i)
+                    if end is not None:
+                        i = end
+                        continue
+                    depth += (text[i] == "[") - (text[i] == "]")
+                    i += 1
+            else:
+                i = text.find("\n", i) if "\n" in text[i:] else len(text)
+        end = cfg_test_item_end(text, re.compile(r"\s*").match(text, i).end())
+        out += [text[last:m.start()], re.sub(r"[^\n]", " ", text[m.start():end])]
+        last = end
+    return "".join(out) + text[last:]
+
+
 def rust_edges(root: Path, depth: int):
     """Imports between modules, parent and child included. A `pub use` is naming, not use:
     it adds no edge, and a path through it counts toward the module that defines the item."""
@@ -123,7 +210,7 @@ def rust_edges(root: Path, depth: int):
     mods = {rust_module(root, f) for f in files}
     texts = {}
     for f in files:
-        text = re.sub(r"//[^\n]*", "", f.read_text(errors="replace")).split("#[cfg(test)]")[0]
+        text = re.sub(r"//[^\n]*", "", without_cfg_test(f.read_text(errors="replace")))
         text = re.sub(r"\bpub\(in [^)]*\)", "pub", text)
         texts[rust_module(root, f)] = text
     reexports = {}
@@ -545,7 +632,7 @@ def timer_sites(repo: Path, trees):
         for f in sorted(timer_files(tree, lang)):
             text = f.read_text(errors="replace")
             if lang == "rust":
-                text = text.split("#[cfg(test)]")[0]
+                text = without_cfg_test(text)
             lines = text.splitlines()
             fn, seen = "<top>", {}
             for i, line in enumerate(lines):

@@ -11,6 +11,7 @@ apps/desktop/src-tauri/src/agents/starts.rs | pause | sleep#1 | retry | waits RE
 apps/desktop/src-tauri/src/store/view_cache.rs | write_later | sleep#1 | debounce | writes the view cache once, 2 s after the first change
 apps/desktop/src-tauri/src/store/window_session.rs | changed | sleep#1 | debounce | saves the window session once, 1 s after a change burst
 apps/desktop/src-tauri/src/fleet/alerts.rs | again | sleep#1 | retry | waits RETRY after the machine is online, then follows again
+apps/desktop/src-tauri/src/fleet/events.rs | mesh_topics | sleep#1 | deadline | waits the grace of a paused window, then lets its outbox expire
 apps/desktop/src-tauri/src/views.rs | paced | sleep_until#1 | pace | spaces repeated change signals for a topic to a minimum gap
 apps/desktop/src-tauri/src/fleet/events/commands.rs | <top> | sleep#1 | deadline | dead-link timer for the command stream, reset on each message
 apps/desktop/src-tauri/src/fleet/events/commands.rs | retrying | sleep#1 | retry | waits RETRY before reconnecting the command stream
@@ -173,6 +174,7 @@ crates/node/src/agents/skill_library/follow.rs | follow | sleep#1 | debounce | l
 crates/node/src/agents/skill_library/follow.rs | follow | sleep_until#1 | retry | tries a failed skill fetch again after 15 min
 crates/node/src/agents/skills/follow.rs | follow | interval#1 | outside | looks at skill files every 2 min only when no watcher runs
 crates/node/src/agents/skills/follow.rs | follow | sleep_until#1 | retry | tries a machine that did not answer again after 5 s
+crates/node/src/agents/spend/mod.rs | scan_on | sleep_until#1 | pace | waits until SPEND_GAP after the last pass before reading the logs again
 crates/node/src/agents/uploads/maintain.rs | maintain | interval_at#1 | outside | hourly cleanup of old upload files on disk
 crates/node/src/files/sync/peer.rs | pull | sleep#1 | retry | pulls from the peer again after a pause
 crates/node/src/files/sync/project/apply.rs | blob_from | sleep_until#1 | pace | flushes a write batch once it is old enough
@@ -202,6 +204,7 @@ crates/node/src/upkeep/ci/watcher.rs | run | interval#1 | outside | lists busy p
 crates/node/src/upkeep/ci/watcher.rs | run | interval_at#1 | outside | checks GitHub projects every 45 s
 crates/node/src/upkeep/ci/watcher.rs | run | sleep_until#1 | compat | asks machines every 10 min when idle, only nodes before 0.8.28 that do not push their reach; ends with them
 crates/node/src/machine/elect.rs | hear | sleep#1 | retry | follows a dropped machine again after 5 s
+crates/node/src/machine/env/latest.rs | probe_while_followed | sleep_until#1 | outside | probes the machine again every REPROBE while followed, since its tools change outside Beep
 crates/node/src/machine/provision/mod.rs | check_loop | interval#1 | outside | hourly probe of tool releases and installs
 crates/node/src/machine/sign_in.rs | drive | sleep_until#1 | deadline | ends a sign-in not finished in time
 crates/node/src/main.rs | exit_after | sleep#1 | deadline | forces exit if stopping takes too long
@@ -216,11 +219,13 @@ crates/node/src/run/device/phone.rs | capture | sleep_until#1 | pace | spaces sh
 crates/node/src/run/device/phone.rs | capture | sleep_until#2 | pace | spaces phone screenshots by the frame gap
 crates/node/src/run/device/phone.rs | found | sleep#1 | outside | looks for the adb binary every 5 s until it exists
 crates/node/src/run/device/phone.rs | track_phones | sleep#1 | retry | follows adb again after it stopped, with backoff
+crates/node/src/run/tasks.rs | follow | sleep_until#1 | deadline | ends a background task when its time limit passes
 crates/node/src/run/terminal/host.rs | listening | sleep#1 | outside | checks every 25 ms whether the terminal host listens
 crates/node/src/run/terminal/pty.rs | reap | sleep#1 | outside | fallback check for child exit every 25 ms
 crates/node/src/run/terminal/terminals.rs | run | sleep_until#1 | deadline | drops an ended terminal when its keep time ends
 crates/node/src/team/gateway.rs | drive | sleep_until#1 | compat | asks machines before 0.8.28 for their reach every 10 min; newer ones push it
 crates/node/src/team/gateway.rs | drive | sleep_until#2 | debounce | makes cards after changes settle, and every 60 s for the forge
+crates/node/src/team/link.rs | tell | sleep#1 | retry | waits RESEND, then sends a removal again to the members it did not reach
 crates/node/src/team/link/board_io.rs | follow | sleep#1 | retry | dials a teammate's board again after 60 s
 crates/node/src/team/link/home_io.rs | follow | sleep#1 | deadline | drops an invite or card when it expires
 crates/node/src/team/link/home_io.rs | follow | sleep_until#1 | retry | offers what waits for a desktop again every 60 s
