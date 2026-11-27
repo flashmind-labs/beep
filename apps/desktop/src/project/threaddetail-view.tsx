@@ -1,6 +1,6 @@
 import { openUrl } from "../ui/tauri.ts";
 import { formatAgo } from "../ui/format.ts";
-import type { LinkedPrRow, ThreadDetailRow, ThreadStub } from "./threaddetail.tsx";
+import type { LinkedPrRow, ThreadDetailRow, ThreadStub } from "./threaddetail-state.ts";
 import { Button, Chip, EmptyPanel, LineRow, Section, useHtml } from "../ui/kit.tsx";
 import { AgentButton, type AgentState, type PickButton } from "../review/feedback-view.tsx";
 

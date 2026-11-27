@@ -20,7 +20,7 @@ import { formatAgo, plural } from "../ui/format.ts";
 import { projectPastSessions, type Project, type WhereRow } from "./projects-state.ts";
 import { projectRef } from "./localid.ts";
 import { FreshNote, Parts, hostPart, viewPart, type PagePart } from "./page-view.tsx";
-import type { TerminalRow } from "../terminals/terminals.tsx";
+import type { TerminalRow } from "../terminals/terminal-state.ts";
 import { terminalTile } from "../terminals/terminal-list.ts";
 import { fileSyncTile } from "./filesync.ts";
 import { machineTile } from "./board.ts";
@@ -35,6 +35,7 @@ import { agentsSection, customAgentsCount, customAgentsSection, whereSection } f
 import { openUrl } from "../ui/tauri.ts";
 import { fsync, runs } from "./sections.ts";
 import { terms, thr, details } from "./stores.ts";
+import { threadPane } from "./threaddetail.tsx";
 import { gitHistory } from "./tiles.tsx";
 import { pa, projectChanged } from "./barstate.ts";
 import { openTile, projectShell, renderProjectShell } from "./tiles.tsx";
@@ -156,7 +157,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     key: `pr:${pr.number}`, opened: pr.created_at, lead: num(pr.number), title: pr.title, sub: prMeta(pr, ms => formatAgo(ms, "short")).join(" · "), tags: pr.labels,
     right: pr.draft ? <Chip kind="" text="draft" /> : undefined,
     menu: e => thr.prMenu(e, agent, acts, pr),
-    detail: () => [viewPart("thread", details.pane(pid, { ...pr, author: pr.mine ? "you" : pr.author, opened_at: pr.created_at }, thr.prButtons(agent, acts, pr), openLink))],
+    detail: () => [viewPart("thread", threadPane(details, pid, { ...pr, author: pr.mine ? "you" : pr.author, opened_at: pr.created_at }, thr.prButtons(agent, acts, pr), openLink))],
   }));
   const prKey = `${p.name}:prs`;
   const prFilter = labelFilter(prKey, prItems, i => i.tags, () => projectChanged.notify());
@@ -166,7 +167,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     title: issue.title, sub: <>{num(issue.number)} · {issueMeta(issue, ms => formatAgo(ms, "short"))}</>, tags: issue.labels,
     right: <><IssueOwnersCell project={p.name} issue={issue}/>{issue.linked_pr && <Chip kind="wait" text="PR" title="A pull request is linked to it" />}</>,
     menu: e => thr.issueMenu(e, agent, acts, issue),
-    detail: () => [viewPart("thread", details.pane(pid, { number: issue.number, title: issue.title, url: issue.url, author: issue.author, opened_at: issue.opened_at }, thr.issueButtons(agent, acts, issue), openLink))],
+    detail: () => [viewPart("thread", threadPane(details, pid, { number: issue.number, title: issue.title, url: issue.url, author: issue.author, opened_at: issue.opened_at }, thr.issueButtons(agent, acts, issue), openLink))],
   }));
   const issueKey = `${p.name}:issues`;
   const issueFilter = labelFilter(issueKey, issueItems, i => i.tags, () => projectChanged.notify());
