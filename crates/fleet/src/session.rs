@@ -5,6 +5,7 @@
 
 use crate::{
     AsyncMutex,
+    changed::{Changed, ProjectRead},
     desk::{Desk, DesktopHosts},
     error::{FleetError, Result},
     peer::Peers,
@@ -27,7 +28,11 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 use tokio::{
-    sync::{Semaphore, watch},
+    sync::{
+        Semaphore,
+        mpsc::{self, UnboundedReceiver, UnboundedSender},
+        watch,
+    },
     task::JoinSet,
     time::timeout,
 };
@@ -71,27 +76,6 @@ fn empty_spend() -> SpendReport {
         month: empty_period(),
         historical: Vec::new(),
     }
-}
-
-/// What a background read changed, for the page that shows it.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Changed {
-    Project {
-        /// `org/repo`.
-        project: String,
-        read: ProjectRead,
-    },
-    /// A node that pushes no sync status said something new of it.
-    Sync,
-    /// The plans and spending: `Session::spend` gives more than before.
-    Usage,
-}
-
-/// What a background read of a project found.
-#[derive(Debug, Clone, PartialEq)]
-pub enum ProjectRead {
-    Lists(LabeledProjectLists),
-    Runs(HostedRuns),
 }
 
 /// Something read, and when; `None` for a read kept from an earlier run, which is stale.
@@ -294,7 +278,9 @@ pub struct Session {
     options: Options,
     peers: Arc<dyn Peers>,
     hosts: DesktopHosts,
-    changed: Arc<dyn Fn(Changed) + Send + Sync>,
+    changes: UnboundedSender<Changed>,
+    /// The feed's one reader, until the follower takes it.
+    follower: Mutex<Option<UnboundedReceiver<Changed>>>,
     lists: Cache<String, LabeledProjectLists>,
     runs: Cache<String, HostedRuns>,
     run_reads: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
@@ -317,20 +303,24 @@ pub struct Session {
 }
 
 impl Session {
-    /// A session over `peers`. `changed` hears of each background read that finished.
-    pub fn new(
-        peers: Arc<dyn Peers>,
-        options: Options,
-        changed: impl Fn(Changed) + Send + Sync + 'static,
-    ) -> Result<Arc<Self>> {
+    /// The feed of background reads that finished, for the one follower: `None` once taken.
+    pub fn changes(&self) -> Option<UnboundedReceiver<Changed>> {
+        self.follower
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+    }
+
+    /// A session over `peers`. [`Session::changes`] tells of each background read that finished.
+    pub fn new(peers: Arc<dyn Peers>, options: Options) -> Result<Arc<Self>> {
         let saved = options.usage_file.as_deref().and_then(load_spend);
-        let changed: Arc<dyn Fn(Changed) + Send + Sync> = Arc::new(changed);
-        let sync_changed = changed.clone();
+        let (changes, follower) = mpsc::unbounded_channel();
         Ok(Arc::new(Self {
             options,
             peers,
-            hosts: DesktopHosts::new_with(Some(Arc::new(move || sync_changed(Changed::Sync))))?,
-            changed,
+            hosts: DesktopHosts::new(changes.clone())?,
+            changes,
+            follower: Mutex::new(Some(follower)),
             lists: Cache::default(),
             runs: Cache::default(),
             run_reads: Mutex::default(),
@@ -425,7 +415,7 @@ impl Session {
                 && kept
             {
                 this.lists.put(key.clone(), read.clone());
-                (this.changed)(Changed::Project {
+                let _ = this.changes.send(Changed::Project {
                     project: key,
                     read: ProjectRead::Lists(read),
                 });
@@ -573,7 +563,7 @@ impl Session {
                 && kept
             {
                 this.runs.put(key.clone(), read.clone());
-                (this.changed)(Changed::Project {
+                let _ = this.changes.send(Changed::Project {
                     project: key,
                     read: ProjectRead::Runs(read),
                 });
@@ -584,7 +574,7 @@ impl Session {
     /// What the agents cost and how much of their plans is left: the last report at once, the
     /// one kept from the last run included, and a new one collected behind it (it takes the
     /// machines a moment to say). `refresh`, or no report yet, waits for one. A plan a machine
-    /// sends after the report is added when it comes, and `changed` hears [`Changed::Usage`].
+    /// sends after the report is added when it comes, and the feed gets [`Changed::Usage`].
     /// The pill polls once per `fresh`, so a report is stale at half that: each poll reads
     /// again, and a machine that came online since is heard within a poll.
     pub async fn spend(self: &Arc<Self>, refresh: bool) -> Result<SpendReport> {
@@ -632,7 +622,7 @@ impl Session {
                 Ok((read, follows)) => {
                     this.keep_spend(read.clone(), follows);
                     if waited {
-                        (this.changed)(Changed::Usage);
+                        let _ = this.changes.send(Changed::Usage);
                     }
                     Ok(read)
                 }
@@ -668,7 +658,7 @@ impl Session {
                 Ok((read, follows)) => {
                     this.spend_waited.store(false, Ordering::Release);
                     if this.keep_spend(read, follows) {
-                        (this.changed)(Changed::Usage);
+                        let _ = this.changes.send(Changed::Usage);
                     }
                 }
                 Err(e) => {
@@ -715,7 +705,7 @@ impl Session {
                         |plan| {
                             if this.spent.hear(vec![plan]) {
                                 this.save_spend();
-                                (this.changed)(Changed::Usage);
+                                let _ = this.changes.send(Changed::Usage);
                             }
                         },
                         move || {
@@ -729,7 +719,7 @@ impl Session {
                 {
                     let updated = desk.spend_from_cache();
                     if this.keep_spend(updated, Vec::new()) {
-                        (this.changed)(Changed::Usage);
+                        let _ = this.changes.send(Changed::Usage);
                     }
                 }
 

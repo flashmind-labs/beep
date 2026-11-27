@@ -3,6 +3,7 @@
 
 use crate::{
     AsyncMutex,
+    changed::Changed,
     error::{FleetError, Result},
     peer::{PeerFound, PeerShell, Peers, Probe, probe},
 };
@@ -28,7 +29,10 @@ use std::{
     sync::{Arc, Mutex, PoisonError},
     time::{Duration, Instant},
 };
-use tokio::{sync::Semaphore, time::timeout};
+use tokio::{
+    sync::{Semaphore, mpsc::UnboundedSender},
+    time::timeout,
+};
 
 /// Calls to git hosts in flight at once.
 const MAX_CALLS: usize = 8;
@@ -53,7 +57,8 @@ pub struct Desk {
 impl Desk {
     /// A desk over `peers`, once its mesh is open.
     pub async fn open(peers: Arc<dyn Peers>) -> Result<Self> {
-        Self::with(peers, DesktopHosts::new()?).await
+        let (changes, _) = tokio::sync::mpsc::unbounded_channel();
+        Self::with(peers, DesktopHosts::new(changes)?).await
     }
 
     /// A desk over `peers` that shares `hosts` with the others: one client for the session.
@@ -268,12 +273,9 @@ pub(crate) struct DesktopHosts {
 }
 
 impl DesktopHosts {
-    pub(crate) fn new() -> Result<Self> {
-        Self::new_with(None)
-    }
-
-    /// `changed` hears when a node that pushes no sync status said something new of it.
-    pub(crate) fn new_with(changed: Option<Arc<dyn Fn() + Send + Sync>>) -> Result<Self> {
+    /// `changes` hears `Changed::Sync` when a node that pushes no sync status said something new
+    /// of it.
+    pub(crate) fn new(changes: UnboundedSender<Changed>) -> Result<Self> {
         let client = beep_proto::https::client()
             .connect_timeout(Duration::from_secs(3))
             .timeout(HOST_TIMEOUT)
@@ -289,7 +291,7 @@ impl DesktopHosts {
             remotes: Arc::default(),
             gates: Arc::default(),
             board_run: Arc::default(),
-            direct_syncs: Arc::new(crate::direct_syncs::DirectSyncs::new(changed)),
+            direct_syncs: Arc::new(crate::direct_syncs::DirectSyncs::new(changes)),
             usage: Arc::default(),
             moves: Arc::default(),
         })

@@ -31,7 +31,7 @@ use std::{
     collections::HashMap,
     sync::{
         Arc, Mutex, OnceLock,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -1418,7 +1418,7 @@ async fn a_project_on_two_machines_syncs_and_a_pause_and_a_pin_stay() {
         .await
         .expect("the record goes");
     let peers = peering(&f.studio, &nodes, &[]);
-    let session = Session::new(peers.clone(), Options::default(), |_| {}).expect("a session");
+    let session = Session::new(peers.clone(), Options::default()).expect("a session");
     session.desk().await.expect("the desk opens");
     assert_eq!(spec(&f.studio.mesh), Some(written.clone()));
 
@@ -1438,7 +1438,7 @@ async fn a_project_on_two_machines_syncs_and_a_pause_and_a_pin_stay() {
         .set(key.clone(), Some(pinned))
         .await
         .expect("the pin is written");
-    let session = Session::new(peers, Options::default(), |_| {}).expect("a session");
+    let session = Session::new(peers, Options::default()).expect("a session");
     let desk = session.desk().await.expect("the desk opens");
     assert_eq!(spec(&f.studio.mesh), Some(SyncSpec::default()));
     assert!(
@@ -1900,8 +1900,8 @@ async fn removing_a_project_from_a_machine_stops_its_sync_and_keeps_the_last_one
     assert_eq!(on(&studio).await, vec![f.build.id]);
 
     // A new session puts every project on two machines in sync: the removed ones stay out.
-    let session = Session::new(peering(&f.studio, &nodes, &[]), Options::default(), |_| {})
-        .expect("a session");
+    let session =
+        Session::new(peering(&f.studio, &nodes, &[]), Options::default()).expect("a session");
     let again = session.desk().await.expect("the desk opens");
     assert_eq!(spec(&f.studio.mesh), None);
     assert_eq!(on(&again).await, vec![f.build.id]);
@@ -1993,7 +1993,6 @@ async fn a_cached_list_comes_at_once_and_a_cold_one_asks_only_this_mac() {
     let session = beep_fleet::Session::new(
         peering(&f.studio, &[(&f.studio, &node)], &[&f.laptop, &f.build]),
         beep_fleet::Options::default(),
-        |_| {},
     )
     .expect("a session");
     let cold = timeout(Duration::from_secs(20), session.lists("acme/widget", false))
@@ -2307,7 +2306,6 @@ async fn session_on_actions(f: &Fleet, api: &str) -> Arc<Session> {
             github_api: Some(api.to_owned()),
             ..Options::default()
         },
-        |_| {},
     )
     .expect("a session")
 }
@@ -2361,7 +2359,11 @@ async fn local_project(
     f: &Fleet,
     node: &Arc<FakeNode>,
     fresh: Duration,
-) -> (Arc<Peering>, Arc<beep_fleet::Session>, Arc<AtomicUsize>) {
+) -> (
+    Arc<Peering>,
+    Arc<beep_fleet::Session>,
+    tokio::sync::mpsc::UnboundedReceiver<beep_fleet::Changed>,
+) {
     desk(&f.studio, &[(&f.studio, node)])
         .await
         .import(ImportJob {
@@ -2374,20 +2376,21 @@ async fn local_project(
         .await
         .expect("the import works");
     let peers = peering(&f.studio, &[(&f.studio, node)], &[&f.laptop, &f.build]);
-    let changed = Arc::new(AtomicUsize::new(0));
-    let heard = changed.clone();
     let session = beep_fleet::Session::new(
         peers.clone(),
         beep_fleet::Options {
             fresh,
             ..beep_fleet::Options::default()
         },
-        move |_| {
-            heard.fetch_add(1, Ordering::Relaxed);
-        },
     )
     .expect("a session");
-    (peers, session, changed)
+    let changes = session.changes().expect("the feed is taken once");
+    (peers, session, changes)
+}
+
+/// How many changes the feed holds now.
+fn heard(changes: &mut tokio::sync::mpsc::UnboundedReceiver<beep_fleet::Changed>) -> usize {
+    std::iter::from_fn(|| changes.try_recv().ok()).count()
 }
 
 fn widget_host() -> Arc<FakeNode> {
@@ -2415,7 +2418,7 @@ fn widget_host() -> Arc<FakeNode> {
 async fn a_background_read_that_fails_does_not_tell_the_page() {
     let f = fleet().await;
     let node = widget_host();
-    let (peers, session, changed) = local_project(&f, &node, Duration::ZERO).await;
+    let (peers, session, mut changes) = local_project(&f, &node, Duration::ZERO).await;
     session
         .lists("acme/widget", false)
         .await
@@ -2427,14 +2430,14 @@ async fn a_background_read_that_fails_does_not_tell_the_page() {
         .await
         .expect("the last read");
     session.settled().await;
-    assert_eq!(changed.load(Ordering::Relaxed), 0, "a failure is not news");
+    assert_eq!(heard(&mut changes), 0, "a failure is not news");
     peers.broken.store(false, Ordering::Relaxed);
     session
         .lists("acme/widget", false)
         .await
         .expect("the last read");
     session.settled().await;
-    assert_eq!(changed.load(Ordering::Relaxed), 1);
+    assert_eq!(heard(&mut changes), 1);
 }
 
 #[tokio::test]
@@ -2476,7 +2479,6 @@ async fn a_session_does_not_wait_for_a_mesh_that_never_opens() {
             mesh_wait: Duration::from_millis(100),
             ..beep_fleet::Options::default()
         },
-        |_| {},
     )
     .expect("a session");
 
@@ -4127,4 +4129,53 @@ async fn a_named_agent_account_sits_beside_the_default_one() {
             .await
             .is_err()
     );
+}
+
+#[tokio::test]
+async fn the_change_feed_goes_to_one_follower_and_keeps_the_order_reads_finish() {
+    use beep_fleet::{Changed, ProjectRead};
+
+    let f = fleet().await;
+    let node = widget_host();
+    let (_peers, session, mut changes) = local_project(&f, &node, Duration::ZERO).await;
+    assert!(session.changes().is_none(), "the feed was already taken");
+
+    session
+        .lists("acme/widget", false)
+        .await
+        .expect("a cold read");
+    session
+        .lists("acme/widget", false)
+        .await
+        .expect("a stale read");
+    session.settled().await;
+    session
+        .runs("acme/widget", false)
+        .await
+        .expect("a cold read");
+    session
+        .runs("acme/widget", false)
+        .await
+        .expect("a stale read");
+    session.settled().await;
+
+    let mut said = Vec::new();
+    while let Ok(changed) = changes.try_recv() {
+        said.push(changed);
+    }
+    let reads: Vec<_> = said
+        .iter()
+        .map(|changed| match changed {
+            Changed::Project {
+                project,
+                read: ProjectRead::Lists(_),
+            } => format!("lists {project}"),
+            Changed::Project {
+                project,
+                read: ProjectRead::Runs(_),
+            } => format!("runs {project}"),
+            other => format!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(reads, ["lists acme/widget", "runs acme/widget"]);
 }

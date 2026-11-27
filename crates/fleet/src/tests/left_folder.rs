@@ -92,8 +92,7 @@ async fn a_project_is_stopped_when_the_node_pushes_a_status_without_it() {
         mesh: mesh.clone(),
         pushed: pushed.clone(),
     });
-    let session =
-        crate::session::Session::new(peers, crate::session::Options::default(), |_| {}).unwrap();
+    let session = crate::session::Session::new(peers, crate::session::Options::default()).unwrap();
     let desk = session.desk().await.unwrap();
 
     let (stopped, ()) = tokio::join!(desk.stopped_syncing(mesh.me(), "acme/widget"), async {

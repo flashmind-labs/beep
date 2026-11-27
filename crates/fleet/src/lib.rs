@@ -1,6 +1,7 @@
 //! The desktop side of projects, credentials, settings and usage over the mesh.
 
 pub mod alerts;
+mod changed;
 mod credentials;
 mod desk;
 mod direct_syncs;
@@ -29,6 +30,7 @@ mod usage_cache;
 
 pub use beep_mesh::machine::sessions::MoveState;
 pub use beep_proto::node::skill_library::library_name;
+pub use changed::{Changed, ProjectRead};
 pub use desk::Desk;
 pub use error::{FleetError, Result};
 pub use git_board::{GitKept, GitUpdate};
@@ -39,6 +41,6 @@ pub use notice_read::{Read, digest, mark_read, read_marks};
 pub use observer::{observe, phone_ticket};
 pub use peer::Peers;
 pub use projects::{ImportJob, RenameRepositoryTarget, RepositoryRename, RepositoryRenameResult};
-pub use session::{Changed, Options, ProjectRead, Session};
+pub use session::{Options, Session};
 
 pub(crate) type AsyncMutex<T> = tokio::sync::Mutex<T>;

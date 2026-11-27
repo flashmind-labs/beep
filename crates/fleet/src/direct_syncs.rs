@@ -1,5 +1,6 @@
 //! What nodes that push no sync status last said of their sync (`DirectSyncs`).
 
+use crate::changed::Changed;
 use beep_mesh::PeerClient;
 use beep_proto::node::sync::{PROTOCOL, ProjectStatus, Reply, Request};
 use iroh::EndpointId;
@@ -8,7 +9,10 @@ use std::{
     sync::{Arc, Mutex, PoisonError},
     time::Duration,
 };
-use tokio::time::{Instant, timeout};
+use tokio::{
+    sync::mpsc::UnboundedSender,
+    time::{Instant, timeout},
+};
 
 /// How long a direct sync status call waits on one node.
 const SYNC_CALL_LIMIT: Duration = Duration::from_secs(2);
@@ -46,15 +50,15 @@ pub(crate) struct DirectSyncs {
     /// The machines that answered `SyncList` once: their node pushes, so a late snapshot is
     /// waited for and never replaced by a direct call.
     pushing: Mutex<HashSet<EndpointId>>,
-    changed: Option<Arc<dyn Fn() + Send + Sync>>,
+    changes: UnboundedSender<Changed>,
 }
 
 impl DirectSyncs {
-    pub(crate) fn new(changed: Option<Arc<dyn Fn() + Send + Sync>>) -> Self {
+    pub(crate) fn new(changes: UnboundedSender<Changed>) -> Self {
         Self {
             held: Mutex::default(),
             pushing: Mutex::default(),
-            changed,
+            changes,
         }
     }
 
@@ -155,8 +159,8 @@ impl DirectSyncs {
             }
         };
 
-        if changed && let Some(changed_fn) = &self.changed {
-            changed_fn();
+        if changed {
+            let _ = self.changes.send(Changed::Sync);
         }
     }
 }

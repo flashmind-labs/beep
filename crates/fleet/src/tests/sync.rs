@@ -334,7 +334,7 @@ async fn degraded_node_does_not_stall_sync_and_shows_its_answer_on_the_next_read
         slow: node.me(),
         release: opened,
     });
-    let session = Session::new(peers, Options::default(), |_| {}).unwrap();
+    let session = Session::new(peers, Options::default()).unwrap();
     let desk = session.desk().await.unwrap();
 
     let started = Instant::now();
@@ -454,7 +454,10 @@ impl Peers for CountingPeers {
 
 #[tokio::test]
 async fn a_node_without_the_topic_answers_from_its_last_call_and_redraws_when_it_changes() {
-    use crate::session::{Changed, Options, Session};
+    use crate::{
+        changed::Changed,
+        session::{Options, Session},
+    };
     use std::sync::atomic::{AtomicU64, Ordering};
 
     let dir = TempDir::new().unwrap();
@@ -488,11 +491,8 @@ async fn a_node_without_the_topic_answers_from_its_last_call_and_redraws_when_it
         calls: calls.clone(),
         pushed: Arc::default(),
     });
-    let (tx, mut heard) = tokio::sync::mpsc::unbounded_channel();
-    let session = Session::new(peers, Options::default(), move |changed| {
-        let _ = tx.send(changed);
-    })
-    .unwrap();
+    let session = Session::new(peers, Options::default()).unwrap();
+    let mut heard = session.changes().expect("the feed is taken once");
     let desk = session.desk().await.unwrap();
     let files = |sync: &[ProjectSync]| sync[0].machines[0].files;
 
@@ -548,7 +548,7 @@ async fn a_node_that_pushes_is_not_answered_from_an_old_direct_call() {
         calls: calls.clone(),
         pushed: pushed.clone(),
     });
-    let session = Session::new(peers, Options::default(), |_| {}).unwrap();
+    let session = Session::new(peers, Options::default()).unwrap();
     let desk = session.desk().await.unwrap();
     let files = |sync: &[ProjectSync]| sync[0].machines[0].files;
 
@@ -688,7 +688,7 @@ async fn widget_desk(
     .unwrap();
 
     let peers = Arc::new(peers(mesh));
-    let session = Session::new(peers.clone(), Options::default(), |_| {}).unwrap();
+    let session = Session::new(peers.clone(), Options::default()).unwrap();
     (session.desk().await.unwrap(), peers)
 }
 
