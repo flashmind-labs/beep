@@ -64,7 +64,8 @@ export function agentClick(e: MouseEvent) {
   if (target.closest("#agmodelb")) return toggleModelPicker();
   if (target.closest("[data-agretrymodel]")) return retryWithModel();
   if (target.closest("#agmodeb")) { cycleMode(); agentMessage.current?.focus(); return; }
-  if (AG.modelOpen && !target.closest(".agc-pick, [data-agtask]")) closeModelPicker();
+  const inPicker = e.composedPath().some(node => node instanceof Element && node.matches(".agc-pick, [data-agtask]"));
+  if (AG.modelOpen && !inPicker) closeModelPicker();
   const closing = target.closest<HTMLElement>(".agpane [data-subclose]");
   if (closing) return closeSub(Number(closing.dataset.subclose));
   const stopping = inLogOrPane<HTMLElement>("[data-kidstop]");

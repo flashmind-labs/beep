@@ -367,6 +367,8 @@ pub struct SessionRow {
     pub(crate) persona: Option<Persona>,
     /// Where its node says it works: the checkout and branch.
     pub(crate) place: Option<WorkPlace>,
+    /// The session on the same machine this chat carries on.
+    pub(crate) continues: Option<SessionId>,
 }
 
 impl SessionRow {
@@ -401,6 +403,7 @@ impl From<MachineSession> for SessionRow {
             account: session.account,
             persona: session.persona,
             place: session.place,
+            continues: session.continues,
         }
     }
 }

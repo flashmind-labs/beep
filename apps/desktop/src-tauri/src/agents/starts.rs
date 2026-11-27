@@ -84,6 +84,12 @@ pub(crate) struct Start {
     /// The session on the same machine it carries on.
     #[serde(default)]
     pub(crate) continues: Option<SessionId>,
+    /// The harness of `continues`, for copying a user-saved mesh title.
+    #[serde(default)]
+    pub(crate) continues_agent: Option<String>,
+    /// The title inherited from `continues` before the machine names the session.
+    #[serde(default)]
+    pub(crate) title: Option<String>,
     /// Why Auto picked the machine; empty when the start named it.
     pub(crate) why: String,
     pub(crate) at: SystemTime,
@@ -113,7 +119,7 @@ impl Start {
             machine_name: self.machine_name.clone(),
             id: Into::<SessionId>::into(self.id.to_string()),
             agent: self.agent.clone(),
-            title: title(&self.prompt),
+            title: self.title.clone().or_else(|| title(&self.prompt)),
             cwd: self.cwd.clone().unwrap_or_default(),
             status,
             doing,
@@ -555,7 +561,26 @@ impl Link for MeshLink {
         sessions_changed(&self.app, id);
     }
 
-    async fn started(&mut self, start: Start, started: StartedAgent) {
+    async fn started(&mut self, start: Start, mut started: StartedAgent) {
+        if let (Some(earlier_id), Some(earlier_agent)) = (&start.continues, &start.continues_agent)
+            && let Some(mesh) = self.app.state::<Arc<Fleet>>().mesh()
+            && let Some(saved) =
+                beep_fleet::session_titles::get(&mesh, &start.machine_id, earlier_agent, earlier_id)
+        {
+            started.session.title = Some(saved.clone());
+            if let Err(e) = beep_fleet::session_titles::save(
+                &mesh,
+                &started.session.machine_id,
+                &started.session.agent,
+                &started.session.id,
+                &saved,
+            )
+            .await
+            {
+                log::warn!("could not copy a continued session's saved title: {e}");
+            }
+        }
+
         // The windows hear first: until then a read of the start finds it gone.
         let event = AgentStarted {
             start: start.id.to_string(),
@@ -723,9 +748,24 @@ pub async fn agent_begin(
     else {
         return Err(ApiError::Internal {}.into());
     };
+    let machine_id = planned.machine.to_string();
+    let (continues_agent, inherited_title) = continues
+        .as_ref()
+        .and_then(|earlier_id| {
+            let rows = app
+                .state::<Arc<crate::fleet::session_mirror::SessionMirror>>()
+                .current();
+            let mut row = rows
+                .iter_of(None)
+                .find(|row| row.machine_id == machine_id && &row.id == earlier_id)?
+                .clone();
+            crate::fleet::session_lists::overlay(&fleet, &mut row)
+                .then_some((Some(row.agent), row.title))
+        })
+        .unwrap_or((None, None));
     let start = Start {
         id: StartId::new(),
-        machine_id: planned.machine.to_string(),
+        machine_id,
         machine_name: fleet.name_of(planned.machine),
         agent: planned.agent,
         cwd,
@@ -738,6 +778,8 @@ pub async fn agent_begin(
         assistant,
         account: planned.account,
         continues,
+        continues_agent,
+        title: inherited_title,
         why: planned.why,
         at: SystemTime::now(),
         // Its runner marks it starting, once that is on disk.

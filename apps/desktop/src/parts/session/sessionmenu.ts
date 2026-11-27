@@ -1,5 +1,6 @@
 import { S, windowRequests } from "../../stores/bar/core.ts";
-import { sessionDestinations } from "../project/sessionproject.ts";
+import { sessionDestinations, sessionProject } from "../project/sessionproject.ts";
+import { readProjectHarnesses } from "../project/project-harnesses.tsx";
 import { forgetView } from "../../stores/agentpane/view-memory.ts";
 import { onPhone, WINDOWS } from "../../ui/platform.ts";
 import { NEW_WINDOW } from "../../stores/project/projectwindow.ts";
@@ -12,10 +13,10 @@ import { chatFolder, sessionHref } from "../../stores/agents/nesting-state.ts";
 import type { AgentRow } from "../../stores/agents/agents-state.ts";
 import { parentSession, sessions } from "../../stores/agents/sessions.ts";
 import { type SideWork, sessionOffers, stopAllAsks } from "../../stores/agents/sessionmenu-state.ts";
-import { AG, AGENT_ACTIVE, openOf, where } from "../../stores/agents/agents-state.ts";
+import { AG, AGENT_ACTIVE, ensureAgentHosts, openOf, where } from "../../stores/agents/agents-state.ts";
 import { sameSession } from "../../stores/agents/running-state.ts";
 import { canContinueElsewhere } from "../../stores/agents/continue-state.ts";
-import { canContinueWith, toggleModelPicker } from "./modelpill.tsx";
+import { canContinueWith, continueWithSession } from "./modelpill.tsx";
 import { drawAgentBody, workingSubagents } from "./logview.tsx";
 import { type Draft, draftNewThread, drainOutbox, drawQueue, heldQueue, restoreDraft, resumeEndedSession, sendOnce } from "./messages.ts";
 import { runs, transcriptKey, transcripts } from "../../stores/agents/transcript-cache-state.ts";
@@ -78,9 +79,11 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
       runGroup.push({ label: "Stop turn", icon: "stop", detail: onPhone() ? undefined : (WINDOWS ? "Ctrl+." : "⌘."), on: () => void invoke("agent_steer", { ...at, steer: "cancel" }).catch(err => console.warn("stop turn:", err)) });
       runGroup.push({ label: "Stop all", icon: "stopAll", on: () => stopAll(s) });
     }
-    // The picker is the open session's, so the item is too.
-    if (sameSession(AG.open, s) && AG.page && canContinueElsewhere(s) && canContinueWith(s)) {
-      runGroup.push({ label: "Continue with", icon: "sync", chevron: true, on: () => setTimeout(() => { if (!AG.modelOpen) toggleModelPicker(); }, 0) });
+    if (canContinueElsewhere(s) && canContinueWith(s)) {
+      runGroup.push({ label: "Continue with", icon: "sync", chevron: true, on: () => {
+        if (!sameSession(AG.open, s)) open(s);
+        setTimeout(() => continueWithSession(s.id), 0);
+      } });
     }
     if (offers.resume) {
       runGroup.push({ label: "Resume", icon: "run", on: () => resumeEndedSession(openOf(s), started => open(started)) });
@@ -143,9 +146,13 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
   // Only a folder this Mac has can be opened here.
   const folder = invoke<string | null>("session_folder_here", { machineId: s.machine_id, cwd: s.cwd }).catch(() => null);
   const reachable = invoke<boolean>("agent_deletable", { machineId: s.machine_id }).catch(() => false);
-  // Shown at once with what is known; the folder and the mesh fill in a moment later.
+  const hosts = AG.hosts ? Promise.resolve() : ensureAgentHosts().then(() => {});
+  const project = sessionProject(s)?.name ?? null;
+  const harnesses = project ? readProjectHarnesses(project) : Promise.resolve();
+  // Shown at once with what is known; the folder, hosts and mesh fill in a moment later.
   const update = openMenu(e, s.title || "Session", build(null, false), s.machine_name || undefined);
-  update(build(await folder, await reachable));
+  const [resolvedFolder, resolvedReachable] = await Promise.all([folder, reachable, hosts, harnesses]);
+  update(build(resolvedFolder, resolvedReachable));
 }
 
 type StopAllPhase = { kind: "draining" } | { kind: "stopping"; drafts: Draft[] };

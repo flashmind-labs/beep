@@ -8,10 +8,11 @@ import { harnessesOn, keepEffort, modelId } from "../../stores/agents/agentpick.
 import { canContinueElsewhere } from "../../stores/agents/continue-state.ts";
 import { closedPicker, drawPicker, type Picked, pillContent } from "./agentpicker.tsx";
 import { knownModels, modelsOn } from "../../stores/agents/model-store.ts";
-import { type AgentRow, AG, canTakeOver, ensureAgentHosts } from "../../stores/agents/agents-state.ts";
+import { type AgentRow, AG, canTakeOver, ensureAgentHosts, openOf } from "../../stores/agents/agents-state.ts";
 import { agentKind } from "../../stores/agents/agent-kind.ts";
 import { SWITCHES, continuePicks, logStale, resumePicks, sessionPicks, setNote } from "./open-state.ts";
-import { resendPrompt, steerAgent } from "./messages.ts";
+import { continueSessionNow, resendContinuedPrompt, resendPrompt, steerAgent } from "./messages.ts";
+import { redrawAgentHints } from "./session-head.tsx";
 import { perfLayer, perfOpen } from "../../ui/perf.ts";
 import { sessionProject } from "../project/sessionproject.ts";
 import { projectHarnesses, readProjectHarnesses } from "../project/project-harnesses.tsx";
@@ -20,6 +21,8 @@ import { projectHarnesses, readProjectHarnesses } from "../project/project-harne
 const modelPill = createRef<HTMLButtonElement>();
 /// The session whose failed prompt goes again once a model is picked.
 let retryIn: string | null = null;
+/// The session whose stepped Continue with picker starts a new session on completion.
+let continueIn: string | null = null;
 
 /// Whether session `s` can switch its model or thinking.
 export const canSwitchModel = (s: AgentRow) => SWITCHES.has(s.agent) && !isNativeSession(s.id)
@@ -75,11 +78,29 @@ export function toggleModelPicker() {
   opened();
 }
 
+/// Opens the stepped picker for `Continue with`: finishing it starts the continued session.
+export function continueWithSession(sessionId?: string) {
+  const s = AG.page?.session;
+  if (!s || (sessionId !== undefined && s.id !== sessionId)) return;
+  const others = harnessesFor(s).filter(agent => agent !== s.agent);
+  if (!others.length) return;
+
+  retryIn = null;
+  continueIn = s.id;
+  const current = continuePicks.get(s.id);
+  if (!current || !others.includes(current.agent)) {
+    continuePicks.set(s.id, { agent: others[0], model: "", effort: null, fast: null });
+  }
+  if (!AG.modelOpen) toggleModelPicker();
+  else { drawModelPicker(); drawModelPill(); redrawAgentHints(); }
+}
+
 /// Opens the picker for a failed turn: the model picked runs its prompt again.
 export function retryWithModel() {
   const s = AG.page?.session;
   if (!s) return;
 
+  continueIn = null;
   retryIn = s.id;
   if (!AG.modelOpen) toggleModelPicker();
 }
@@ -87,10 +108,15 @@ export function retryWithModel() {
 /// Closes the model picker; true when it was open, so Esc goes no further.
 export function closeModelPicker() {
   if (!AG.modelOpen) return false;
+  if (continueIn !== null) {
+    continuePicks.delete(continueIn);
+    continueIn = null;
+  }
   retryIn = null;
   AG.modelOpen = false;
   drawModelPicker();
   drawModelPill();
+  redrawAgentHints();
   agentMessage.current?.focus();
   return true;
 }
@@ -110,14 +136,32 @@ function drawModelPicker() {
   const el = modelPickHost.current, s = AG.page?.session;
   if (!el) return;
   pickerLayer(AG.modelOpen && !!s);
-  if (!AG.modelOpen || !s) { closedPicker(el); return; }
+  if (!AG.modelOpen || !s) {
+    if (continueIn !== null) {
+      continuePicks.delete(continueIn);
+      continueIn = null;
+      drawModelPill();
+      redrawAgentHints();
+    }
+    closedPicker(el);
+    return;
+  }
+  const stepping = continueIn === s.id;
   const now = sessionPicks.get(s.id) ?? { model: "", effort: null, fast: null };
   const pending = resumePicks.get(s.id);
   const was = pending ? pending.effort : now.effort;
+  const all = harnessesFor(s);
+  const offered = stepping ? all.filter(agent => agent !== s.agent) : all;
+  if (stepping && !offered.length) {
+    continueIn = null;
+    AG.modelOpen = false;
+    closedPicker(el);
+    return;
+  }
   const next = continuePicks.get(s.id);
   const picked: Picked = next ? { ...next, query: "" }
+    : stepping ? { agent: offered[0], model: "", effort: null, fast: null, query: "" }
     : { agent: s.agent, model: pending?.model ?? (AG.page?.model || now.model), effort: was, fast: pending ? pending.fast : now.fast, query: "" };
-  const offered = harnessesFor(s);
   drawPicker(el, {
     render: view => { if (el.isConnected) showAgentControl("pick", view); },
     picked,
@@ -126,32 +170,56 @@ function drawModelPicker() {
     allowed: allowedFor(s),
     machine: { id: s.machine_id, name: s.machine_name },
     noMachine: "",
-    steps: null,
+    steps: stepping ? { machines: null } : null,
     anchor: () => modelPill.current,
     changed: what => {
       if (what === "models") return drawModelPill();
-      if (what === "done") return;
+      if (what === "done") {
+        const target = openOf(s);
+        const model = modelId(knownModels(s.machine_id, picked.agent), picked.model);
+        continuePicks.set(s.id, { agent: picked.agent, model, effort: picked.effort, fast: picked.fast });
+        continueIn = null;
+        retryIn = null;
+        AG.modelOpen = false;
+        drawModelPicker();
+        drawModelPill();
+        redrawAgentHints();
+        void continueSessionNow(target);
+        return;
+      }
       if (what === "agent") {
         // A harness other than its own is the chat's next one, on its default model.
         if (picked.agent === s.agent) continuePicks.delete(s.id);
         else continuePicks.set(s.id, { agent: picked.agent, model: "", effort: keepEffort(picked.agent, picked.effort), fast: null });
         drawModelPicker();
         drawModelPill();
+        redrawAgentHints();
         return;
       }
 
       if (picked.agent !== s.agent) {
         const model = modelId(knownModels(s.machine_id, picked.agent), picked.model);
         continuePicks.set(s.id, { agent: picked.agent, model, effort: picked.effort, fast: picked.fast });
+        if (stepping) {
+          drawModelPicker();
+          drawModelPill();
+          redrawAgentHints();
+          return;
+        }
+        const retry = what === "model" && retryIn === s.id;
         retryIn = null;
         if (what === "model") AG.modelOpen = false;
         drawModelPicker();
         drawModelPill();
+        redrawAgentHints();
+        if (retry) void resendContinuedPrompt(openOf(s));
+        else if (what === "model" && !document.body.classList.contains("mobile")) agentMessage.current?.focus();
         return;
       }
 
       // Back on its own harness: the chat stays here.
       continuePicks.delete(s.id);
+      redrawAgentHints();
       if (!canSwitchModel(s)) { AG.modelOpen = false; drawModelPicker(); drawModelPill(); return; }
       // A search such as `opus high` picks the thinking level with the model.
       const both = what === "model" && picked.effort !== was;

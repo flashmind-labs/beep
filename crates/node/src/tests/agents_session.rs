@@ -3431,3 +3431,294 @@ fn switches_join_the_json_a_variable_holds() {
     add_json_env(&mut process, CODEX_CONFIG, serde_json::Map::new()).unwrap();
     assert_eq!(value(&process, CODEX_CONFIG).as_deref(), Some("not json"), "nothing to add changes nothing");
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn pi_acp_steers_live_turns_and_settles_aborts_without_waiting_on_extensions() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let Some(node) = crate::machine::env::locate::find("node", dirs::home_dir().as_deref()) else {
+        return;
+    };
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let adapter_dir = dir.join("node_modules/pi-acp/dist");
+    std::fs::create_dir_all(&adapter_dir).unwrap();
+    let adapter = adapter_dir.join("index.mjs");
+    let fake_pi = dir.join("fake-pi.mjs");
+    let turn1_fifo = dir.join("turn1");
+    let settle_fifo = dir.join("settle");
+    for fifo in [&turn1_fifo, &settle_fifo] {
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(fifo)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+
+    let adapter_src = r#"import { spawn } from "node:child_process";
+import * as readline from "node:readline";
+
+const send = (obj) => process.stdout.write(`${JSON.stringify(obj)}\n`);
+let proc = null;
+let pendingPrompt = null;
+let cancelRequested = false;
+let reqSeq = 0;
+const rpcPending = new Map();
+
+function rpcRequest(cmd) {
+    const id = `rpc-${++reqSeq}`;
+    proc.stdin.write(`${JSON.stringify({ ...cmd, id })}\n`);
+    return new Promise((resolve) => rpcPending.set(id, resolve));
+}
+
+function attachPi() {
+    proc = spawn(process.env.PI_ACP_PI_COMMAND, ["--mode", "rpc", "--no-themes"], {
+        stdio: ["pipe", "pipe", "inherit"],
+        env: process.env,
+    });
+    let emitChain = Promise.resolve();
+    const emit = (update) => {
+        emitChain = emitChain.then(() => {
+            send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "pi-s1", update } });
+        });
+        return emitChain;
+    };
+    const rl = readline.createInterface({ input: proc.stdout });
+    rl.on("line", (line) => {
+        if (!line.trim()) return;
+        const ev = JSON.parse(line);
+        if (ev.type === "response") {
+            rpcPending.get(ev.id)?.(ev);
+            rpcPending.delete(ev.id);
+            return;
+        }
+        if (ev.type === "message_update" && ev.assistantMessageEvent?.type === "text_delta") {
+            void emit({
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: ev.assistantMessageEvent.delta },
+            });
+        } else if (ev.type === "extension_ui_request" && ev.method === "notify") {
+            void emit({
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: ev.message ?? "" },
+                _meta: { piAcp: { notify: { level: ev.notifyType ?? "info" } } },
+            });
+            proc.stdin.write(`${JSON.stringify({ type: "extension_ui_response", id: ev.id, cancelled: true })}\n`);
+        } else if (ev.type === "agent_settled") {
+            void (async () => {
+                await rpcRequest({ type: "get_session_stats" });
+                await emitChain;
+                if (pendingPrompt) {
+                    const id = pendingPrompt;
+                    pendingPrompt = null;
+                    send({
+                        jsonrpc: "2.0",
+                        id,
+                        result: { stopReason: cancelRequested ? "cancelled" : "end_turn" },
+                    });
+                }
+            })();
+        }
+    });
+}
+
+const input = readline.createInterface({ input: process.stdin });
+input.on("line", async (line) => {
+    if (!line.trim()) return;
+    const msg = JSON.parse(line);
+    if (msg.method === "initialize") {
+        send({
+            jsonrpc: "2.0",
+            id: msg.id,
+            result: {
+                protocolVersion: 1,
+                agentInfo: { name: "pi-acp", version: "0.0.34" },
+                agentCapabilities: { loadSession: true, promptCapabilities: { image: true } },
+            },
+        });
+    } else if (msg.method === "session/new") {
+        attachPi();
+        await rpcRequest({ type: "get_state" });
+        send({ jsonrpc: "2.0", id: msg.id, result: { sessionId: "pi-s1" } });
+    } else if (msg.method === "session/prompt") {
+        cancelRequested = false;
+        pendingPrompt = msg.id;
+        const text = msg.params.prompt.map((b) => b.text ?? "").join("");
+        await rpcRequest({ type: "prompt", message: text, images: [] });
+    } else if (msg.method === "session/cancel") {
+        cancelRequested = true;
+        await rpcRequest({ type: "abort" });
+    }
+});
+"#;
+
+    let pi_src = format!(
+        r#"#!/usr/bin/env node
+import * as fs from "node:fs";
+import * as readline from "node:readline";
+
+const turn1Fifo = {turn1:?};
+const settleFifo = {settle:?};
+const out = (obj) => process.stdout.write(`${{JSON.stringify(obj)}}\n`);
+let promptCount = 0;
+let settleBlocked = null;
+let deferredPrompt = null;
+
+function waitFifo(path) {{
+    return new Promise((resolve) => {{
+        const stream = fs.createReadStream(path, {{ encoding: "utf8" }});
+        stream.once("data", () => {{ stream.close(); resolve(); }});
+    }});
+}}
+
+async function startPrompt(msg) {{
+    const n = ++promptCount;
+    out({{ id: msg.id, type: "response", command: "prompt", success: true, data: {{ disposition: "started" }} }});
+    out({{ type: "agent_start" }});
+    out({{ type: "message_start", message: {{ role: "user", content: [{{ type: "text", text: msg.message }}] }} }});
+    out({{ type: "message_start", message: {{ role: "assistant", content: [] }} }});
+    if (n === 1) {{
+        out({{ type: "message_update", assistantMessageEvent: {{ type: "text_delta", delta: "First part." }} }});
+    }} else if (n === 2) {{
+        out({{ type: "message_update", assistantMessageEvent: {{ type: "text_delta", delta: "Working on two." }} }});
+    }} else {{
+        out({{ type: "message_update", assistantMessageEvent: {{ type: "text_delta", delta: "Back on track." }} }});
+        out({{ type: "agent_end", willRetry: false, messages: [] }});
+        out({{ type: "agent_settled", aborted: false }});
+    }}
+}}
+
+const rl = readline.createInterface({{ input: process.stdin }});
+rl.on("line", (line) => {{
+    if (!line.trim()) return;
+    const msg = JSON.parse(line);
+    if (msg.type === "get_state") {{
+        out({{ id: msg.id, type: "response", command: "get_state", success: true, data: {{ sessionId: "pi-s1" }} }});
+    }} else if (msg.type === "get_session_stats") {{
+        out({{ id: msg.id, type: "response", command: "get_session_stats", success: true, data: {{}} }});
+    }} else if (msg.type === "clear_queue") {{
+        out({{ id: msg.id, type: "response", command: "clear_queue", success: true, data: {{ steering: [], followUp: [] }} }});
+    }} else if (msg.type === "prompt") {{
+        if (settleBlocked) {{
+            deferredPrompt = msg;
+        }} else {{
+            void startPrompt(msg);
+        }}
+    }} else if (msg.type === "steer") {{
+        out({{ type: "queue_update", steering: [msg.message], followUp: [] }});
+        out({{ id: msg.id, type: "response", command: "steer", success: true, data: {{ disposition: "queued" }} }});
+        out({{ type: "queue_update", steering: [], followUp: [] }});
+        out({{ type: "message_start", message: {{ role: "user", content: [{{ type: "text", text: msg.message }}] }} }});
+        out({{ type: "message_start", message: {{ role: "assistant", content: [] }} }});
+        out({{ type: "message_update", assistantMessageEvent: {{ type: "text_delta", delta: "Steered reply." }} }});
+        void waitFifo(turn1Fifo).then(() => {{
+            out({{ type: "agent_end", willRetry: false, messages: [] }});
+            out({{ type: "agent_settled", aborted: false }});
+        }});
+    }} else if (msg.type === "abort") {{
+        out({{ type: "agent_end", willRetry: false, messages: [] }});
+        settleBlocked = waitFifo(settleFifo).then(async () => {{
+            settleBlocked = null;
+            out({{ type: "agent_settled", aborted: true }});
+            if (deferredPrompt) {{
+                const next = deferredPrompt;
+                deferredPrompt = null;
+                await startPrompt(next);
+            }}
+            out({{ id: msg.id, type: "response", command: "abort", success: true }});
+        }});
+    }}
+}});
+"#,
+        turn1 = turn1_fifo.display().to_string(),
+        settle = settle_fifo.display().to_string(),
+    );
+
+    std::fs::write(&adapter, adapter_src).unwrap();
+    std::fs::write(&fake_pi, pi_src).unwrap();
+    std::fs::set_permissions(&fake_pi, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    let mut kind = AgentKind {
+        name: "pi".into(),
+        program: node.display().to_string(),
+        args: vec![adapter.display().to_string()],
+        env: Default::default(),
+        compact: None,
+        compact_models: Vec::new(),
+        default_model: None,
+        bridge: None,
+    };
+    kind.env
+        .insert("PI_ACP_PI_COMMAND".into(), fake_pi.display().to_string());
+
+    let session =
+        Session::start_within(start_on(&kind, dir, None), Duration::from_millis(400)).unwrap();
+
+    // 1. Live in-turn steering without tool calls injects directly into Pi's turn.
+    until(&session, |live| live.info.last_message == "First part.").await;
+    session
+        .order(Command::Steer("make it blue".to_owned().into()))
+        .await
+        .unwrap();
+    until(&session, |live| {
+        live.info.state.queued == 0 && live.info.last_message == "Steered reply."
+    })
+    .await;
+    assert_eq!(session.info().turns, 0);
+    assert_eq!(session.info().state.status, Status::Working);
+    let (entries, _) = watched::read(&session.live, |live| live.transcript(20));
+    let texts: Vec<(EntryKind, &str)> = entries
+        .iter()
+        .map(|entry| (entry.kind, entry.text.as_str()))
+        .collect();
+    assert_eq!(
+        texts[texts.len() - 3..],
+        [
+            (EntryKind::Agent, "First part."),
+            (EntryKind::User, "make it blue"),
+            (EntryKind::Agent, "Steered reply."),
+        ]
+    );
+    release(&turn1_fifo).await;
+    until(&session, |live| {
+        live.info.turns == 1 && live.status() == Status::Idle
+    })
+    .await;
+
+    // 2. Cancelling settles immediately on agent_end even while an extension's
+    // agent_settled hook stays blocked well past stop_within (400 ms).
+    session
+        .order(Command::Prompt("slow hook".to_owned().into()))
+        .await
+        .unwrap();
+    until(&session, |live| live.info.last_message == "Working on two.").await;
+    session
+        .order(Command::Cancel { by_user: true })
+        .await
+        .unwrap();
+    until(&session, |live| {
+        live.info.turns == 2 && live.status() == Status::Idle
+    })
+    .await;
+    assert_eq!(
+        session.info().state.last_stop,
+        Some(StopReason::Cancelled),
+        "settled before the blocked agent_settled hook finished"
+    );
+
+    // Send a follow-up prompt while the aborted hook is still draining, then release it.
+    session
+        .order(Command::Prompt("after cancel".to_owned().into()))
+        .await
+        .unwrap();
+    release(&settle_fifo).await;
+    until(&session, |live| {
+        live.info.turns == 3 && live.status() == Status::Idle
+    })
+    .await;
+    assert_eq!(session.info().last_message, "Back on track.");
+    session.close().await;
+}

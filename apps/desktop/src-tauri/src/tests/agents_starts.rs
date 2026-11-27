@@ -25,6 +25,8 @@ fn start(stage: Stage) -> Start {
         assistant: false,
         account: None,
         continues: None,
+        continues_agent: None,
+        title: None,
         why: String::new(),
         at: SystemTime::UNIX_EPOCH,
         stage,
@@ -337,4 +339,15 @@ fn a_start_shows_as_a_starting_session_with_its_prompt_as_the_first_entry() {
             .parse::<StartId>()
             .is_err()
     );
+
+    let continued = Start {
+        prompt: "Continue.".into(),
+        continues: Some("earlier-session".into()),
+        continues_agent: Some("pi".into()),
+        title: Some("Plan direct S3 ingestion".into()),
+        ..start(Stage::Waiting)
+    };
+    let listed = SessionRow::from(continued.row());
+    assert_eq!(listed.title.as_deref(), Some("Plan direct S3 ingestion"));
+    assert_eq!(listed.continues, Some(SessionId::from("earlier-session")));
 }

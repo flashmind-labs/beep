@@ -102,6 +102,7 @@ pub(in crate::agents) fn takes_steering(initialized: &InitializeResponse) -> boo
         "@agentclientprotocol/codex-acp" => (2, 4, 0),
         "@agentclientprotocol/claude-agent-acp" => (0, 65, 0),
         "flsh" => (0, 2, 14),
+        "pi-acp" => (0, 0, 34),
         super::bridge::CODEX_NAME => (0, 0, 0),
         _ => return false,
     };

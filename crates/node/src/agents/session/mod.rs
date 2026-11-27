@@ -407,7 +407,13 @@ impl Session {
         .fold(None, |text, part| actor::joined(text, Some(part)));
         let mut brief = brief.map(Cow::into_owned);
 
-        let mut process = command(&kind.program);
+        let pi_acp = pi::is_pi_acp(kind);
+        let program = if pi_acp {
+            pi::node_program(kind)
+        } else {
+            kind.program.clone()
+        };
+        let mut process = command(&program);
         // The credentials this agent may have, such as Claude Code's token.
         spawn_env::apply(&mut process, Scope::for_agent(&kind.name, account.as_ref()));
         let native_flsh = kind.name == "flsh"
@@ -427,12 +433,14 @@ impl Session {
             } else {
                 process.args(&kind.args).args(flag);
             }
-        } else {
+        } else if !pi_acp {
             process.args(&kind.args);
         }
 
+        if !pi_acp {
+            process.args(flag.as_deref());
+        }
         process
-            .args(flag)
             .envs(&kind.env)
             .envs(agent_env)
             .current_dir(cwd);
@@ -470,7 +478,14 @@ impl Session {
         }
 
         let in_wsl = super::kinds::in_wsl(kind);
-        let pi_files = pi::setup(kind, &mut process, cwd, &mut instructions, mcp.as_ref())?;
+        let pi_files = pi::setup(
+            kind,
+            flag.as_deref(),
+            &mut process,
+            cwd,
+            &mut instructions,
+            mcp.as_ref(),
+        )?;
         if instructions.is_some() {
             standing = actor::joined(instructions, standing.as_deref());
         }

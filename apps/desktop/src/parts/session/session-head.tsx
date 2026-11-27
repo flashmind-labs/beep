@@ -16,7 +16,7 @@ import { placeName, placeRepo } from "../../stores/agents/place-state.ts";
 import { agentKey } from "../../stores/agents/conversation-state.ts";
 import { isNativeSession } from "../../stores/agents/native-session-state.ts";
 import { isStarting } from "../../stores/agents/starting-state.ts";
-import { followsOnly, hasModes, stoppingNow, turnRuns } from "./open-state.ts";
+import { continuePicks, followsOnly, hasModes, stoppingNow, turnRuns } from "./open-state.ts";
 
 /// The session's keys on one small line.
 export function agentHints() {
@@ -44,7 +44,9 @@ export function agentHints() {
 /// Puts the session's key hints in place of those on screen.
 export function redrawAgentHints() {
   const input = agentMessage.current, s = AG.page?.session;
-  const placeholder = !s ? null : AG.att.length ? "Add a message (optional)" : s.status === "ended" ? `Message ${agentKind(s.agent).name} to continue` : `Message ${agentKind(s.agent).name}`;
+  const next = s ? continuePicks.get(s.id) : undefined;
+  const name = s ? agentKind(next?.agent ?? s.agent).name : "";
+  const placeholder = !s ? null : AG.att.length ? "Add a message (optional)" : next || s.status === "ended" ? `Message ${name} to continue` : `Message ${name}`;
   // Each delta redraws the hints; an unchanged write would still invalidate style.
   if (input && placeholder !== null && input.placeholder !== placeholder) input.placeholder = placeholder;
   updateSessionHints(agentHints());

@@ -492,23 +492,29 @@ impl Actor {
                 Ok(End::Unstoppable(_) | End::StoppedAll | End::NodeStopped)
             );
         // What still waits goes with the session when the node resumes it.
-        let waiting: Vec<Prompt> = if matches!(end, Ok(End::NodeStopped)) {
-            let interrupted = matches!(
-                watched::read_sent(&self.live, Live::status),
-                Status::Working | Status::Asking
-            );
-            let continuation = interrupted.then(|| {
-                Prompt::from(crate::agents::tags::context(
-                    super::CONTINUE,
-                ))
-            });
-            continuation
-                .into_iter()
-                .chain(self.steers.drain(..))
+        let waiting: Vec<Prompt> = match &end {
+            Ok(End::NodeStopped) => {
+                let interrupted = matches!(
+                    watched::read_sent(&self.live, Live::status),
+                    Status::Working | Status::Asking
+                );
+                let continuation = interrupted.then(|| {
+                    Prompt::from(crate::agents::tags::context(
+                        super::CONTINUE,
+                    ))
+                });
+                continuation
+                    .into_iter()
+                    .chain(self.steers.drain(..))
+                    .chain(self.queued.drain(..))
+                    .collect()
+            }
+            Ok(End::Unstoppable(_)) => self
+                .steers
+                .drain(..)
                 .chain(self.queued.drain(..))
-                .collect()
-        } else {
-            Vec::new()
+                .collect(),
+            _ => Vec::new(),
         };
         let reason = match end {
             Ok(End::NodeStopped) => NODE_STOPPED.to_owned(),

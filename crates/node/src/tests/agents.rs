@@ -1277,3 +1277,78 @@ async fn read_plans_if_due_enforces_min_gap_across_streams() {
     let second = agents.read_plans_if_due(gap);
     assert!(second < gap && !second.is_zero());
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_continued_session_inherits_the_earlier_title_over_agent_renames() {
+    let dir = tempfile::tempdir().expect("a temp folder");
+    let agents = Agents::default();
+    let renaming = r#"
+id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
+reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
+read -r line; reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line; reply '{"sessionId":"next-1"}'
+while read -r line; do
+  case "$line" in
+    *session/prompt*)
+      echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"next-1","update":{"sessionUpdate":"session_info_update","title":"Status"}}}'
+      echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"next-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Checked."}}}}'
+      reply '{"stopReason":"end_turn"}' ;;
+    *) reply '{}' ;;
+  esac
+done
+"#;
+    let first_kind = sh_agent("pi", THINKING_ADAPTER);
+    let earlier = agents
+        .start(
+            &first_kind,
+            Some(dir.path().to_str().unwrap()),
+            Begin {
+                prompt: Some("Continue work on direct S3 ingestion".into()),
+                title: Some("Continue work on direct S3 ingestion".into()),
+                ..Begin::default()
+            },
+        )
+        .await
+        .expect("earlier session starts");
+    let mut earlier_live = earlier.live.clone();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        watched::wait_for(&mut earlier_live, |live| live.status() == Status::Idle),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    let next_kind = sh_agent("flsh", renaming);
+    let continued = agents
+        .start(
+            &next_kind,
+            Some(dir.path().to_str().unwrap()),
+            Begin {
+                prompt: Some("status".into()),
+                continues: Some(earlier.id.clone()),
+                ..Begin::default()
+            },
+        )
+        .await
+        .expect("continued session starts");
+    let mut next_live = continued.live.clone();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        watched::wait_for(&mut next_live, |live| {
+            live.status() == Status::Idle && live.info.turns == 1
+        }),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(
+        continued.info().title.as_deref(),
+        Some("Continue work on direct S3 ingestion")
+    );
+    assert_eq!(continued.info().continues.as_ref(), Some(&earlier.id));
+    earlier.close().await;
+    continued.close().await;
+}

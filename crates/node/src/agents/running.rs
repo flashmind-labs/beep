@@ -782,6 +782,16 @@ impl Agents {
         // Only the first start reads the earlier session; a resume has it.
         let brief = match begin.continues.as_ref().filter(|_| begin.resume.is_none()) {
             Some(earlier) => {
+                if begin.title.is_none()
+                    && let Some(title) = self
+                        .get(earlier)
+                        .and_then(|session| session.info().title)
+                        .or_else(|| self.saved(earlier).and_then(|saved| saved.info.title))
+                        .filter(|title| !title.trim().is_empty())
+                {
+                    begin.title = Some(title);
+                    begin.named = true;
+                }
                 let said = super::brief::continues(earlier);
                 Some(Cow::Owned(match brief {
                     Some(brief) => format!("{brief}\n\n{said}"),

@@ -36,7 +36,7 @@ import { parentSession, sessions } from "../../stores/agents/sessions.ts";
 import { fillAgentPics } from "./images.tsx";
 import { prepareInlineImages } from "./inline-images.ts";
 import { picTile } from "./pic-state.ts";
-import { canSwitchModel, drawModelPill } from "./modelpill.tsx";
+import { canContinueWith, canSwitchModel, drawModelPill } from "./modelpill.tsx";
 import { modelLabel } from "../../stores/agents/agentpick.ts";
 import { knownModels, modelsOn } from "../../stores/agents/model-store.ts";
 import { drawModes } from "./modepill.tsx";
@@ -104,7 +104,7 @@ export function drawAgentBody(keep?: string, polled = false, older: boolean | "p
     question: question ? { ...question, options: question.options.map(option => ({ ...option })) } : null,
     questionKey: question ? questionKey(question, openOf(s)) : null,
     answering: !!question && question.id === AG.answering,
-    error: p.error, external: s.external, switchModel: !!p.error && canSwitchModel(s), note, retry };
+    error: p.error, external: s.external, switchModel: !!p.error && (canSwitchModel(s) || canContinueWith(s)), note, retry };
   if (!showLog(b, shell, units, polled)) { AG.rest = ""; return; }
   if (older !== "page") {
     // The pane follows the open conversation into its worktree.

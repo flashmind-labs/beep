@@ -30,8 +30,43 @@ test("a model of another harness waits for the next message instead of switching
   await page.locator('[data-agmo="test-model"]').click();
   await expect(page.locator("#agmodelb")).toContainText("Test model");
   await expect(page.locator("#agmodelb")).toHaveAttribute("title", /continues this chat with/);
+  await expect(page.locator("#agmsg")).toHaveAttribute("placeholder", "Message Codex to continue");
+  await expect(page.locator("#agmsg")).toBeFocused();
   const steers = await page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_steer"));
   expect(steers).toEqual([]);
+});
+
+test("Continue with from the session menu starts the continued session once the stepped picker finishes", async ({ page }) => {
+  const idle = { ...earlier, status: "idle" };
+  const started = { ...base, id: "new", agent: "codex", title: "Plan the work", status: "starting", continues: "early" };
+  const home = { machines: [], projects: [], running: [{ ...idle, kind: "agent" as const }], needs_you: [] };
+  await openDesktop(page, false, { agent_sessions: [idle], center_home: home, agent_view: view(idle), agent_hosts: [host], agent_models: models, agent_begin: { session: started, why: "" } });
+  await page.locator(".cwin").getByText("Plan the work").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Continue with" }).click();
+  await page.locator('[data-agh="codex"]').click();
+  await page.locator('[data-agmo="test-model"]').click();
+  await page.locator('[data-age=""]').click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_begin").map(c => c.args))).toMatchObject([
+    { machineId: "build-box", agent: "codex", cwd: "/srv/project", model: "test-model", prompt: "Continue.", continues: "early" },
+  ]);
+});
+
+test("Retry with another model starts a continued session when another harness is chosen", async ({ page }) => {
+  const failed = { ...earlier, status: "ended" };
+  const started = { ...base, id: "new", agent: "codex", title: "Plan the work", status: "starting", continues: "early" };
+  const failedView = {
+    ...view(failed),
+    entries: [{ kind: "user", text: "<beep-context>\nContext\n</beep-context>\nCheck the staging format" }],
+    error: "the agent did not stop within 10 s, so Beep stopped it; send a message to continue",
+  };
+  await openDesktop(page, false, { agent_sessions: [failed], agent_view: failedView, agent_hosts: [host], agent_models: models, agent_begin: { session: started, why: "" } });
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), failed);
+  await page.getByRole("button", { name: "Retry with another model" }).click();
+  await page.locator('[data-agh="codex"]').click();
+  await page.locator('[data-agmo="test-model"]').click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_begin").map(c => c.args))).toMatchObject([
+    { machineId: "build-box", agent: "codex", cwd: "/srv/project", model: "test-model", prompt: "Check the staging format", continues: "early" },
+  ]);
 });
 
 test("the next message starts the chat under the harness picked, naming the one it continues", async ({ page }) => {

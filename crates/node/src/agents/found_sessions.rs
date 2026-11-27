@@ -689,9 +689,12 @@ impl Agents {
         // to, so a resume is no way round the limits or the mode. One that
         // ended before the node restarted goes on as saved.
         let before = self.saved(id);
-        let ended = ours
-            .as_ref()
-            .map(|session| watched::read(&session.live, |live| live.agent_session.clone()));
+        let (ended, held) = match &ours {
+            Some(session) => watched::read(&session.live, |live| {
+                (Some(live.agent_session.clone()), live.held.clone())
+            }),
+            None => (None, Vec::new()),
+        };
         let id = match ended {
             Some(Some(agent_session)) => agent_session,
             Some(None) => anyhow::bail!("session {id} ended before the agent gave it an id"),
@@ -746,6 +749,17 @@ impl Agents {
         begin.model = model.or(begin.model);
         let session = self.start(kind, Some(&cwd), begin).await?;
         self.watch_parent(&session);
+
+        let bare_resume = prompt.as_deref().is_none_or(|text| text.trim().is_empty());
+        if bare_resume && !held.is_empty() {
+            session.set_user_turn(true).await;
+            for waiting in held {
+                self.order_by_user(&session, Command::Prompt(waiting))
+                    .await
+                    .map_err(anyhow::Error::msg)?;
+            }
+            return Ok(session);
+        }
 
         // Its first turn here is the user's, whose words begin it.
         if prompt.is_some() {

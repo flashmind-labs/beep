@@ -668,11 +668,31 @@ async function sendMessage(input: HTMLTextAreaElement, text: string, images: Att
   return false;
 }
 
-/// Sends the last prompt's words again, without Beep's context or images.
-export async function resendPrompt() {
+/// The words of the open session's last user prompt, without Beep's context or images.
+function lastPromptWords() {
   const said = AG.page?.entries.findLast(en => en.kind === "user");
   const own = said ? promptParts(said.text).filter(p => p.kind === "user").map(p => p.text).join("\n") : "";
-  const text = imageLines(own).text.trim();
+  return imageLines(own).text.trim();
+}
+
+/// Starts the continued session for `o` at once: sends what is in the field
+/// when the user already typed or attached files, else `Continue.`.
+export async function continueSessionNow(o: OpenAgent) {
+  const input = agentMessage.current, state = currentMentions();
+  const hasDraft = !!(input?.value.trim() || AG.att.length || state.files.size || attachReads().some(batch => !claimedReads.has(batch)));
+  if (hasDraft) return void sendAgentMessage();
+  await continueChat(o, { typed: "Continue.", text: "Continue.", paths: [], images: [] }, state);
+}
+
+/// Retries the failed turn of `o` by continuing the chat under the picked harness.
+export async function resendContinuedPrompt(o: OpenAgent) {
+  const text = lastPromptWords() || "Continue.";
+  await continueChat(o, { typed: text, text, paths: [], images: [] }, currentMentions());
+}
+
+/// Sends the last prompt's words again, without Beep's context or images.
+export async function resendPrompt() {
+  const text = lastPromptWords();
   if (text) await sendPrompt(text);
 }
 
