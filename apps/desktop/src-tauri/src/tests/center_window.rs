@@ -141,3 +141,25 @@ fn minimizing_and_restoring_reach_the_page_from_resizes_and_focus() {
     );
     assert_eq!(shown_after(&WindowEvent::Destroyed, restored), None);
 }
+
+#[test]
+fn macos_windows_keep_their_webview_layers_attached_when_occluded() {
+    assert_eq!(
+        background_throttling(true),
+        Some(BackgroundThrottlingPolicy::Disabled)
+    );
+    assert_eq!(background_throttling(false), None);
+
+    let config: tauri::Config =
+        serde_json::from_str(include_str!("../../tauri.conf.json")).expect("valid tauri.conf.json");
+    let bar = config
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == crate::bar::LABEL)
+        .expect("bar window config");
+    assert_eq!(
+        bar.background_throttling,
+        Some(BackgroundThrottlingPolicy::Disabled)
+    );
+}

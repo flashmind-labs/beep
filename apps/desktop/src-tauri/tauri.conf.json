@@ -27,6 +27,7 @@
         "visibleOnAllWorkspaces": true,
         "acceptFirstMouse": true,
         "dragDropEnabled": false,
+        "backgroundThrottling": "disabled",
         "windowEffects": {
           "effects": ["hudWindow"],
           "state": "active",

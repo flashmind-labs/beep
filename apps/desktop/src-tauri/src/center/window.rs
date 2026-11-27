@@ -13,7 +13,7 @@ use std::{
 use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder, Window, WindowEvent,
+    WebviewWindowBuilder, Window, WindowEvent, utils::config::BackgroundThrottlingPolicy,
 };
 use tokio::sync::watch;
 
@@ -84,6 +84,19 @@ pub(crate) fn join_dock<R: Runtime>(app: &AppHandle<R>) {
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn join_dock<R: Runtime>(_: &AppHandle<R>) {}
 
+/// Keeps macOS WebKit from suspending occluded windows, which detaches the
+/// `WKWebView` root layer (`hideContentUntilPendingUpdate`) and leaves bare
+/// vibrancy in Mission Control and when switching Spaces. Occlusion and page
+/// visibility still pause spinners, paintings and off-screen reads.
+#[cfg_attr(mobile, allow(dead_code))]
+const fn background_throttling(macos: bool) -> Option<BackgroundThrottlingPolicy> {
+    if macos {
+        Some(BackgroundThrottlingPolicy::Disabled)
+    } else {
+        None
+    }
+}
+
 /// Builds command center window `label` titled `title`, moved down and
 /// right by `offset` from where the main window opens. While it is open
 /// Beep sits in the Dock.
@@ -113,6 +126,9 @@ fn build<R: Runtime>(
             .focused(focus)
             .maximizable(true)
             .min_inner_size(MIN_WIDTH, MIN_HEIGHT);
+        if let Some(policy) = background_throttling(cfg!(target_os = "macos")) {
+            builder = builder.background_throttling(policy);
+        }
     }
     #[cfg(desktop)]
     if !focus {
