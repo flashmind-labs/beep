@@ -285,10 +285,8 @@ const followsTurn = (topic: WantedTopic, machine: string, { session }: SessionTu
   (topic.key === null || topic.key === session) && (topic.machine === null || topic.machine === machine);
 
 /// The mesh topics the page follows for plugins; the desktop refuses others too.
-const MESH_NAMES: ReadonlySet<string> = new Set(["agents", "agent"]);
 const WORD = /^[A-Za-z0-9._-]{1,128}$/;
 const MAX_KEY = 1024;
-const LOCAL_PREFIX = "ui.";
 
 function parseWanted1(raw: unknown): WantedTopic | null {
   if (!isRecord(raw)) return null;
@@ -308,18 +306,11 @@ export function parseWanted(payload: unknown): WantedTopic[] {
   });
 }
 
-/// The topics to follow on the mesh: `ui.` topics are published by the page, other names are refused.
-export function meshTopics(wanted: readonly WantedTopic[]): WantedTopic[] {
-  return wanted.filter(topic => !topic.name.startsWith(LOCAL_PREFIX) && MESH_NAMES.has(topic.name));
-}
-
 const wantedKey = (topic: WantedTopic) => JSON.stringify([topic.name, topic.key, topic.machine]);
 
-/// The page's side of the topic bridge: the desktop, and the app's mesh subscriptions.
+/// The page's side of the topic bridge: the desktop.
 export interface TopicsBridge extends PluginsBridge {
   invoke(cmd: string, args?: Record<string, unknown>): Promise<unknown>;
-  /// Follows `topic` on the mesh; `receive` gets the sending machine and the update's data. Returns the stop.
-  follow(topic: WantedTopic, receive: (machine: string, data: unknown) => void): () => void;
 }
 
 let sendUi: ((update: UiUpdate) => void) | null = null;
@@ -331,9 +322,8 @@ export function publishUi(update: UiUpdate): void {
   else sendUi(update);
 }
 
-/// Follows on the mesh what plugins want, forwarding each update to the desktop, and sends `ui.` updates.
+/// Sends `ui.` updates and the session turn to the desktop. The desktop follows the mesh topics itself.
 export function connectPluginTopics(bridge: TopicsBridge): Promise<void> {
-  const stops = new Map<string, () => void>();
   let heard = false;
 
   const forward = (topic: WantedTopic, machine: string | null, data: unknown) =>
@@ -346,17 +336,6 @@ export function connectPluginTopics(bridge: TopicsBridge): Promise<void> {
     // A plugin that follows later gets what the page knows.
     for (const topic of turnTopics.filter(topic => !before.has(wantedKey(topic)))) {
       for (const { machine, turn } of turns.values()) if (followsTurn(topic, machine, turn)) void forward(topic, machine, turn);
-    }
-
-    const next = new Map(meshTopics(wanted).map(topic => [wantedKey(topic), topic]));
-    for (const [key, stop] of stops) {
-      if (next.has(key)) continue;
-      stop();
-      stops.delete(key);
-    }
-    for (const [key, topic] of next) {
-      if (stops.has(key)) continue;
-      stops.set(key, bridge.follow(topic, (machine, data) => void forward(topic, machine, data)));
     }
   };
 

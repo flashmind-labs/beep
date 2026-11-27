@@ -958,6 +958,11 @@ fn setup(
     // while every window is hidden.
     #[cfg(desktop)]
     tauri::async_runtime::spawn(fleet::events::hold_tray(handle.clone()));
+    // Plugins follow the mesh topics they want, and the host hears the updates from here.
+    #[cfg(desktop)]
+    if app.try_state::<beep_plugins::Host>().is_some() {
+        tauri::async_runtime::spawn(plugins::follow_topics(handle.clone()));
+    }
     tauri::async_runtime::spawn(tray::follow_waiting(handle.clone()));
     #[cfg(desktop)]
     tauri::async_runtime::spawn(tray::follow_update(handle.clone()));

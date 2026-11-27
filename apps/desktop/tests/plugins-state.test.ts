@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assetRefs, publishTurn, sessionTurn, clipBytes, connectPluginSlots, connectPluginTopics, connectPluginVisibility, connectPlugins, createInstanceBook, followPlugin, indexPlacements, instanceFits, instanceId, meshTopics, parsePlacements, parseWanted, placementsFor, pluginsStore, publishUi, sendPluginEvent, startDraft, typeInto } from "../src/stores/plugins/plugins-state.ts";
+import { assetRefs, publishTurn, sessionTurn, clipBytes, connectPluginSlots, connectPluginTopics, connectPluginVisibility, connectPlugins, createInstanceBook, followPlugin, indexPlacements, instanceFits, instanceId, parsePlacements, parseWanted, placementsFor, pluginsStore, publishUi, sendPluginEvent, startDraft, typeInto } from "../src/stores/plugins/plugins-state.ts";
 import type { InputDraft, InstanceBatch, SlotInstance, WantedTopic } from "../src/stores/plugins/plugins-state.ts";
 
 const ref = (digit: string, mime = "image/png") => ({ hash: digit.repeat(64), mime });
@@ -155,27 +155,14 @@ test("wanted topics are read and invalid ones dropped", () => {
   for (const payload of [null, {}, "x", undefined]) assert.deepEqual(parseWanted(payload), []);
 });
 
-test("only session topics go to the mesh", () => {
-  const wanted = [agent("s1"), { name: "agents", key: null, machine: null }, { name: "ui.composer", key: null, machine: null }, { name: "machines", key: null, machine: null }];
-  assert.deepEqual(meshTopics(wanted).map(topic => topic.name), ["agent", "agents"]);
-});
-
-interface Heard { topic: WantedTopic; receive: (machine: string, data: unknown) => void; stopped: boolean }
-
 function fakeBridge(first: unknown) {
-  const heard: Heard[] = [];
   const calls: { cmd: string; args: Record<string, unknown> | undefined }[] = [];
   let wanted: (event: { payload: unknown }) => void = () => {};
   const bridge = {
     invoke: async (cmd: string, args?: Record<string, unknown>) => { calls.push({ cmd, args }); return cmd === "plugins_wanted" ? first : null; },
     listen: async (event: string, handler: (event: { payload: unknown }) => void) => { if (event === "plugins-wanted") wanted = handler; return () => {}; },
-    follow: (topic: WantedTopic, receive: (machine: string, data: unknown) => void) => {
-      const item: Heard = { topic, receive, stopped: false };
-      heard.push(item);
-      return () => { item.stopped = true; };
-    },
   };
-  return { bridge, heard, calls, change: (payload: unknown) => wanted({ payload }) };
+  return { bridge, calls, change: (payload: unknown) => wanted({ payload }) };
 }
 
 // Runs first of the tests that connect: the page-wide publisher is set by the first connect.
@@ -194,43 +181,26 @@ test("ui updates are published, and the latest waits for the bridge", async () =
   ]);
 });
 
-test("the bridge follows new topics and drops removed ones", async () => {
-  const fake = fakeBridge([agent("s1", "m1")]);
+test("mesh topics are not followed or forwarded by the page", async () => {
+  const fake = fakeBridge([agent("s1", "m1"), { name: "agents", key: null, machine: null }]);
   await connectPluginTopics(fake.bridge);
-  assert.deepEqual(fake.heard.map(item => item.topic), [agent("s1", "m1")]);
-
-  fake.change([agent("s1", "m1"), agent("s2", "m1"), { name: "ui.composer", key: null, machine: null }]);
-  assert.deepEqual(fake.heard.map(item => item.topic), [agent("s1", "m1"), agent("s2", "m1")]);
-  assert.equal(fake.heard[0].stopped, false);
-
   fake.change([agent("s2", "m1")]);
-  assert.deepEqual(fake.heard.map(item => item.stopped), [true, false]);
 
-  fake.change([]);
-  assert.equal(fake.heard[1].stopped, true);
-  assert.equal(fake.heard.length, 2);
+  assert.deepEqual(fake.calls.filter(call => call.cmd === "plugins_publish"), []);
 });
 
 test("an event that arrives before the first read wins", async () => {
   let release: () => void = () => {};
-  const fake = fakeBridge([agent("old")]);
-  const slow = { ...fake.bridge, invoke: (cmd: string, args?: Record<string, unknown>) => cmd === "plugins_wanted" ? new Promise<unknown>(resolve => { release = () => resolve([agent("old")]); }) : fake.bridge.invoke(cmd, args) };
+  const fake = fakeBridge([]);
+  const turn = (key: string) => ({ name: "session.turn", key, machine: "m1" });
+  const slow = { ...fake.bridge, invoke: (cmd: string, args?: Record<string, unknown>) => cmd === "plugins_wanted" ? new Promise<unknown>(resolve => { release = () => resolve([turn("s1")]); }) : fake.bridge.invoke(cmd, args) };
+  publishTurn("m1", page("working", 3, "EndTurn"));
   const done = connectPluginTopics(slow);
   await new Promise(resolve => setTimeout(resolve, 0));
-  fake.change([agent("new")]);
+  fake.change([turn("none")]);
   release();
   await done;
-  assert.deepEqual(fake.heard.map(item => item.topic.key), ["new"]);
-});
-
-test("updates are forwarded with the topic and the sending machine", async () => {
-  const fake = fakeBridge([agent("s1")]);
-  await connectPluginTopics(fake.bridge);
-
-  fake.heard[0].receive("m9", { x: 1 });
-
-  const sent = fake.calls.filter(call => call.cmd === "plugins_publish");
-  assert.deepEqual(sent.map(call => call.args), [{ update: { topic: agent("s1"), machine: "m9", data: { x: 1 } } }]);
+  assert.deepEqual(fake.calls.filter(call => call.cmd === "plugins_publish"), []);
 });
 
 const button = { kind: "button", label: "Save", children: [text("Save")], onPress: 7 };

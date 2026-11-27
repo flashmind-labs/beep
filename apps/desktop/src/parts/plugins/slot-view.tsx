@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { NO_AUTO } from "../../ui/kit.tsx";
 import { useStore } from "zustand";
-import { subscribeChanges, topic } from "../../ui/mesh-events.ts";
 import { onShownChange, pageShown } from "../../ui/active.ts";
 import { invoke, listen } from "../../ui/tauri.ts";
 import { createSpriteDriver, createSpriteScript, type SpriteDriver } from "../../stores/plugins/sprite.ts";
@@ -10,14 +9,7 @@ import type { CallbackId, ComposerShown, Placement, PluginAction, PluginNode, Pl
 
 const bridge = { invoke: (cmd: string, args?: Record<string, unknown>) => invoke(cmd, args), listen };
 void connectPlugins(bridge);
-void connectPluginTopics({
-  ...bridge,
-  follow: (wanted, receive) => subscribeChanges(
-    topic(wanted.name, wanted.key),
-    { deliver: "each", receive: event => receive(event.machine_id, event.data ?? null) },
-    { machine: wanted.machine },
-  ),
-});
+void connectPluginTopics(bridge);
 connectPluginSlots({ invoke: (cmd, args) => invoke(cmd, args) });
 connectPluginVisibility({ invoke: (cmd, args) => invoke(cmd, args), shown: pageShown, onChange: onShownChange });
 

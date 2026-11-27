@@ -156,14 +156,15 @@ test("opening a session publishes ui.composer to plugins", async ({ page }) => {
   await expect.poll(async () => (await published(page)).map(update => [update.topic.name, update.data])).toContainEqual(["ui.composer", { machine: "build-box", session: "notice-one" }]);
 });
 
-test("an update for a topic plugins want is forwarded through plugins_publish", async ({ page }) => {
+test("the page does not carry mesh topics plugins want back to the host", async ({ page }) => {
   const wanted = [{ name: "agent", key: "notice-one", machine: "build-box" }, { name: "ui.composer", key: null, machine: null }];
   await openDesktop(page, true, { plugins_wanted: wanted });
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "mesh_watch"))).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "plugins_wanted"))).toBe(true);
 
   await page.evaluate(() => window.__navigation.publish("agent.notice-one", null));
+  await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 100)));
 
-  await expect.poll(async () => (await published(page)).filter(update => update.topic.name === "agent")).toEqual([{ topic: { name: "agent", key: "notice-one", machine: "build-box" }, machine: "build-box", data: null }]);
+  expect((await published(page)).filter(update => update.topic.name === "agent")).toEqual([]);
 });
 
 interface Reported { reset: boolean; shown: { slot: string; key: string; context: Record<string, string> }[]; gone: { slot: string; key: string }[] }

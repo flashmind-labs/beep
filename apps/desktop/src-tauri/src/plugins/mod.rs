@@ -13,8 +13,12 @@ mod host;
 mod install;
 #[cfg(desktop)]
 pub(crate) mod manage;
+#[cfg(desktop)]
+mod topics;
 
 #[cfg(desktop)]
 pub(crate) use host::start;
 #[cfg(desktop)]
 pub(crate) use install::Installer;
+#[cfg(desktop)]
+pub(crate) use topics::follow as follow_topics;

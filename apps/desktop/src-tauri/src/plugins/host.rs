@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use beep_plugins::{
     Builtin, Handler, Host, HostError, Placement, PluginId, PluginStatus, Policy, Topic,
 };
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
+use tokio::sync::watch;
 
 /// Names the folder plugins load from, overriding the app data folder's.
 const DIR_ENV: &str = "BEEP_PLUGINS_DIR";
@@ -23,7 +24,18 @@ pub(crate) fn start(app: &AppHandle, data: &Path) -> Result<Host, HostError> {
     let dir = plugins_dir(configured, data);
     super::install::clean_stale(&dir);
 
-    Host::start(dir, Windows { app: app.clone() }, policy, &builtins())
+    let (wanted, followed) = watch::channel(Vec::new());
+    app.manage(super::topics::Wanted(followed));
+
+    Host::start(
+        dir,
+        Windows {
+            app: app.clone(),
+            wanted,
+        },
+        policy,
+        &builtins(),
+    )
 }
 
 /// The composer cat's files, which are embedded in the app and shipped as a
@@ -122,6 +134,8 @@ fn builtins() -> Vec<Builtin> {
 /// Tells the windows what the host reports.
 struct Windows {
     app: AppHandle,
+    /// The topics plugins follow, for the task that follows them on the mesh.
+    wanted: watch::Sender<Vec<Topic>>,
 }
 
 impl Handler for Windows {
@@ -132,6 +146,8 @@ impl Handler for Windows {
     }
 
     fn wanted(&self, topics: &[Topic]) {
+        self.wanted.send_replace(topics.to_vec());
+
         if let Err(e) = self.app.emit(WANTED, topics) {
             log::debug!("the page missed a plugin topic change: {e}");
         }
