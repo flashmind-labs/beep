@@ -1,6 +1,11 @@
 //! Where this machine keeps a session's transcript, and writing one in.
 
-use super::{Harness, Stored};
+use super::{
+    claude, codex, flsh,
+    folder::Folders,
+    harness::{Harness, Stored},
+    pi,
+};
 use crate::agents::{delete::Delete, listings::Listings, sessions};
 use crate::logs::claude_dir;
 use crate::logs::found::{self, Agent};
@@ -215,13 +220,7 @@ impl Delete {
                 .file_name()
                 .and_then(|name| name.to_str())
                 .context("invalid transcript filename")?;
-            let stored = super::rewrite(
-                harness,
-                &bytes,
-                &agent_id,
-                name,
-                &super::folder::Folders { old, new },
-            );
+            let stored = rewrite(harness, &bytes, &agent_id, name, &Folders { old, new });
             let target = if harness == Harness::Codex {
                 file.clone()
             } else {
@@ -274,6 +273,25 @@ impl Delete {
         }
 
         Ok(())
+    }
+}
+
+/// `transcript` of session `id`, written for a session that worked in
+/// `folders.old` and now works in `folders.new`. `file_name` is the name the source kept
+/// it under (Codex and pi put the start time in it). Only the folder
+/// fields change; every other byte stays.
+pub(super) fn rewrite(
+    harness: Harness,
+    transcript: &[u8],
+    id: &SessionId,
+    file_name: &str,
+    folders: &Folders,
+) -> Stored {
+    match harness {
+        Harness::Claude => claude::rewrite(transcript, id, folders),
+        Harness::Codex => codex::rewrite(transcript, file_name, folders),
+        Harness::Pi => pi::rewrite(transcript, file_name, folders),
+        Harness::Flsh => flsh::rewrite(transcript, id, folders),
     }
 }
 

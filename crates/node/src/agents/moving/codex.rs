@@ -5,8 +5,8 @@
 //! URI would be moved too, should one turn up.
 
 use super::{
-    Stored,
     folder::Folders,
+    harness::Stored,
     json::{Step, replace, string_at, string_spans},
 };
 use std::path::PathBuf;

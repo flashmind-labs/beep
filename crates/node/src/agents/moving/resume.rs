@@ -3,7 +3,10 @@
 //! bytes as counted (the machine that ran it counted them), and starts it
 //! through its agent, or keeps it ended when it came ended.
 
-use super::{Env, Harness, rewrite, store};
+use super::{
+    Env, Harness,
+    store::{self, rewrite},
+};
 use crate::agents::{AgentKind, Begin, SavedSession};
 use crate::logs::found::Agent;
 use anyhow::{Context, Result};

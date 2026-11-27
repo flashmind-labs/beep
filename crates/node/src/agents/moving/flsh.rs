@@ -4,8 +4,8 @@
 //! `DefaultHasher` over the session's `Path`, as 16 hex digits.
 
 use super::{
-    Stored,
     folder::Folders,
+    harness::Stored,
     json::{Step, replace, string_spans},
 };
 use crate::{agents::AgentKind, machine::env::output};

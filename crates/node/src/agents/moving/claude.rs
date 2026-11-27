@@ -2,8 +2,8 @@
 //! on every line as `cwd`.
 
 use super::{
-    Stored,
     folder::Folders,
+    harness::Stored,
     json::{Step, replace, string_spans},
 };
 use crate::logs::claude_dir::slug;

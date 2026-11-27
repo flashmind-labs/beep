@@ -2,8 +2,8 @@
 //! `session` header on the first line as `cwd`.
 
 use super::{
-    Stored,
     folder::Folders,
+    harness::Stored,
     json::{Step, replace, string_at, string_spans},
 };
 use std::path::{Path, PathBuf};

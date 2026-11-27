@@ -10,6 +10,7 @@ mod files;
 mod flsh;
 mod folder;
 mod follow;
+mod harness;
 mod json;
 mod pi;
 mod progress;
@@ -34,11 +35,11 @@ mod tests;
 pub use alpn::SessionsAlpn;
 pub(crate) use folder::project_folder;
 pub(crate) use follow::follow;
+pub(crate) use harness::Harness;
 pub(crate) use progress::Moves;
 pub use read::ALPN as SESSIONS_ALPN;
 
 use super::Agents;
-use crate::logs::found::Agent;
 use anyhow::{Context, Result};
 use beep_proto::SessionId;
 use iroh::{Endpoint, EndpointId};
@@ -80,42 +81,6 @@ pub(super) fn device_name(mesh: &beep_mesh::Mesh, device: &EndpointId) -> String
         )
 }
 
-/// The harnesses a session can move between.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Harness {
-    Claude,
-    Codex,
-    Pi,
-    Flsh,
-}
-
-impl From<Harness> for Agent {
-    fn from(harness: Harness) -> Self {
-        match harness {
-            Harness::Claude => Self::Claude,
-            Harness::Codex => Self::Codex,
-            Harness::Pi => Self::Pi,
-            Harness::Flsh => Self::Flsh,
-        }
-    }
-}
-
-impl TryFrom<Agent> for Harness {
-    type Error = Agent;
-
-    /// The harness for `agent`; `None` for those that keep sessions in
-    /// databases.
-    fn try_from(agent: Agent) -> Result<Self, Self::Error> {
-        match agent {
-            Agent::Claude => Ok(Self::Claude),
-            Agent::Codex => Ok(Self::Codex),
-            Agent::Pi => Ok(Self::Pi),
-            Agent::Flsh => Ok(Self::Flsh),
-            Agent::OpenCode | Agent::Agy => Err(agent),
-        }
-    }
-}
-
 /// Copies Claude session `id`'s transcript, kept for the folder `old`, to
 /// where Claude Code looks for it in `new`, with the folders in it
 /// rewritten: Claude Code finds a session by the folder it runs in. Nothing
@@ -141,32 +106,4 @@ pub(crate) fn rehome_claude(id: &SessionId, old: &Path, new: &Path) -> Result<()
     };
     let stored = claude::rewrite(&std::fs::read(&from)?, id, &folders);
     store::write(&projects.join(&stored.path), &stored)
-}
-
-/// A transcript as the target machine stores it.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct Stored {
-    pub(crate) bytes: Vec<u8>,
-    /// Where it goes, relative to the harness's store: Claude's `projects`
-    /// folder, Codex's home, pi's or flsh's sessions folder.
-    pub(crate) path: PathBuf,
-}
-
-/// `transcript` of session `id`, written for a session that worked in
-/// `folders.old` and now works in `folders.new`. `file_name` is the name the source kept
-/// it under (Codex and pi put the start time in it). Only the folder
-/// fields change; every other byte stays.
-fn rewrite(
-    harness: Harness,
-    transcript: &[u8],
-    id: &SessionId,
-    file_name: &str,
-    folders: &folder::Folders,
-) -> Stored {
-    match harness {
-        Harness::Claude => claude::rewrite(transcript, id, folders),
-        Harness::Codex => codex::rewrite(transcript, file_name, folders),
-        Harness::Pi => pi::rewrite(transcript, file_name, folders),
-        Harness::Flsh => flsh::rewrite(transcript, id, folders),
-    }
 }

@@ -1,11 +1,13 @@
 use super::folder::Folders;
+use super::harness::Stored;
 use super::*;
+use crate::logs::found::Agent;
 use std::path::Path;
 
 const ID: &str = "0b1c2d3e-0000-4000-8000-0123456789ab";
 
 fn move_with(harness: Harness, transcript: &str, file: &str) -> Stored {
-    rewrite(
+    store::rewrite(
         harness,
         transcript.as_bytes(),
         &SessionId::from(ID),
@@ -151,7 +153,7 @@ fn paths_in_the_project_follow_the_destination_for_every_harness() {
             ),
         ),
     ] {
-        let out = rewrite(
+        let out = store::rewrite(
             harness,
             input.as_bytes(),
             &SessionId::from(ID),

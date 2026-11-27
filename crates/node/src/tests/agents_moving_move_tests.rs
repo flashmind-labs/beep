@@ -2,8 +2,9 @@
 //! pieces the target uses.
 
 use super::{
-    Env, Stored,
+    Env,
     follow::{in_order, reconcile},
+    harness::Stored,
     progress::{Target, show},
     saved::{Folder, Phase, Saved, valid_id},
     source,
