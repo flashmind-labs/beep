@@ -40,6 +40,7 @@ use tokio::sync::{oneshot, watch};
 use tokio_util::task::AbortOnDropHandle;
 
 mod actor;
+mod backlog;
 mod begin;
 mod cargo;
 mod orders;
@@ -50,6 +51,7 @@ mod types;
 mod v2;
 
 use actor::{Accepting, Actor, Node, Offers, Opening};
+use backlog::Backlog;
 
 pub(super) use actor::joined as standing;
 
@@ -454,9 +456,7 @@ impl Session {
             initial_v2_state: None,
             compacting_v2: false,
             accepting_v2: Accepting::Done,
-            steering: None,
-            queued: prompt.into_iter().collect(),
-            steers: VecDeque::new(),
+            backlog: Backlog::new(prompt),
             sent: 0,
             context_turn: false,
             kept_title,

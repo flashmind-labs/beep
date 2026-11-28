@@ -1,7 +1,7 @@
 //! A session's turns: prompts, steers, stops and compaction.
 
 use super::{
-    actor::{Actor, HeldEnd, PendingSteer, Reply, Stopping, Turn, stop_reason},
+    actor::{Actor, HeldEnd, Reply, Stopping, Turn, stop_reason},
     tokens::turn_tokens,
     types::MAX_RUNNING_TOOLS,
 };
@@ -19,11 +19,9 @@ use agent_client_protocol::{
 use anyhow::Result;
 use beep_proto::node::agent::{AlertKind, EntryKind, State, Status, StopReason};
 use beep_proto::watched;
-use beep_proto::{MAX_AGENT_IMAGES, MAX_AGENT_IMAGES_TOTAL};
 use futures::FutureExt;
 use serde_json::Value;
 use std::{
-    collections::VecDeque,
     path::PathBuf,
     time::{Duration, Instant},
 };
@@ -100,10 +98,10 @@ impl Actor {
             return Ok(());
         };
 
-        if self.steers.is_empty()
+        if self.backlog.steers_empty()
             || self.by_user
             || turn.stopping.is_some()
-            || self.steering.is_some()
+            || self.backlog.is_steering()
             || turn.steer_after
             || !self.asked.is_empty()
         {
@@ -115,15 +113,11 @@ impl Actor {
         };
 
         if self.offers.takes_steering {
-            let Some(prompt) = self.steers.pop_front() else {
+            let Some(prompt) = self.backlog.pop_steer() else {
                 return Ok(());
             };
             let request = acp::steering(&session, &prompt)?;
-            self.steering = Some(PendingSteer {
-                prompt,
-                shown: false,
-                dropped: false,
-            });
+            self.backlog.begin_steer(prompt);
             self.send(cx, request, Reply::Steered);
             return Ok(());
         }
@@ -135,7 +129,7 @@ impl Actor {
     }
 
     pub(super) fn show_steer(&mut self) {
-        let Some(steer) = self.steering.as_mut().filter(|steer| !steer.shown) else {
+        let Some(steer) = self.backlog.steering_mut().filter(|steer| !steer.shown) else {
             return;
         };
         steer.shown = true;
@@ -162,7 +156,7 @@ impl Actor {
             self.show_steer();
         }
 
-        let Some(steer) = self.steering.take() else {
+        let Some(steer) = self.backlog.take_steering() else {
             return Ok(());
         };
 
@@ -176,7 +170,7 @@ impl Actor {
                 }
             }
             Ok(acp::SteeringOutcome::PromptRequired) => {
-                self.steers.push_front(steer.prompt);
+                self.backlog.push_front_steer(steer.prompt);
                 if let Some(turn) = &mut self.turn {
                     turn.steer_after = true;
                 }
@@ -201,13 +195,13 @@ impl Actor {
                     "The agent could not inject the message{reason}; it will go as the next prompt"
                 ));
                 self.offers.takes_steering = false;
-                self.steers.push_front(steer.prompt);
+                self.backlog.push_front_steer(steer.prompt);
             }
         }
 
         self.show_queued();
         if self.turn.is_none() {
-            if self.waiting() == 0 {
+            if self.backlog.waiting() == 0 {
                 let ended = watched::read_sent(&self.live, |live| {
                     live.info
                         .state
@@ -269,40 +263,9 @@ impl Actor {
         }
     }
 
-    /// Prompts and steers waiting, as the state counts them.
-    fn waiting(&self) -> u32 {
-        u32::try_from(self.queued.len() + self.steers.len() + self.steering_waiting().count())
-            .unwrap_or(u32::MAX)
-    }
-
-    /// The steer the adapter holds, unless the user took it back.
-    pub(super) fn steering_waiting(&self) -> impl Iterator<Item = &PendingSteer> {
-        self.steering.iter().filter(|steer| !steer.dropped)
-    }
-
-    fn waiting_messages(&self) -> Vec<String> {
-        self.steering_waiting()
-            .map(|steer| &steer.prompt)
-            .chain(self.steers.iter())
-            .chain(self.queued.iter())
-            .map(|prompt| {
-                let mut text = prompt.text.clone();
-
-                for image in &prompt.images {
-                    if !text.is_empty() {
-                        text.push('\n');
-                    }
-                    text.push_str(&format!("[Image: {}]", image.name));
-                }
-
-                text
-            })
-            .collect()
-    }
-
     pub(super) fn show_queued(&mut self) {
-        let queued = self.waiting();
-        let messages = self.waiting_messages();
+        let queued = self.backlog.waiting();
+        let messages = self.backlog.messages();
         self.live.send_if_modified(|live| {
             let changed =
                 live.info.state.queued != queued || live.info.state.queued_messages != messages;
@@ -342,7 +305,7 @@ impl Actor {
         });
 
         // Prompts queued behind the turn run first: one alert for the lot.
-        if self.waiting() == 0 {
+        if self.backlog.waiting() == 0 {
             let last_message =
                 watched::read_sent(&self.live, |live| live.info.last_message.clone());
             self.turn_ended(AlertKind::TurnEnded {
@@ -559,12 +522,12 @@ impl Actor {
             && self.acp_session.is_some()
             && self.turn.is_none()
             && !self.compactor.running()
-            && self.steering.is_none()
+            && !self.backlog.is_steering()
             && self.asked.is_empty()
     }
 
     pub(super) fn has_waiting_prompts(&self) -> bool {
-        !(self.queued.is_empty() && self.steers.is_empty())
+        self.backlog.has_prompts()
     }
 
     /// Sends the next waiting prompt, if any.
@@ -593,8 +556,7 @@ impl Actor {
             return;
         }
         // A steer goes ahead of the prompts queued for after the turn.
-        let Some(mut prompt) = take_steers(&mut self.steers).or_else(|| self.queued.pop_front())
-        else {
+        let Some(mut prompt) = self.backlog.next() else {
             return;
         };
 
@@ -622,8 +584,8 @@ impl Actor {
         self.send_prompt(cx, acp::prompt(&session, &prompt, brief.as_deref()), false);
         // The new turn tells its own end.
         self.held_end = None;
-        let queued = self.waiting();
-        let messages = self.waiting_messages();
+        let queued = self.backlog.waiting();
+        let messages = self.backlog.messages();
         self.live.send_modify(|live| {
             for picture in prompt.pictures() {
                 live.keep(picture);
@@ -637,38 +599,4 @@ impl Actor {
             live.info.state.queued_messages = messages;
         });
     }
-}
-
-/// The steers waiting, as one prompt: their words in order and their
-/// images, as many as one prompt takes. The rest wait for the next.
-pub(super) fn take_steers(steers: &mut VecDeque<Prompt>) -> Option<Prompt> {
-    let mut merged = steers.pop_front()?;
-
-    while let Some(next) = steers.front() {
-        let images = merged.images.len() + next.images.len();
-        let bytes = merged
-            .images
-            .iter()
-            .chain(&next.images)
-            .fold(0usize, |n, image| n.saturating_add(image.data.len()));
-        if images > MAX_AGENT_IMAGES || bytes > MAX_AGENT_IMAGES_TOTAL {
-            break;
-        }
-
-        let Some(next) = steers.pop_front() else {
-            break;
-        };
-        if merged.text.is_empty() {
-            merged.text = next.text;
-        } else if !next.text.is_empty() {
-            merged.text = format!("{}\n\n{}", merged.text, next.text);
-        }
-        merged.images.extend(next.images);
-        merged.context = match (merged.context.take(), next.context) {
-            (Some(first), Some(second)) => Some(format!("{first}\n{second}")),
-            (first, second) => first.or(second),
-        };
-    }
-
-    Some(merged)
 }

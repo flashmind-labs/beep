@@ -31,12 +31,10 @@ fn actor() -> Actor {
         initial_v2_state: None,
         compacting_v2: false,
         accepting_v2: Accepting::Done,
-        steering: None,
         left_plan_for: None,
         returning: None,
         compactor: Compactor::new(Route::Advertised, Policy::Off),
-        queued: VecDeque::new(),
-        steers: VecDeque::new(),
+        backlog: Backlog::default(),
         sent: 0,
         context_turn: false,
         kept_title: false,
@@ -257,13 +255,13 @@ async fn a_steer_waits_for_the_turn_the_user_stopped() {
         );
         actor.by_user = true;
         actor
-            .steers
-            .push_back(Prompt::from("it's dark now".to_owned()));
+            .backlog
+            .push(Prompt::from("it's dark now".to_owned()), true);
 
         actor.steer_now(&cx).unwrap();
 
-        assert!(actor.steering.is_none());
-        assert_eq!(actor.steers.len(), 1);
+        assert!(!actor.backlog.is_steering());
+        assert_eq!(actor.backlog.waiting(), 1);
     })
     .await;
 }
@@ -280,11 +278,9 @@ async fn taking_steers_back_also_takes_the_one_sent_to_the_agent() {
 
         for (reply, still_steers) in replies {
             actor.offers.takes_steering = true;
-            actor.steering = Some(PendingSteer {
-                prompt: Prompt::from("old text".to_owned()),
-                shown: false,
-                dropped: false,
-            });
+            actor
+                .backlog
+                .begin_steer(Prompt::from("old text".to_owned()));
             actor.show_queued();
             assert_eq!(
                 watched::read_sent(&actor.live, |live| live.info.state.queued_messages.clone()),
@@ -300,8 +296,8 @@ async fn taking_steers_back_also_takes_the_one_sent_to_the_agent() {
 
             // The adapter could not inject it: it must not come back as a prompt.
             actor.steered(&cx, reply).unwrap();
-            assert!(actor.steers.is_empty());
-            assert!(actor.steering.is_none());
+            assert!(!actor.backlog.has_prompts());
+            assert!(!actor.backlog.is_steering());
             assert!(actor.turn.is_none());
             assert_eq!(actor.offers.takes_steering, still_steers);
         }
@@ -394,8 +390,8 @@ async fn a_steer_during_an_autonomous_turn_goes_out_as_a_prompt() {
             .unwrap()
             .unwrap();
         assert!(actor.turn.is_some(), "sent as a prompt");
-        assert!(actor.steers.is_empty());
-        assert!(actor.steering.is_none());
+        assert!(!actor.backlog.has_prompts());
+        assert!(!actor.backlog.is_steering());
         assert_eq!(
             watched::read_sent(&actor.live, |live| live.info.state.queued),
             0
@@ -434,7 +430,7 @@ async fn a_steer_during_an_autonomous_turn_goes_out_as_a_prompt() {
             .unwrap()
             .unwrap();
         assert!(actor.turn.is_none(), "waits while the question is open");
-        assert_eq!(actor.steers.len(), 1);
+        assert_eq!(actor.backlog.waiting(), 1);
 
         let id = watched::read_sent(&actor.live, |live| live.info.question.as_ref().unwrap().id);
         actor
@@ -448,7 +444,7 @@ async fn a_steer_during_an_autonomous_turn_goes_out_as_a_prompt() {
             .unwrap()
             .unwrap();
         assert!(actor.turn.is_some(), "sent once the question clears");
-        assert!(actor.steers.is_empty());
+        assert!(!actor.backlog.has_prompts());
 
         // End the prompt, hold a steer directly, and verify task completion drains it too.
         actor
@@ -460,15 +456,15 @@ async fn a_steer_during_an_autonomous_turn_goes_out_as_a_prompt() {
             )
             .unwrap();
         actor
-            .steers
-            .push_back(Prompt::from("held until task ends".to_owned()));
+            .backlog
+            .push(Prompt::from("held until task ends".to_owned()), true);
         actor.show_queued();
         actor.event(&cx, ended("turn-2")).unwrap();
         assert!(
             actor.turn.is_some(),
             "autonomous turn end drains waiting steers"
         );
-        assert!(actor.steers.is_empty());
+        assert!(!actor.backlog.has_prompts());
     })
     .await;
 }
@@ -500,7 +496,7 @@ async fn a_steer_during_v1_compaction_waits_for_compaction_to_finish() {
             .unwrap()
             .unwrap();
         assert!(actor.turn.is_none(), "waits while /compact runs");
-        assert_eq!(actor.steers.len(), 1);
+        assert_eq!(actor.backlog.waiting(), 1);
 
         actor
             .reply(
@@ -512,7 +508,7 @@ async fn a_steer_during_v1_compaction_waits_for_compaction_to_finish() {
             .unwrap();
         assert!(!actor.compactor.running());
         assert!(actor.turn.is_some(), "sent once /compact finishes");
-        assert!(actor.steers.is_empty());
+        assert!(!actor.backlog.has_prompts());
     })
     .await;
 }

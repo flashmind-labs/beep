@@ -4,8 +4,8 @@
 use super::types::{MAX_QUEUED, MAX_QUEUED_BYTES};
 use super::*;
 use super::{
+    backlog::Backlog,
     orders::{choose, queue_room},
-    turns::take_steers,
 };
 use crate::agents::compaction::{COMPACT_PROMPT, COMPACTED_ENTRY};
 use beep_proto::ModelId;
@@ -1957,21 +1957,23 @@ async fn a_steer_held_at_stop_goes_once_the_turn_stops() {
 
 #[test]
 fn steers_waiting_together_go_as_one_prompt_within_the_image_limit() {
-    let mut steers: VecDeque<Prompt> = VecDeque::new();
-    assert_eq!(take_steers(&mut steers), None);
-    steers.push_back(Prompt::from("first".to_owned()));
-    steers.push_back(shot());
-    steers.push_back(Prompt::from("third".to_owned()));
-    let merged = take_steers(&mut steers).unwrap();
+    let mut backlog = Backlog::default();
+    assert_eq!(backlog.next(), None);
+    backlog.push(Prompt::from("first".to_owned()), true);
+    backlog.push(shot(), true);
+    backlog.push(Prompt::from("third".to_owned()), true);
+    let merged = backlog.next().unwrap();
     assert_eq!(merged.text, "first\n\nThe button overlaps\n\nthird");
     assert_eq!(merged.images.len(), 1);
-    assert!(steers.is_empty());
+    assert!(!backlog.has_prompts());
 
     // One more image than a prompt takes waits for the next prompt.
-    steers.extend((0..=MAX_AGENT_IMAGES).map(|_| shot()));
-    let merged = take_steers(&mut steers).unwrap();
+    for _ in 0..=MAX_AGENT_IMAGES {
+        backlog.push(shot(), true);
+    }
+    let merged = backlog.next().unwrap();
     assert_eq!(merged.images.len(), MAX_AGENT_IMAGES);
-    assert_eq!(steers.len(), 1);
+    assert_eq!(backlog.waiting(), 1);
 }
 
 #[cfg(unix)]
@@ -2380,7 +2382,7 @@ reply '{"protocolVersion":1,"agentInfo":{"name":"@agentclientprotocol/codex-acp"
 read -r line; log "$1"; reply '{"sessionId":"s"}'
 read -r line; log "$1"; prompt=$(id)
 echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Running tests","status":"in_progress"}}}'
-if [ "$2" != immediate ] && [ "$2" != multiple ]; then
+if [ "$2" != immediate ] && [ "$2" != multiple ] && [ "$2" != held ]; then
     read -r go < "$3"
     echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed"}}}'
 fi
@@ -2406,12 +2408,18 @@ case "$2" in
         echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"session_info_update","title":"Settling"}}}'
         read -r go < "$3"
         ;;
+    held)
+        steer=$(id)
+        read -r line; log "$1"
+        printf '{"jsonrpc":"2.0","id":%s,"result":{"outcome":"promptRequired"}}\n' "$steer"
+        printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"cancelled"}}\n' "$prompt"
+        ;;
     rejected)
         printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"Method not found"}}\n' "$(id)"
         read -r line; log "$1"
         ;;
 esac
-if [ "$2" != idle-first ]; then
+if [ "$2" != idle-first ] && [ "$2" != held ]; then
     printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
 fi
 while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
@@ -2475,6 +2483,30 @@ async fn a_steer_injects_immediately_while_a_tool_is_running() {
     settle(&session).await;
     assert_eq!(session.info().turns, 1);
     assert_eq!(prompts(&log), ["go"]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_stop_not_from_the_user_drops_the_steer_the_adapter_holds() {
+    let temp = tempfile::tempdir().unwrap();
+    let (kind, log, _fifo) = injecting(temp.path(), "held");
+    let session = Session::start(start_on(&kind, temp.path(), None)).unwrap();
+    until(&session, |live| live.info.state.summary == "Running tests").await;
+    session
+        .order(Command::Steer("later".to_owned().into()))
+        .await
+        .unwrap();
+    // The actor sends the steering request while it handles the steer, ahead of the stop.
+    session
+        .order(Command::Cancel { by_user: false })
+        .await
+        .unwrap();
+    settle(&session).await;
+    assert_eq!(prompts(&log), ["go"]);
+    let info = session.info();
+    assert_eq!(info.state.queued, 0);
+    assert_eq!(info.state.status, Status::Idle);
+    session.close().await;
 }
 
 #[cfg(unix)]

@@ -43,12 +43,7 @@ impl Actor {
             Command::Steer(prompt) => self.enqueue(cx, prompt, true),
             Command::Answer { question, reply } => self.answer(cx, question, &reply),
             Command::DropSteers => {
-                self.steers.clear();
-
-                if let Some(steer) = &mut self.steering {
-                    steer.dropped = true;
-                }
-
+                self.backlog.drop_steers();
                 self.show_queued();
                 Ok(Ok(()))
             }
@@ -157,13 +152,7 @@ impl Actor {
 
     /// Whether `prompt` fits beside the queued prompts and the steers.
     fn room_for(&self, prompt: &Prompt) -> Result<(), String> {
-        queue_room(
-            self.queued
-                .iter()
-                .chain(&self.steers)
-                .chain(self.steering_waiting().map(|steer| &steer.prompt)),
-            prompt,
-        )
+        queue_room(self.backlog.prompts(), prompt)
     }
 
     /// Queues a prompt, or a steer, and starts it when the agent is idle.
@@ -192,11 +181,7 @@ impl Actor {
             return Ok(Err(full));
         }
 
-        if steer {
-            self.steers.push_back(prompt);
-        } else {
-            self.queued.push_back(prompt);
-        }
+        self.backlog.push(prompt, steer);
         self.show_queued();
 
         if self.can_prompt() {
@@ -215,12 +200,7 @@ impl Actor {
     /// commands, is left to the agent: Claude Code spares them, as the
     /// session declares a stop for each task (`acp::new_session`).
     fn cancel(&mut self, cx: &ConnectionTo<Agent>, by_user: bool) -> Result<()> {
-        self.queued.clear();
-
-        if !by_user {
-            self.steers.clear();
-        }
-
+        self.backlog.cancel(by_user);
         self.by_user |= by_user && self.turn.is_some();
         self.show_queued();
 
@@ -635,7 +615,7 @@ impl Actor {
         }
 
         if let Some(prompt) = follow_up {
-            self.queued.push_front(prompt);
+            self.backlog.push_front(prompt);
             self.show_queued();
         }
 
@@ -659,7 +639,7 @@ impl Actor {
         }
 
         if self.can_prompt() {
-            if self.has_waiting_prompts() {
+            if self.backlog.has_prompts() {
                 self.next_prompt(cx);
             }
         } else if self.offers.takes_steering {

@@ -1,6 +1,7 @@
 //! The session's task: the ACP connection, its replies and the agent's events.
 
 use super::{
+    backlog::Backlog,
     tokens::turn_tokens,
     types::{Answered, Command, EVENTS, NODE_STOPPED, Order, STDERR_LINES},
 };
@@ -166,14 +167,6 @@ pub(super) struct Asked {
     pub(super) plan: Option<String>,
 }
 
-pub(super) struct PendingSteer {
-    pub(super) prompt: Prompt,
-    pub(super) shown: bool,
-    /// The user took it back while the adapter still held it: it is not
-    /// waiting, and goes nowhere if the adapter hands it back.
-    pub(super) dropped: bool,
-}
-
 /// Who waits for a question's answer.
 pub(super) enum Waiting {
     /// The agent, on its `session/request_permission`.
@@ -263,8 +256,6 @@ pub(super) struct Actor {
     pub(super) initial_v2_state: Option<agent_client_protocol::v2::schema::StateUpdate>,
     pub(super) compacting_v2: bool,
     pub(super) accepting_v2: Accepting,
-    /// A steer sent to the adapter, awaiting its delivery outcome.
-    pub(super) steering: Option<PendingSteer>,
     /// The last mode the session was in other than plan mode.
     pub(super) left_plan_for: Option<String>,
     /// The mode to go back to once the agent left plan mode for an approved
@@ -272,10 +263,8 @@ pub(super) struct Actor {
     pub(super) returning: Option<String>,
     /// When the node compacts the conversation.
     pub(super) compactor: Compactor,
-    /// Prompts waiting for the agent to be free, the first prompt among them.
-    pub(super) queued: VecDeque<Prompt>,
-    /// Messages for the running turn, sent once its tool call finishes.
-    pub(super) steers: VecDeque<Prompt>,
+    /// The prompts and steers waiting for the agent.
+    pub(super) backlog: Backlog,
     /// The prompts sent so far, which numbers each turn.
     pub(super) sent: u64,
     pub(super) context_turn: bool,
@@ -510,11 +499,10 @@ impl Actor {
                     interrupted.then(|| Prompt::from(crate::tags::context(super::types::CONTINUE)));
                 continuation
                     .into_iter()
-                    .chain(self.steers.drain(..))
-                    .chain(self.queued.drain(..))
+                    .chain(self.backlog.drain())
                     .collect()
             }
-            Ok(End::Unstoppable(_)) => self.steers.drain(..).chain(self.queued.drain(..)).collect(),
+            Ok(End::Unstoppable(_)) => self.backlog.drain().collect(),
             _ => Vec::new(),
         };
         let reason = match end {
@@ -887,8 +875,8 @@ impl Actor {
                 if let SessionUpdate::UserMessageChunk(chunk) = &update
                     && let ContentBlock::Text(text) = &chunk.content
                     && self
-                        .steering
-                        .as_ref()
+                        .backlog
+                        .steering()
                         .is_some_and(|steer| steer.prompt.text == text.text)
                 {
                     self.show_steer();
@@ -936,7 +924,7 @@ impl Actor {
             Event::Task(task) => {
                 self.live.send_if_modified(|live| live.apply_task(task));
                 self.subagents_moved();
-                if self.has_waiting_prompts() {
+                if self.backlog.has_prompts() {
                     self.next_prompt(cx);
                 }
             }
@@ -1566,7 +1554,7 @@ impl Actor {
 
         // A prompt that goes out at once leaves no moment of Idle to read:
         // only a session with nothing to do waits for a prompt.
-        let goes_now = self.has_waiting_prompts();
+        let goes_now = self.backlog.has_prompts();
         if !goes_now {
             self.live
                 .send_modify(|live| live.info.state.status = Status::Idle);
