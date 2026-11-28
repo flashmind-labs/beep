@@ -10,7 +10,6 @@ use crate::{
     agents::SessionsAlpn,
     files::transfer::Transfers,
     link::Protocol,
-    link::protocol::SessionProtocol,
     machine::{env, stats},
     run::local_socket::{Listener, Stream},
     status::{MESH_SOCKET, STATUS_LINE},
@@ -19,15 +18,12 @@ use crate::{
     watchdog::{self, Step},
 };
 use anyhow::{Context, Result, bail};
-use beep_mesh::{
-    DeviceKind, DeviceStatus, Invitation, JoinProtocol, Mesh, MeshProtocol, PeerStream, SessionFn,
-};
-use beep_proto::node::{EnvReport, LinkRx, LinkTx, link, status::Report};
+use beep_mesh::{DeviceKind, DeviceStatus, Invitation, JoinProtocol, Mesh, MeshProtocol};
+use beep_proto::node::{EnvReport, LinkRx, LinkTx, status::Report};
 use beep_proto::watched;
 #[cfg(feature = "cli")]
 use beep_report::Share;
 use beep_report::collect;
-use futures::future::BoxFuture;
 use iroh::{
     endpoint::Connection,
     protocol::{AcceptError, ProtocolHandler},
@@ -37,12 +33,12 @@ use std::{
     collections::BTreeSet,
     fmt::Write,
     path::Path,
-    sync::{Arc, Mutex, MutexGuard, OnceLock, Weak},
+    sync::{Arc, Mutex, MutexGuard, OnceLock},
     time::Duration,
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, split},
-    sync::{mpsc, watch},
+    sync::watch,
     task::JoinSet,
     time::timeout,
 };
@@ -75,11 +71,6 @@ pub(super) const CHANNEL_OPEN_WAIT: Duration = Duration::from_secs(10);
 pub(super) struct Protocols {
     peer: MeshProtocol,
     join: JoinProtocol,
-    /// Serves the streams peers open, until the node lets go of the mesh.
-    /// Unlike a handler set on the mesh, it ends with `leave`, and streams
-    /// open then end with it; a join that keeps the old mesh installs it
-    /// again, so those are cut. A lone mesh is the only one that joins.
-    _streams: Arc<AbortOnDropHandle<()>>,
 }
 
 pub(super) struct Inner {
@@ -97,31 +88,14 @@ pub(super) struct Inner {
     pub(super) follower: Mutex<Option<AbortOnDropHandle<()>>>,
     /// Watches the mesh and the transfers to start the follower.
     pub(super) _following: OnceLock<AbortOnDropHandle<()>>,
-    /// Serves a stream once its protocol is known: set by the node's
-    /// router, which this module does not import.
-    pub(super) serve_protocol: ServeProtocol,
+    /// The streams of the mesh's peers, served from `streams::serve_meshes`
+    /// while the node is in a mesh and ended by `leave`.
+    pub(super) streams: Mutex<Option<AbortOnDropHandle<()>>>,
+    /// Watches the mesh to serve its streams.
+    pub(super) _serving: OnceLock<AbortOnDropHandle<()>>,
 }
 
-/// How a stream that opened with a protocol is served, and its trace ended.
-pub(super) type ServeProtocol = fn(
-    Arc<Inner>,
-    LinkTx,
-    LinkRx,
-    SessionProtocol,
-    Who,
-    bool,
-    beep_proto::logging::RequestTrace,
-) -> BoxFuture<'static, Result<()>>;
-
 impl Inner {
-    /// Serves a stream a peer, or this process, opened.
-    async fn serve(self: Arc<Self>, tx: LinkTx, mut rx: LinkRx, who: Who) -> Result<()> {
-        let (protocol, compress) = read_open(&mut rx).await?;
-        let mut trace = beep_proto::logging::RequestTrace::new(protocol.to_string());
-        trace.phase("waiting for protocol readiness");
-        (self.serve_protocol)(self.clone(), tx, rx, protocol, who, compress, trace).await
-    }
-
     pub(super) fn offers(&self) -> MutexGuard<'_, Offers> {
         crate::lock(&self.offers)
     }
@@ -146,6 +120,12 @@ impl Inner {
 #[derive(Clone)]
 pub struct Peers {
     pub(super) inner: Arc<Inner>,
+}
+
+impl std::fmt::Debug for Peers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Peers")
+    }
 }
 
 impl Peers {
@@ -177,11 +157,12 @@ impl Peers {
         // Cleared first: the follower starts nothing on a mesh that is gone.
         offers.mesh.clear();
         let follower = self.inner.follower().take();
+        let streams = crate::lock(&self.inner.streams).take();
 
-        if let Some(follower) = follower {
-            follower.abort();
+        for task in [follower, streams].into_iter().flatten() {
+            task.abort();
             // Returns once the task, and the mesh it held, is gone.
-            follower.await.ok();
+            task.await.ok();
         }
 
         if let Some(transfers) = offers.transfers.get() {
@@ -201,26 +182,6 @@ impl Peers {
     /// The `beep-peer/2` handler.
     pub fn peer_handler(&self) -> PeerAlpn {
         PeerAlpn(self.clone())
-    }
-
-    pub(super) async fn serve_command_session(
-        &self,
-        tx: LinkTx,
-        rx: LinkRx,
-        peer: iroh::EndpointId,
-        mesh: iroh::EndpointId,
-        protocol: &str,
-        compress: bool,
-    ) -> Result<()> {
-        let protocol = protocol.parse::<SessionProtocol>()?;
-        anyhow::ensure!(
-            protocol != SessionProtocol::Events,
-            "subscriptions use their own ALPN"
-        );
-        let trace = beep_proto::logging::RequestTrace::new(protocol.to_string());
-        let who = self.channel_who(peer, mesh).context("not authorized")?;
-        (self.inner.serve_protocol)(self.inner.clone(), tx, rx, protocol, who, compress, trace)
-            .await
     }
 
     pub(super) fn channel_offers(&self) -> Offers {
@@ -251,7 +212,11 @@ impl Peers {
             && self.inner.offers().lends_to_peers()
     }
 
-    fn channel_who(&self, peer: iroh::EndpointId, mesh: iroh::EndpointId) -> Option<Who> {
+    pub(super) fn channel_who(
+        &self,
+        peer: iroh::EndpointId,
+        mesh: iroh::EndpointId,
+    ) -> Option<Who> {
         let active = self.active()?;
         if active.id() != mesh || !active.is_member(active.me()) {
             return None;
@@ -381,100 +346,23 @@ impl Peers {
     }
 
     /// Takes `mesh` as the node's membership; its peers' streams are served
-    /// from here on.
+    /// from here on, by `streams::serve_meshes`.
     pub fn install(&self, mesh: Mesh) {
         let (peer, join) = mesh.protocols();
-        let streams = Arc::new(self.serve_streams(mesh.incoming()));
         // The mesh first: `active` needs it with the protocols.
         self.inner.offers().mesh.set(mesh);
-        *crate::lock(&self.inner.active) = Some(Protocols {
-            peer,
-            join,
-            _streams: streams,
-        });
+        *crate::lock(&self.inner.active) = Some(Protocols { peer, join });
     }
 
     /// The node's transfer and sync services started: the mesh drives them.
     pub fn serve_transfers(&self, transfers: Transfers) {
         self.inner.offers().transfers.set(transfers);
     }
-
-    /// The node's session for a caller in this process, which is a desktop
-    /// by being the user at this machine: no network, every protocol.
-    pub fn local_session(&self) -> SessionFn {
-        let peers = self.clone();
-        Arc::new(move |tx: LinkTx, rx: LinkRx| {
-            let peers = peers.clone();
-            Box::pin(async move {
-                let who = Who::Everything(peers.inner.own.endpoint.id());
-
-                if let Err(e) = peers.inner.clone().serve(tx, rx, who).await {
-                    log::debug!("a local session ended: {e:#}");
-                }
-            })
-        })
-    }
-
-    /// Serves each stream a peer opens, by what the peer is now, until the
-    /// returned handle drops.
-    fn serve_streams(&self, mut incoming: mpsc::Receiver<PeerStream>) -> AbortOnDropHandle<()> {
-        // Weak: the node holds the task, and the task would hold the node.
-        let peers = Arc::downgrade(&self.inner);
-
-        AbortOnDropHandle::new(tokio::spawn(async move {
-            let mut serving = JoinSet::new();
-
-            loop {
-                tokio::select! {
-                    Some(stream) = incoming.recv() => {
-                        serving.spawn(serve_peer_stream(peers.clone(), stream));
-                    }
-                    Some(_) = serving.join_next() => {}
-                    else => return,
-                }
-            }
-        }))
-    }
-}
-
-/// Serves one stream a peer opened.
-async fn serve_peer_stream(peers: Weak<Inner>, stream: PeerStream) {
-    let Some(inner) = peers.upgrade() else {
-        return;
-    };
-    let desktop_here = Peers {
-        inner: inner.clone(),
-    }
-    .is_desktop();
-    // Held to the end of the function: the link counts the stream open
-    // while it is served.
-    let PeerStream {
-        peer,
-        kind,
-        send,
-        recv,
-        lease: _lease,
-    } = stream;
-    let who = match kind {
-        DeviceKind::Desktop => Who::Everything(peer),
-        DeviceKind::Node => Who::Node { peer, desktop_here },
-    };
-    let (tx, rx) = link(send, recv);
-
-    if let Err(e) = inner.serve(tx, rx, who).await {
-        log::debug!("a stream from {peer} ended: {e:#}");
-    }
 }
 
 /// Serves `beep-peer/2`.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PeerAlpn(Peers);
-
-impl std::fmt::Debug for PeerAlpn {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("PeerAlpn")
-    }
-}
 
 impl ProtocolHandler for PeerAlpn {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
@@ -492,14 +380,8 @@ impl ProtocolHandler for PeerAlpn {
 
 /// Serves `beep-join/2`; a node refuses it, since only a desktop mints
 /// tickets.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct JoinAlpn(Peers);
-
-impl std::fmt::Debug for JoinAlpn {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("JoinAlpn")
-    }
-}
 
 impl ProtocolHandler for JoinAlpn {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {

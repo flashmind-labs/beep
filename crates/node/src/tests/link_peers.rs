@@ -1,6 +1,6 @@
 use super::*;
 use beep_mesh::PeerClient;
-use beep_proto::node::{Opened, report};
+use beep_proto::node::{Opened, link, report};
 use iroh::{Endpoint, EndpointId};
 use iroh_tickets::Ticket;
 
@@ -197,10 +197,7 @@ async fn a_machine_not_lent_refuses_agent_streams_from_other_desktops() {
         for _ in 0..2 {
             let (send, recv) = from_desktop.accept_bi().await.expect("a stream arrives");
             let (tx, rx) = link(send, recv);
-            peers
-                .inner
-                .clone()
-                .serve(tx, rx, who)
+            crate::link::streams::serve_stream(&peers.inner, tx, rx, who)
                 .await
                 .expect("served");
         }
@@ -323,10 +320,7 @@ async fn ask_report_using(
     let serving = tokio::spawn(async move {
         let (send, recv) = from_desktop.accept_bi().await.expect("a stream arrives");
         let (tx, rx) = link(send, recv);
-        peers
-            .inner
-            .clone()
-            .serve(tx, rx, who)
+        crate::link::streams::serve_stream(&peers.inner, tx, rx, who)
             .await
             .expect("served");
         from_desktop
@@ -404,7 +398,6 @@ struct ChannelPair {
 
 async fn channel_pair(dedicated: bool) -> ChannelPair {
     use beep_mesh::{JOIN_ALPN, PEER_ALPN};
-    use beep_proto::node::{commands, forward, subscriptions};
     use iroh::{SecretKey, protocol::Router};
     let bind = || async {
         Endpoint::builder(iroh::endpoint::presets::Minimal)
@@ -429,24 +422,14 @@ async fn channel_pair(dedicated: bool) -> ChannelPair {
         .await
         .unwrap();
     let peers = Peers::new(Offers::default().bound(&endpoint, dirs.1.path(), "node")).await;
-    let mut router = Router::builder(endpoint.clone())
-        .accept(PEER_ALPN, peers.peer_handler())
-        .accept(JOIN_ALPN, peers.join_handler());
-    if dedicated {
-        router = router
-            .accept(
-                commands::ALPN,
-                crate::link::commands::CommandsAlpn::new(&peers),
-            )
-            .accept(
-                subscriptions::ALPN,
-                crate::link::subscriptions::SubscriptionsAlpn::new(&peers),
-            )
-            .accept(
-                forward::ALPN,
-                crate::link::forward::ForwardAlpn::new(&peers),
-            );
-    }
+    let router = Router::builder(endpoint.clone());
+    let router = if dedicated {
+        crate::link::mount(&peers, router)
+    } else {
+        router
+            .accept(PEER_ALPN, peers.peer_handler())
+            .accept(JOIN_ALPN, peers.join_handler())
+    };
     let node_router = router.spawn();
     peers.join(&ticket.encode_string()).await.unwrap();
     let mut changes = desktop.updates();
@@ -594,6 +577,12 @@ async fn dedicated_peer_protocols_reuse_connections_and_close_when_membership_en
     timeout(Duration::from_secs(5), connection.closed())
         .await
         .unwrap();
+    // The stream the node was serving to the peer ends with the leave.
+    timeout(Duration::from_secs(5), async {
+        while let Ok(Some(_)) = rx.recv::<events::Reply>().await {}
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]

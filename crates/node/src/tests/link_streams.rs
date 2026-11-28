@@ -1,5 +1,6 @@
 use super::*;
 use crate::agents::Parts;
+use iroh::Endpoint;
 
 #[test]
 fn known_protocol_names_round_trip_and_compare_as_variants() {

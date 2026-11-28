@@ -91,7 +91,7 @@ async fn machine(network: bool) -> Machine {
     let offers = Offers::local(parts, provision).bound(&endpoint, dir.path(), "build-box");
     let peers = Peers::new(offers).await;
     Machine {
-        client: PeerClient::local(peers.local_session()),
+        client: PeerClient::local(beep_node::link::local_session(&peers)),
         peers,
         _dir: dir,
     }
@@ -164,7 +164,7 @@ async fn a_session_keeps_running_while_the_desktop_is_gone_and_reattaches() {
     let id = opened.info.id.clone();
     // The desktop goes away: its stream and its client are dropped.
     drop(opened);
-    let again = PeerClient::local(node.peers.local_session());
+    let again = PeerClient::local(beep_node::link::local_session(&node.peers));
     let attached = open_agent(
         &again,
         "codex",

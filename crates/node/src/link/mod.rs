@@ -9,13 +9,19 @@ pub use crate::protocol::{Protocol, Session};
 #[cfg(feature = "host")]
 mod channels;
 #[cfg(feature = "host")]
-pub mod commands;
+pub use channels::{ChannelAlpn, mount};
+#[cfg(feature = "host")]
+mod commands;
 #[cfg(feature = "host")]
 mod events;
 #[cfg(feature = "host")]
-pub mod forward;
+mod forward;
 #[cfg(feature = "host")]
-pub mod subscriptions;
+mod streams;
+#[cfg(feature = "host")]
+pub use streams::local_session;
+#[cfg(feature = "host")]
+mod subscriptions;
 #[cfg(feature = "host")]
 pub(crate) use events::sources::Registry as EventSources;
 #[cfg(feature = "host")]

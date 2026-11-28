@@ -1,10 +1,8 @@
 //! This Mac's side of the mesh: opening or making it, and serving the
 //! endpoint's protocols for it.
 
-use beep_mesh::{JOIN_ALPN, PEER_ALPN};
 use beep_mesh::{Mesh, MeshError};
 use beep_node::{
-    agents::SESSIONS_ALPN,
     files::{
         Folders,
         transfer::{Late, Transfers, stop_for_exit},
@@ -88,23 +86,7 @@ impl Serving {
     /// on `endpoint` at once. Connections for blobs and sync wait for
     /// `start_services`.
     pub(super) fn spawn(endpoint: &Endpoint, peers: &Peers) -> Self {
-        let router = beep_mesh::router(endpoint)
-            .accept(PEER_ALPN, peers.peer_handler())
-            .accept(JOIN_ALPN, peers.join_handler())
-            .accept(SESSIONS_ALPN, peers.sessions_handler())
-            .accept(
-                beep_proto::node::commands::ALPN,
-                beep_node::link::commands::CommandsAlpn::new(peers),
-            )
-            .accept(
-                beep_proto::node::subscriptions::ALPN,
-                beep_node::link::subscriptions::SubscriptionsAlpn::new(peers),
-            )
-            .accept(
-                beep_proto::node::forward::ALPN,
-                beep_node::link::forward::ForwardAlpn::new(peers),
-            )
-            .accept(beep_proto::team::ALPN, peers.team_handler());
+        let router = beep_node::link::mount(peers, beep_mesh::router(endpoint));
         let late = Late::default();
         Self {
             router: late.add_to(router).spawn(),

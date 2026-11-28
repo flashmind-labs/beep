@@ -201,7 +201,7 @@ impl Fleet {
             peers.offer(Arc::new(folders.clone()));
         }
 
-        let session = peers.local_session();
+        let session = beep_node::link::local_session(&peers);
         let reach = Arc::new(beep_fleet::Machines::new(me, Some(session.clone())));
         Self {
             me,

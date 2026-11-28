@@ -1,22 +1,67 @@
-//! Authenticated command, subscription and forward connections.
+//! Authenticated command, subscription and forward connections, and the
+//! node's ALPNs on a router.
 
-use super::{Offers, Session, peers::Peers};
+use super::{Offers, commands, forward, peers::Peers, streams, subscriptions};
+use anyhow::Result;
+use beep_mesh::{JOIN_ALPN, PEER_ALPN};
+use beep_proto::node::{commands::Open, link};
 use iroh::{
     EndpointId,
     endpoint::{Connection, RecvStream, SendStream},
-    protocol::AcceptError,
+    protocol::{AcceptError, ProtocolHandler, RouterBuilder},
 };
 use tokio::task::JoinSet;
 use tracing::Instrument;
 
 const MAX_STREAMS: usize = 64;
 
-type ServeStream = fn(Peers, Offers, EndpointId, EndpointId, SendStream, RecvStream) -> Session;
+/// Which protocol a channel's connection carries.
+#[derive(Clone, Copy, Debug)]
+enum Channel {
+    Commands,
+    Subscriptions,
+    Forward,
+}
 
-pub(super) async fn serve_connection(
+/// Serves `beep-commands`, `beep-subscriptions` and `beep-forward`: one
+/// authenticated connection per channel, a stream per call.
+#[derive(Clone, Debug)]
+pub struct ChannelAlpn {
+    peers: Peers,
+    channel: Channel,
+}
+
+impl ProtocolHandler for ChannelAlpn {
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        serve_connection(&self.peers, connection, self.channel).await
+    }
+}
+
+/// Adds every ALPN the node serves to `router`: the mesh's, the join's, the
+/// session reads of a move, the three channels and the team's.
+pub fn mount(peers: &Peers, router: RouterBuilder) -> RouterBuilder {
+    let channel = |channel| ChannelAlpn {
+        peers: peers.clone(),
+        channel,
+    };
+
+    router
+        .accept(PEER_ALPN, peers.peer_handler())
+        .accept(JOIN_ALPN, peers.join_handler())
+        .accept(beep_proto::node::commands::ALPN, channel(Channel::Commands))
+        .accept(
+            beep_proto::node::subscriptions::ALPN,
+            channel(Channel::Subscriptions),
+        )
+        .accept(beep_proto::node::forward::ALPN, channel(Channel::Forward))
+        .accept(crate::agents::SESSIONS_ALPN, peers.sessions_handler())
+        .accept(beep_proto::team::ALPN, peers.team_handler())
+}
+
+async fn serve_connection(
     peers: &Peers,
     connection: Connection,
-    serve: ServeStream,
+    channel: Channel,
 ) -> Result<(), AcceptError> {
     let peer = connection.remote_id();
     let Some((mesh, mut updates)) = peers.channel_access(&connection) else {
@@ -52,7 +97,7 @@ pub(super) async fn serve_connection(
                 let offers = offers.clone();
                 let peers = peers.clone();
                 tasks.spawn(async move {
-                    let result = serve(peers, offers, peer, mesh, send, recv).await;
+                    let result = serve_stream(channel, peers, offers, peer, mesh, send, recv).await;
                     if let Err(error) = result {
                         log::debug!("peer channel stream ended: {error:#}");
                     }
@@ -67,4 +112,50 @@ pub(super) async fn serve_connection(
     }
 
     Ok(())
+}
+
+/// Serves one stream of a channel, once the peer is known to be allowed.
+async fn serve_stream(
+    channel: Channel,
+    peers: Peers,
+    offers: Offers,
+    peer: EndpointId,
+    mesh: EndpointId,
+    send: SendStream,
+    recv: RecvStream,
+) -> Result<()> {
+    match channel {
+        Channel::Commands => serve_commands(peers, offers, peer, mesh, send, recv).await,
+        Channel::Subscriptions => {
+            subscriptions::serve_stream(peers, offers, peer, mesh, send, recv).await
+        }
+        Channel::Forward => forward::serve_stream(peers, peer, mesh, send, recv).await,
+    }
+}
+
+/// A command stream carries either calls or a session stream.
+async fn serve_commands(
+    peers: Peers,
+    offers: Offers,
+    peer: EndpointId,
+    mesh: EndpointId,
+    send: SendStream,
+    recv: RecvStream,
+) -> Result<()> {
+    let (tx, mut rx) = link(send, recv);
+    let open = commands::read_open(&mut rx).await?;
+    anyhow::ensure!(peers.channel_allowed(peer, mesh), "not authorized");
+
+    match open {
+        Open::Calls => {
+            anyhow::ensure!(
+                peers.controller_allowed(peer, mesh),
+                "only a controller may send actions"
+            );
+            commands::serve(tx, rx, offers, peer).await
+        }
+        Open::Session { protocol, compress } => {
+            streams::serve_channel_session(&peers, tx, rx, peer, mesh, &protocol, compress).await
+        }
+    }
 }

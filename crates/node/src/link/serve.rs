@@ -2,38 +2,31 @@
 //! server, and the sessions devices of the mesh open, until it stops.
 
 use crate::{
-    agents::{AgentKind, Parts, SESSIONS_ALPN, detect, skills::Skills},
+    agents::{Parts, detect, skills::Skills},
     files::Folders,
     files::transfer::Transfers,
-    link::Protocol,
+    link::channels,
     link::from_mesh,
-    link::peers::{self, Bound, Inner, Offers, Own, Peers, Who, withheld},
-    link::protocol::SessionProtocol,
+    link::peers::{self, Bound, Inner, Offers, Peers},
     link::restart::{self, Reopen},
     link::state::State,
+    link::streams,
     link::traffic::Traffic,
     machine::provision::Provision,
     machine::service::logs::Logs,
     run::device,
-    run::shell,
-    run::tasks,
     run::terminal,
-    tools::{self, Caller, Node, peer_tools},
+    tools::{self, Node},
     watchdog,
 };
-use anyhow::{Context, Result, bail};
-use beep_mesh::{JOIN_ALPN, PEER_ALPN};
-use beep_proto::logging::RequestTrace;
-use beep_proto::node::{LinkRx, LinkTx, Opened, agent, version};
-use beep_proto::watched;
-use futures::future::BoxFuture;
+use anyhow::Result;
 use iroh::{Endpoint, endpoint::presets};
 use std::{
     collections::BTreeSet,
     future::Future,
     path::Path,
     sync::{Arc, Mutex, OnceLock},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 use tokio::sync::watch;
 use tokio::time::timeout;
@@ -188,23 +181,7 @@ pub async fn serve(
         log::info!("not in a mesh: waiting for `beep-node mesh join <ticket>`");
     }
 
-    let mut router = beep_mesh::router(&endpoint)
-        .accept(PEER_ALPN, peers.peer_handler())
-        .accept(JOIN_ALPN, peers.join_handler())
-        .accept(SESSIONS_ALPN, peers.sessions_handler())
-        .accept(
-            beep_proto::node::commands::ALPN,
-            crate::link::commands::CommandsAlpn::new(&peers),
-        )
-        .accept(
-            beep_proto::node::subscriptions::ALPN,
-            crate::link::subscriptions::SubscriptionsAlpn::new(&peers),
-        )
-        .accept(
-            beep_proto::node::forward::ALPN,
-            crate::link::forward::ForwardAlpn::new(&peers),
-        )
-        .accept(beep_proto::team::ALPN, peers.team_handler());
+    let mut router = channels::mount(&peers, beep_mesh::router(&endpoint));
     if let Some(served) = served {
         router = served.add_to(router);
     }
@@ -327,227 +304,6 @@ async fn stop_step<T>(name: &str, limit: Duration, step: impl Future<Output = T>
     done
 }
 
-/// Why another node may not run commands or start agents here, if
-/// "Let Beep use this computer" is off.
-fn commands_off(offers: &Offers) -> Option<String> {
-    if offers.lends_to_peers() {
-        return None;
-    }
-
-    let name = offers
-        .mesh
-        .get()
-        .and_then(|mesh| {
-            let me = mesh.me();
-            mesh.devices()
-                .into_iter()
-                .find(|status| status.device.id == me)
-                .map(|status| status.device.name)
-        })
-        .unwrap_or_else(|| "This machine".to_owned());
-    Some(format!(
-        "{name} doesn't run commands: Let Beep use this computer is off in its Settings."
-    ))
-}
-
-/// Why a desktop's agent may not run commands or start agents here. The
-/// desktop in this process, which has the node's own key, is the user at
-/// this machine and is never held back; a desktop of the mesh, a phone
-/// included, is when this machine is not lent.
-fn desktop_commands_off(
-    offers: &Offers,
-    peer: iroh::EndpointId,
-    own: iroh::EndpointId,
-) -> Option<String> {
-    (peer != own).then(|| commands_off(offers)).flatten()
-}
-
-/// Whether another node of the mesh may open `protocol` here: status and
-/// agent tools, and the devices its agents boot and drive (`device/1`, kept
-/// off by `withheld` while this machine is not lent). A node reads only some
-/// topics of `peer-subscriptions/1` (see `events::Reach`).
-fn node_may_open(protocol: &SessionProtocol) -> bool {
-    matches!(
-        protocol,
-        SessionProtocol::Status
-            | SessionProtocol::Tools
-            | SessionProtocol::Skills
-            | SessionProtocol::SkillLibrary
-            | SessionProtocol::Transcripts
-            | SessionProtocol::Subscriptions
-            | SessionProtocol::Device
-            | SessionProtocol::DeviceVideo
-    )
-}
-
-/// Serves a session stream that opened with `protocol`, if `who` may use it.
-pub(super) async fn serve_open(
-    mut tx: LinkTx,
-    rx: LinkRx,
-    protocol: SessionProtocol,
-    offers: Offers,
-    who: Who,
-    compress: bool,
-    local: bool,
-) -> Result<()> {
-    if matches!(who, Who::Node { .. }) && !node_may_open(&protocol) {
-        let reason = format!("a node may not open {}", protocol);
-        return tx.send(&Opened::Refused { reason }).await;
-    }
-
-    let Some(route) = route(&protocol, &offers) else {
-        let reason = format!("this node does not offer {protocol}");
-        return tx.send(&Opened::Refused { reason }).await;
-    };
-
-    if compress && protocol != SessionProtocol::DeviceVideo {
-        tx.send(&Opened::ReadyCompressed {}).await?;
-        tx.enable_zstd();
-    } else {
-        tx.send(&Opened::Ready {}).await?;
-    }
-
-    match route {
-        Route::Agent(kind) => crate::agents::serve_session(tx, rx, offers.agents, kind).await,
-        Route::Extra(extra) => extra.serve(tx, rx).await,
-        Route::Provision(provision) => match protocol {
-            SessionProtocol::ToolCheck => provision.serve_tool_checks(tx, rx).await,
-            SessionProtocol::Setup => provision.serve_setup(tx, rx).await,
-            _ => provision.serve_updates(tx, rx).await,
-        },
-        Route::BuiltIn => match protocol {
-            SessionProtocol::Status => peers::status(tx, rx, offers).await,
-            SessionProtocol::Version => {
-                tx.send(&version::Version {
-                    version: env!("CARGO_PKG_VERSION").to_owned(),
-                    // A clock before 1970 is left unsaid: the desktop warns of nothing.
-                    now_ms: SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .ok()
-                        .and_then(|since| u64::try_from(since.as_millis()).ok()),
-                })
-                .await
-            }
-            SessionProtocol::Tools => {
-                let node = offers.made_node().context("this node is not made yet")?;
-                let caller = match who {
-                    Who::Everything(peer) => Caller {
-                        from: Some(peer),
-                        commands_off: desktop_commands_off(&offers, peer, node.own.endpoint.id()),
-                        ..Caller::of(&node)
-                    },
-                    Who::Node { peer, desktop_here } => Caller {
-                        table: tasks::Table::Peer(peer),
-                        from: Some(peer),
-                        desktop_here,
-                        commands_off: commands_off(&offers),
-                        ..Caller::of(&node)
-                    },
-                };
-                peer_tools::serve(tx, rx, caller).await
-            }
-            SessionProtocol::Shell => shell::serve(tx, rx).await,
-            SessionProtocol::Skills => {
-                let desktop = matches!(who, Who::Everything(_));
-                let mesh = offers.mesh.get().context("this node is not in a mesh")?;
-                crate::agents::skills::serve(tx, rx, offers.skills, mesh, desktop).await
-            }
-            SessionProtocol::SkillLibrary => {
-                crate::agents::skill_library::serve(
-                    tx,
-                    rx,
-                    offers.skills.home().cloned(),
-                    offers.skills.libraries().clone(),
-                )
-                .await
-            }
-            SessionProtocol::Tasks => tasks::serve(tx, rx).await,
-            SessionProtocol::Terminal => terminal::serve(tx, rx).await,
-            SessionProtocol::Device => offers.agents.reach.serve_device(tx, rx).await,
-            SessionProtocol::DeviceVideo => device::video::serve(tx, rx).await,
-            SessionProtocol::SignIn => crate::machine::sign_in::serve(tx, rx).await,
-            SessionProtocol::McpServers => {
-                tools::configured::serve(offers.agents.catalog.clone(), tx, rx).await
-            }
-            SessionProtocol::Commands => {
-                super::commands::serve_open(tx, rx, offers, who.id()).await
-            }
-            SessionProtocol::Subscriptions => {
-                let reach = match who {
-                    Who::Everything(_) => super::events::Reach::Whole,
-                    Who::Node { .. } => super::events::Reach::Node,
-                };
-                super::subscriptions::serve_open(tx, rx, offers, who.id(), local, reach).await
-            }
-            SessionProtocol::Events => super::events::serve(tx, rx, offers, who.id(), local).await,
-            SessionProtocol::AgentFollow => {
-                crate::agents::serve_follow(tx, rx, offers.agents).await
-            }
-            SessionProtocol::Transcripts => {
-                crate::agents::serve_transcripts(tx, rx, offers.agents).await
-            }
-            SessionProtocol::Agents => {
-                let transfers = offers.transfers.get();
-                crate::agents::serve_sessions(tx, rx, offers.agents, who.id(), transfers).await
-            }
-            _ => bail!("this node does not offer {protocol}"),
-        },
-    }
-}
-
-enum Route {
-    BuiltIn,
-    Provision(Arc<Provision>),
-    Agent(AgentKind),
-    Extra(Arc<dyn Protocol>),
-}
-
-/// How the node serves `protocol`, if it offers it: itself, with what it
-/// needs, else an agent or an extra protocol.
-fn route(protocol: &SessionProtocol, offers: &Offers) -> Option<Route> {
-    match protocol {
-        SessionProtocol::Skills if offers.skills.home().is_some() => return Some(Route::BuiltIn),
-        SessionProtocol::ToolCheck
-        | SessionProtocol::ToolUpdate
-        | SessionProtocol::FlshUpdate
-        | SessionProtocol::Setup
-            if let Some(provision) = &offers.provision =>
-        {
-            return Some(Route::Provision(provision.clone()));
-        }
-        SessionProtocol::Status
-        | SessionProtocol::Version
-        | SessionProtocol::Tools
-        | SessionProtocol::Shell
-        | SessionProtocol::SkillLibrary
-        | SessionProtocol::Tasks
-        | SessionProtocol::Terminal
-        | SessionProtocol::Device
-        | SessionProtocol::DeviceVideo
-        | SessionProtocol::SignIn
-        | SessionProtocol::McpServers
-        | SessionProtocol::Commands
-        | SessionProtocol::Subscriptions
-        | SessionProtocol::Events
-        | SessionProtocol::AgentFollow
-        | SessionProtocol::Transcripts
-        | SessionProtocol::Agents => return Some(Route::BuiltIn),
-        _ => {}
-    }
-
-    if let Some(kind) =
-        agent::agent_of(protocol.as_ref()).and_then(|name| offers.agents.catalog.named(name))
-    {
-        return Some(Route::Agent(kind));
-    }
-
-    offers
-        .extra
-        .iter()
-        .find(|p| p.name() == protocol.as_ref())
-        .map(|extra| Route::Extra(extra.clone()))
-}
-
 impl Peers {
     /// The node's membership over `offers`, made by `Offers::bound`: that
     /// is where the node's key and team link are made, before any copy of
@@ -561,77 +317,16 @@ impl Peers {
             later: watch::channel(BTreeSet::new()).0,
             active: Mutex::new(None),
             follower: Mutex::new(None),
+            streams: Mutex::new(None),
             _following: OnceLock::new(),
-            serve_protocol: serve_stream,
+            _serving: OnceLock::new(),
         });
-        // Started once the node exists, which it upgrades to read.
+        // Started once the node exists, which they upgrade to read.
         let following = tokio::spawn(from_mesh::run(Arc::downgrade(&inner)));
         inner._following.set(AbortOnDropHandle::new(following)).ok();
+        let serving = tokio::spawn(streams::serve_meshes(Arc::downgrade(&inner)));
+        inner._serving.set(AbortOnDropHandle::new(serving)).ok();
 
         Self { inner }
     }
 }
-
-/// Serves a stream that opened with `protocol`, then ends its trace.
-fn serve_stream(
-    inner: Arc<Inner>,
-    tx: LinkTx,
-    rx: LinkRx,
-    protocol: SessionProtocol,
-    who: Who,
-    compress: bool,
-    mut trace: RequestTrace,
-) -> BoxFuture<'static, Result<()>> {
-    Box::pin(async move {
-        let result = serve_protocol(&inner, tx, rx, protocol, who, compress, &mut trace).await;
-        trace.end(&result);
-        result
-    })
-}
-
-async fn serve_protocol(
-    inner: &Inner,
-    tx: LinkTx,
-    rx: LinkRx,
-    protocol: SessionProtocol,
-    who: Who,
-    compress: bool,
-    trace: &mut beep_proto::logging::RequestTrace,
-) -> Result<()> {
-    // A protocol still on its way is waited for; the others are not held up.
-    let mut later = inner.later.subscribe();
-
-    if watched::wait_for(&mut later, |later| {
-        !later.contains::<str>(protocol.as_ref())
-    })
-    .await
-    .is_err()
-    {
-        bail!("the node stopped");
-    }
-
-    trace.phase("serving");
-    trace.long_lived();
-    let offers = inner.offers().clone();
-    // Diagnostics are open to every machine of the mesh, even when not lent.
-    if Own::is_diagnostic(&protocol) {
-        let node = offers.node(&inner.own, &inner.team);
-        return inner
-            .own
-            .serve_diagnostic(protocol, tx, rx, node, compress)
-            .await;
-    }
-
-    // The person at this machine is not held to the setting; a device of the mesh is.
-    let local = who.id() == inner.own.endpoint.id();
-    if !local && let Some(reason) = withheld(protocol.as_ref(), offers.lends_to_peers()) {
-        let mut tx = tx;
-        return tx.send(&Opened::Refused { reason }).await;
-    }
-
-    serve_open(tx, rx, protocol, offers, who, compress, local).await
-}
-
-#[cfg(test)]
-#[path = "../tests/link_serve.rs"]
-mod tests;
