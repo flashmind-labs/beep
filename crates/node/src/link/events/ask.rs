@@ -51,9 +51,7 @@ impl Calls {
 
     /// The next call to finish, with its outcome as the text a reply carries.
     pub(in crate::link) async fn finished(&mut self) -> Result<(u64, Result<CallReply, String>)> {
-        let Some(done) = self.tasks.join_next().await else {
-            return std::future::pending().await;
-        };
+        let done = self.tasks.join_next().await.context("no call is running")?;
         let (id, result) = done.context("a command stopped")?;
         self.pending.remove(&id);
 

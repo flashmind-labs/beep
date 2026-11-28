@@ -1011,25 +1011,30 @@ async fn external_query_sends_deltas_only_when_follower_opts_in() {
 }
 
 // A name `replace` gives a source of its own must be in `PROJECTED`, or the
-// exact-topic rule overwrites it with a plugin source.
+// exact-topic rule overwrites it with a plugin source. The names are read
+// from the text of `replace` itself, so a new one left out fails here.
 #[test]
 fn every_name_replace_projects_is_listed_as_projected() {
-    let offers = Offers::default();
-    let mut topics = vec![Topic::new("*")];
+    let code = include_str!("../link/events/snapshots.rs");
+    let start = code.find("pub(super) fn replace(").unwrap();
+    let body = &code[start..start + code[start..].find("// Plugin publishers").unwrap()];
+    let list = &code[code.find("const PROJECTED").unwrap()..];
+    let list = &list[..list.find("];").unwrap()];
+    let mut seen = 0;
 
-    for name in PROJECTED {
-        topics.push(Topic::new(name));
-        topics.push(Topic::keyed(name, "1"));
+    for (at, quoted) in body.split('"').enumerate() {
+        if at % 2 == 1 && quoted != "*" {
+            seen += 1;
+            assert!(PROJECTED.contains(&quoted), "{quoted} is not listed");
+        }
     }
 
-    let mut snapshots = Snapshots::new();
-    snapshots.replace(&offers, &topics, &[], &BTreeMap::new());
-
-    for ((topic, _), entry) in &snapshots.entries {
-        assert!(
-            PROJECTED.contains(&topic.name()) && entry.source != Projected::Plugin,
-            "{} is not listed",
-            topic.name()
-        );
+    for word in body.split(|c: char| !(c.is_alphanumeric() || c == '_')) {
+        if word.ends_with("_TOPIC") {
+            seen += 1;
+            assert!(list.contains(word), "{word} is not listed");
+        }
     }
+
+    assert!(seen > 20, "the scan found only {seen} names");
 }

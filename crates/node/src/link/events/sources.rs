@@ -200,20 +200,28 @@ impl Source {
 
     /// Whether a root was bound without Git metadata.
     fn has_bare(&self) -> bool {
-        held(crate::lock(&self.watcher).as_deref())
-            .values()
-            .any(|dependencies| !has_git(dependencies))
+        self.with_bindings(|bindings| bindings.values().any(|d| !has_git(d)))
+    }
+
+    /// Reads the watcher's bindings in place; none before it exists.
+    fn with_bindings<R>(&self, read: impl FnOnce(&FileBindings) -> R) -> R {
+        let watcher = crate::lock(&self.watcher).clone();
+
+        match watcher {
+            Some(watcher) => read(&crate::lock(&watcher.bindings)),
+            None => read(&FileBindings::new()),
+        }
     }
 
     /// Whether one of the `changed` roots was bound without Git metadata and
     /// should ask Git again; at most once per `GIT_RETRY`.
     fn retry_git<'a>(&self, mut changed: impl Iterator<Item = &'a Topic>) -> bool {
-        let bindings = held(crate::lock(&self.watcher).as_deref());
+        let bare = self.with_bindings(|bindings| {
+            changed.any(|topic| bindings.get(topic).is_some_and(|d| !has_git(d)))
+        });
         let mut tried = crate::lock(&self.tried);
 
-        if !changed.any(|topic| bindings.get(topic).is_some_and(|d| !has_git(d)))
-            || tried.is_some_and(|tried| tried.elapsed() < GIT_RETRY)
-        {
+        if !bare || tried.is_some_and(|tried| tried.elapsed() < GIT_RETRY) {
             return false;
         }
 
