@@ -57,3 +57,17 @@ async fn a_connection_closes_with_its_last_lease() {
     drop(lone);
     assert!(conn.close_reason().is_some());
 }
+
+#[tokio::test]
+async fn a_cancelled_dial_forgets_the_peers_lock() {
+    use futures::FutureExt;
+
+    let endpoint = Endpoint::builder(presets::Minimal).bind().await.unwrap();
+    let peer = EndpointAddr::new(SecretKey::generate().public());
+    let pool = SyncPool::default();
+
+    // One poll starts the dial; it is still waiting when the future drops.
+    assert!(pool.acquire(&endpoint, &peer).now_or_never().is_none());
+
+    assert!(lock(&pool.dials).is_empty());
+}

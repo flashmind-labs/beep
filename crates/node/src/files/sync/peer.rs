@@ -56,6 +56,25 @@ pub(super) struct SyncPool {
     dials: Arc<Mutex<HashMap<EndpointId, DialLock>>>,
 }
 
+/// A peer's dial lock in use. It leaves the map when the dial ends or is
+/// cancelled, unless another dial waits on it.
+struct DialEntry<'a> {
+    dials: &'a Mutex<HashMap<EndpointId, DialLock>>,
+    peer: EndpointId,
+    dial: DialLock,
+}
+
+impl Drop for DialEntry<'_> {
+    fn drop(&mut self) {
+        let mut dials = lock(self.dials);
+
+        // The map and this entry hold the lock: nobody else waits on it.
+        if Arc::strong_count(&self.dial) == 2 {
+            dials.remove(&self.peer);
+        }
+    }
+}
+
 struct SyncLease {
     pool: SyncPool,
     peer: EndpointId,
@@ -110,15 +129,13 @@ impl SyncPool {
         }
 
         let dial = lock(&self.dials).entry(peer.id).or_default().clone();
-        let lease = self.dial(&dial, endpoint, peer).await;
+        let entry = DialEntry {
+            dials: &self.dials,
+            peer: peer.id,
+            dial,
+        };
 
-        // The map and this call hold the lock: nobody else waits on it.
-        let mut dials = lock(&self.dials);
-        if Arc::strong_count(&dial) == 2 {
-            dials.remove(&peer.id);
-        }
-
-        lease
+        self.dial(&entry.dial, endpoint, peer).await
     }
 
     async fn dial(
