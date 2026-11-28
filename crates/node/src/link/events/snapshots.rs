@@ -277,29 +277,29 @@ impl Snapshots {
             ));
         }
 
-        for topic in topics.iter().filter(|topic| topic.name() == "agent") {
+        wanted.extend(topics_named(topics, "agent").map(|topic| {
             let source = match topic.key().filter(|_| !topic.is_pattern()) {
                 Some(session) => Source::Agent(Into::<SessionId>::into(session)),
                 None => Source::Read(Read::Sessions(Box::new(SessionsRequest::ListAll {}))),
             };
-            wanted.push((topic.clone(), source));
-        }
+
+            (topic.clone(), source)
+        }));
 
         if selected("reviews") {
             wanted.push((Topic::new("reviews"), Source::Reviews));
         }
-        for topic in topics.iter().filter(|topic| topic.name() == "processes") {
-            if let Some(session) = topic.key()
-                && !topic.is_pattern()
-            {
-                wanted.push((
-                    topic.clone(),
-                    Source::Read(Read::Sessions(Box::new(SessionsRequest::Processes {
-                        session: Into::<SessionId>::into(session),
-                    }))),
-                ));
-            }
-        }
+        wanted.extend(topics_named(topics, "processes").filter_map(|topic| {
+            let session = topic.key().filter(|_| !topic.is_pattern())?;
+            let request = SessionsRequest::Processes {
+                session: Into::<SessionId>::into(session),
+            };
+
+            Some((
+                topic.clone(),
+                Source::Read(Read::Sessions(Box::new(request))),
+            ))
+        }));
 
         // A topic naming one task gets that task alone.
         for topic in topics {
@@ -336,43 +336,27 @@ impl Snapshots {
         }
 
         // These carry values released readers cannot decode, so `*` leaves them out.
-        for topic in topics
-            .iter()
-            .filter(|topic| topic.name() == crate::run::device::LIST_TOPIC)
-        {
-            wanted.push((topic.clone(), Source::Devices));
-        }
+        wanted.extend(
+            topics_named(topics, crate::run::device::LIST_TOPIC)
+                .map(|t| (t.clone(), Source::Devices)),
+        );
 
         // Only a topic keyed by a project's name has cards: they are not for `*`.
-        for topic in topics
-            .iter()
-            .filter(|topic| topic.name() == TEAM_CARDS_TOPIC && !topic.is_pattern())
-        {
-            if let Some(project) = topic.key() {
-                wanted.push((topic.clone(), Source::TeamCards(project.to_owned())));
-            }
-        }
+        wanted.extend(topics_named(topics, TEAM_CARDS_TOPIC).filter_map(|topic| {
+            let project = topic.key().filter(|_| !topic.is_pattern())?;
 
-        for topic in topics
-            .iter()
-            .filter(|topic| topic.name() == TEAM_INVITES_TOPIC)
-        {
-            wanted.push((topic.clone(), Source::TeamInvites));
-        }
-
-        for topic in topics
-            .iter()
-            .filter(|topic| topic.name() == FORGE_REACH_TOPIC)
-        {
-            wanted.push((topic.clone(), Source::ForgeReach));
-        }
-
-        for topic in topics
-            .iter()
-            .filter(|topic| topic.name() == crate::machine::provision::UPDATES_TOPIC)
-        {
-            wanted.push((topic.clone(), Source::ToolUpdates));
-        }
+            Some((topic.clone(), Source::TeamCards(project.to_owned())))
+        }));
+        wanted.extend(
+            topics_named(topics, TEAM_INVITES_TOPIC).map(|t| (t.clone(), Source::TeamInvites)),
+        );
+        wanted.extend(
+            topics_named(topics, FORGE_REACH_TOPIC).map(|t| (t.clone(), Source::ForgeReach)),
+        );
+        wanted.extend(
+            topics_named(topics, crate::machine::provision::UPDATES_TOPIC)
+                .map(|t| (t.clone(), Source::ToolUpdates)),
+        );
         if selected("sign-in") {
             for tool in [
                 beep_proto::node::sign_in::Tool::Claude,
@@ -456,30 +440,10 @@ impl Snapshots {
             }
         }
         // An exact plugin subscription can precede the plugin's first publication.
-        for topic in topics.iter().filter(|topic| {
-            !topic.is_pattern()
-                && !matches!(
-                    topic.name(),
-                    "files"
-                        | "agents"
-                        | "agent"
-                        | "agent-log"
-                        | "processes"
-                        | "process-output"
-                        | "terminals"
-                        | "terminal-output"
-                        | "sync"
-                        | "moves"
-                        | MOVE_PROGRESS_TOPIC
-                        | "reviews"
-                        | "sign-in"
-                        | crate::run::device::LIST_TOPIC
-                        | crate::machine::provision::UPDATES_TOPIC
-                        | TEAM_CARDS_TOPIC
-                        | TEAM_INVITES_TOPIC
-                        | FORGE_REACH_TOPIC
-                )
-        }) {
+        for topic in topics
+            .iter()
+            .filter(|topic| !topic.is_pattern() && !PROJECTED.contains(&topic.name()))
+        {
             wanted.push((topic.clone(), Source::Plugin));
         }
         let desired: BTreeMap<_, _> = wanted
@@ -841,6 +805,34 @@ fn named(value: Value, touched: Touched) -> Value {
         }
         other => other,
     }
+}
+
+/// The names `replace` gives a source of their own. An exact topic of any other name is a
+/// plugin's, and a name missing here would be overwritten by `Source::Plugin`.
+const PROJECTED: [&str; 18] = [
+    "files",
+    "agents",
+    "agent",
+    "agent-log",
+    "processes",
+    "process-output",
+    "terminals",
+    "terminal-output",
+    "sync",
+    "moves",
+    MOVE_PROGRESS_TOPIC,
+    "reviews",
+    "sign-in",
+    crate::run::device::LIST_TOPIC,
+    crate::machine::provision::UPDATES_TOPIC,
+    TEAM_CARDS_TOPIC,
+    TEAM_INVITES_TOPIC,
+    FORGE_REACH_TOPIC,
+];
+
+/// The topics called `name`.
+fn topics_named<'a>(topics: &'a [Topic], name: &'a str) -> impl Iterator<Item = &'a Topic> {
+    topics.iter().filter(move |topic| topic.name() == name)
 }
 
 /// The task `topic` names, when it is `name` keyed by a task number.

@@ -1009,3 +1009,27 @@ async fn external_query_sends_deltas_only_when_follower_opts_in() {
         Some(Reply::Snapshot(s)) if matches!(s.value, Value::Sessions(_))
     ));
 }
+
+// A name `replace` gives a source of its own must be in `PROJECTED`, or the
+// exact-topic rule overwrites it with a plugin source.
+#[test]
+fn every_name_replace_projects_is_listed_as_projected() {
+    let offers = Offers::default();
+    let mut topics = vec![Topic::new("*")];
+
+    for name in PROJECTED {
+        topics.push(Topic::new(name));
+        topics.push(Topic::keyed(name, "1"));
+    }
+
+    let mut snapshots = Snapshots::new();
+    snapshots.replace(&offers, &topics, &[], &BTreeMap::new());
+
+    for ((topic, _), entry) in &snapshots.entries {
+        assert!(
+            PROJECTED.contains(&topic.name()) && entry.source != Source::Plugin,
+            "{} is not listed",
+            topic.name()
+        );
+    }
+}
