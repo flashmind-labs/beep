@@ -3,7 +3,7 @@
 
 use super::{
     Fleet, alerts,
-    jobs::{JobFailure, JobKind, JobOutcome, Lane, NodeOps},
+    jobs::{JOB_FAILED, JobFailure, JobKind, JobOutcome, Lane, NodeOps},
     projections::Listing,
     session_lists::SessionLists,
     session_mirror::SessionMirror,
@@ -25,8 +25,9 @@ use beep_proto::node::{
     },
     mcp_servers::{PROTOCOL as MCP_PROTOCOL, Reply as McpReply, Request as McpRequest},
 };
+use futures::FutureExt;
 use iroh::EndpointId;
-use std::{sync::Arc, time::Duration};
+use std::{panic::AssertUnwindSafe, sync::Arc, time::Duration};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::{sync::oneshot, time::timeout};
 
@@ -70,19 +71,13 @@ impl NodeOps {
 
     /// Sends the jobs of one lane of `machine` in order until none is left. Another lane of the
     /// machine runs meanwhile, so a long job, such as a device boot, holds back only its own.
-    async fn run_lane(
+    pub(super) async fn run_lane(
         self: &Arc<Self>,
         app: Option<AppHandle>,
         fleet: Arc<Fleet>,
         machine: EndpointId,
         lane: Lane,
     ) {
-        let _lane = LaneWorker {
-            ops: self.clone(),
-            machine,
-            lane: lane.clone(),
-        };
-
         loop {
             let (due, expired) = self.next_due(machine, &lane);
 
@@ -93,7 +88,14 @@ impl NodeOps {
             let Some((id, kind, attempts)) = due else {
                 return;
             };
-            let outcome = execute_job(&fleet, machine, &kind, attempts).await;
+            // A panicking job is dropped with an error for its waiters; the lane carries on.
+            let outcome = match AssertUnwindSafe(execute_job(&fleet, machine, &kind, attempts))
+                .catch_unwind()
+                .await
+            {
+                Ok(outcome) => outcome,
+                Err(_) => Err(JobFailure::Refused(JOB_FAILED.to_owned())),
+            };
 
             match self.settle_job(machine, id, outcome) {
                 Some((done_kind, settled)) => {
@@ -104,21 +106,6 @@ impl NodeOps {
                     tokio::time::sleep(RETRY).await;
                 }
             }
-        }
-    }
-}
-
-/// Frees the lane if the worker panics; a worker that returns freed it in `next_due`.
-pub(super) struct LaneWorker {
-    pub(super) ops: Arc<NodeOps>,
-    pub(super) machine: EndpointId,
-    pub(super) lane: Lane,
-}
-
-impl Drop for LaneWorker {
-    fn drop(&mut self) {
-        if std::thread::panicking() {
-            self.ops.free_lane(self.machine, &self.lane);
         }
     }
 }
@@ -203,6 +190,16 @@ async fn execute_job(
     kind: &JobKind,
     attempts: u32,
 ) -> std::result::Result<(), JobFailure> {
+    // Test seam: a job of agent "panic" crashes, one of agent "ok" settles at once.
+    #[cfg(test)]
+    if let JobKind::DeleteSession { agent, .. } | JobKind::RelocateSession { agent, .. } = kind {
+        match agent.as_str() {
+            "panic" => panic!("job"),
+            "ok" => return Ok(()),
+            _ => {}
+        }
+    }
+
     match kind {
         JobKind::TerminalStop {
             id,

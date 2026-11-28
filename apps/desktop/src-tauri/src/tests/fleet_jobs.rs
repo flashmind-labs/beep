@@ -130,44 +130,93 @@ fn a_repeated_delete_joins_the_one_being_sent() {
     assert!(!ops.is_deleting_session_on(machine, &session));
 }
 
-/// Drives the `LaneWorker` guard through a panicking task, not a real job panic.
-#[tokio::test]
-async fn a_lane_whose_worker_panics_is_free_again() {
-    use super::super::node_actor::LaneWorker;
-    use std::sync::Arc;
-
-    let ops = Arc::new(NodeOps::default());
-    let machine = sample_machine(12);
-    let session = SessionId::from("a");
-    let first = JobKind::DeleteSession {
+#[test]
+fn a_delete_after_a_move_is_queued_not_joined() {
+    let ops = NodeOps::default();
+    let machine = sample_machine(13);
+    let session = SessionId::from("s-3");
+    let delete = || JobKind::DeleteSession {
         agent: "claude".into(),
         session: session.clone(),
     };
-    let lane = first.lane();
+    let lane = delete().lane();
 
-    assert!(ops.push_job(machine, first, None));
-    let (id, _, _) = ops.next_due(machine, &lane).0.expect("first job");
-
-    let worker = LaneWorker {
-        ops: ops.clone(),
+    assert!(ops.push_job(machine, delete(), None));
+    let (first, _, _) = ops.next_due(machine, &lane).0.expect("first delete");
+    assert!(!ops.push_job(
         machine,
-        lane: lane.clone(),
-    };
-    let joined = tokio::spawn(async move {
-        let _worker = worker;
-        panic!("job");
-    })
-    .await;
-    assert!(joined.is_err());
+        JobKind::RelocateSession {
+            agent: "claude".into(),
+            session: session.clone(),
+            folder: "/work/a".into(),
+        },
+        None,
+    ));
+    assert!(!ops.push_job(machine, delete(), None));
 
-    // Another job of the same lane: a new worker is wanted.
-    let second = JobKind::RelocateSession {
-        agent: "claude".into(),
-        session,
-        folder: "/work/a".into(),
+    ops.settle_job(machine, first, Ok(()));
+
+    let (moved, kind, _) = ops.next_due(machine, &lane).0.expect("the move");
+    assert!(matches!(kind, JobKind::RelocateSession { .. }));
+    ops.settle_job(machine, moved, Ok(()));
+    let (second, kind, _) = ops.next_due(machine, &lane).0.expect("the second delete");
+    assert!(matches!(kind, JobKind::DeleteSession { .. }));
+    ops.settle_job(machine, second, Ok(()));
+    assert!(ops.next_due(machine, &lane).0.is_none());
+}
+
+/// A job whose send panics is dropped with an error for its waiter, and the next job of the lane
+/// still runs on the same worker.
+#[tokio::test]
+async fn a_panicking_job_is_dropped_and_its_lane_goes_on() {
+    use super::super::Fleet;
+    use beep_mesh::transport_config;
+    use beep_node::{
+        agents::{Parts, detect},
+        link::Offers,
+        machine::provision::Provision,
     };
-    assert_eq!(second.lane(), lane);
-    assert!(ops.push_job(machine, second, None));
-    let (again, _, _) = ops.next_due(machine, &lane).0.expect("first job again");
-    assert_eq!(again, id);
+    use iroh::endpoint::presets;
+    use std::sync::Arc;
+
+    let dir = tempfile::TempDir::new().expect("a temp dir");
+    let endpoint = iroh::Endpoint::builder(presets::Minimal)
+        .secret_key(SecretKey::generate())
+        .transport_config(transport_config())
+        .bind()
+        .await
+        .expect("the endpoint binds");
+    let parts = Parts {
+        kinds: detect(&[], Some(dir.path())),
+        ..Parts::default()
+    };
+    let offers =
+        Offers::local(parts, Provision::new(dir.path())).bound(&endpoint, dir.path(), "Studio");
+    let fleet = Arc::new(Fleet::new(endpoint, dir.path(), "Studio", offers).await);
+    let ops = Arc::new(NodeOps::default());
+    let machine = sample_machine(14);
+    let session = SessionId::from("s-4");
+    let crash = JobKind::DeleteSession {
+        agent: "panic".into(),
+        session: session.clone(),
+    };
+    let lane = crash.lane();
+    let (crashed_tx, crashed) = oneshot::channel();
+    let (next_tx, next) = oneshot::channel();
+
+    assert!(ops.push_job(machine, crash, Some(crashed_tx)));
+    assert!(!ops.push_job(
+        machine,
+        JobKind::RelocateSession {
+            agent: "ok".into(),
+            session: session.clone(),
+            folder: "/work/a".into(),
+        },
+        Some(next_tx),
+    ));
+    ops.run_lane(None, fleet, machine, lane).await;
+
+    assert_eq!(crashed.await.expect("answered"), Err(JOB_FAILED.to_owned()));
+    assert_eq!(next.await.expect("answered"), Ok(()));
+    assert!(!ops.is_deleting_session_on(machine, &session));
 }

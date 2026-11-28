@@ -27,6 +27,8 @@ const DEFAULT_JOB_TTL: Duration = Duration::from_secs(600);
 /// Shorter TTL for transient process signals.
 const PROCESS_JOB_TTL: Duration = Duration::from_secs(60);
 /// What a job's waiters hear when it was not delivered before its time ran out.
+/// What the waiters of a job hear when sending it panicked.
+pub(super) const JOB_FAILED: &str = "the job failed";
 const NOT_SENT: &str = "the machine did not take it in time";
 
 /// Outbound node-level mutation handled asynchronously by a machine's actor.
@@ -234,13 +236,15 @@ impl NodeOps {
         let queue = held.queues.entry(machine).or_default();
 
         // A delete is idempotent: a second one while the first is sending shares its outcome
-        // instead of asking for a session the node has already removed.
+        // instead of asking for a session the node has already removed. Not when another job of
+        // the session was queued after it: that job runs on the deleted session, as it was asked to.
         let joins_sending = matches!(kind, JobKind::DeleteSession { .. });
+        let joined = queue.iter().position(|job| {
+            job.kind.key() == key
+                && (!job.sending || (joins_sending && !queue_after_has_lane(queue, job.id, &lane)))
+        });
 
-        if let Some(existing) = queue
-            .iter_mut()
-            .find(|job| job.kind.key() == key && (!job.sending || joins_sending))
-        {
+        if let Some(existing) = joined.map(|pos| &mut queue[pos]) {
             existing.kind = kind;
             existing.deadline = deadline;
             if let Some(waiter) = waiter {
@@ -311,20 +315,6 @@ impl NodeOps {
         (None, expired)
     }
 
-    /// Frees `lane` after its worker panicked: its jobs are sendable again and the next
-    /// `push_job` starts a new worker.
-    pub(super) fn free_lane(&self, machine: EndpointId, lane: &Lane) {
-        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
-
-        held.running.remove(&(machine, lane.clone()));
-
-        if let Some(queue) = held.queues.get_mut(&machine) {
-            for job in queue.iter_mut().filter(|job| job.kind.lane() == *lane) {
-                job.sending = false;
-            }
-        }
-    }
-
     pub(super) fn settle_job(
         &self,
         machine: EndpointId,
@@ -367,6 +357,15 @@ impl NodeOps {
             }
         }
     }
+}
+
+/// Whether a job of `lane` was queued after the job `id`.
+fn queue_after_has_lane(queue: &[QueuedJob], id: u64, lane: &Lane) -> bool {
+    queue
+        .iter()
+        .skip_while(|job| job.id != id)
+        .skip(1)
+        .any(|job| job.kind.lane() == *lane)
 }
 
 fn clear_optimistic(held: &mut HeldOps, machine: EndpointId, kind: &JobKind) {
