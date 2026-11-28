@@ -69,11 +69,10 @@ async fn switching_lending_off_ends_an_open_events_stream_of_another_desktop() {
     let offers = Offers::default();
     offers.lend_to_peers(true);
     let (mut tx, mut rx, task) = start(offers.clone()).await;
-    tx.send(&Request::Ping { id: 5 }).await.unwrap();
-    assert_eq!(next(&mut rx).await, Reply::Pong { id: 5 });
+    watch(&mut tx, &mut rx, 1, vec![Topic::new("terminals")], vec![]).await;
 
+    // The desktop sends nothing more: the stream still ends.
     offers.lend_to_peers(false);
-    tx.send(&Request::Ping { id: 6 }).await.unwrap();
     let error = timeout(Duration::from_secs(10), task)
         .await
         .expect("the stream ends")
@@ -87,10 +86,15 @@ async fn switching_lending_off_ends_an_open_events_stream_of_another_desktop() {
 async fn the_local_desktop_keeps_its_events_stream_when_lending_is_off() {
     let offers = Offers::default();
     offers.lend_to_peers(false);
-    let (mut tx, mut rx, task) = start_as(offers, true).await;
+    let (mut tx, mut rx, task) = start_as(offers.clone(), true).await;
     tx.send(&Request::Ping { id: 5 }).await.unwrap();
-
     assert_eq!(next(&mut rx).await, Reply::Pong { id: 5 });
+
+    offers.lend_to_peers(true);
+    offers.lend_to_peers(false);
+    tx.send(&Request::Ping { id: 6 }).await.unwrap();
+
+    assert_eq!(next(&mut rx).await, Reply::Pong { id: 6 });
     assert!(!task.is_finished());
 }
 

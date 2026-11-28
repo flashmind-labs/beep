@@ -21,10 +21,7 @@ use beep_proto::node::{LinkRx, Open, agent, desktop, mcp_servers, setup, sign_in
 use iroh::{Endpoint, EndpointId};
 use std::{
     path::Path,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::Arc,
     time::{Duration, SystemTime},
 };
 use tokio::time::timeout;
@@ -122,9 +119,10 @@ pub struct Offers {
     pub(crate) transfers: Sharing,
     /// The sources the event streams share, by topic.
     pub(crate) event_sources: Arc<EventSources>,
-    /// Set while the host does not lend this machine to other devices: they
-    /// get its status, but no shell, task or screen.
-    pub(crate) withheld: Arc<AtomicBool>,
+    /// Whether the host lends this machine to other devices. While not, they
+    /// get its status, but no shell, task or screen. Set only by
+    /// `lend_to_peers`; open streams follow it.
+    pub(crate) lending: Arc<tokio::sync::watch::Sender<bool>>,
     /// Holds the next bind of a root, for a test.
     #[cfg(test)]
     pub(crate) bind_gates: Arc<std::sync::Mutex<Vec<crate::link::events::sources::Gate>>>,
@@ -152,11 +150,16 @@ impl Offers {
     /// tasks and screen. On unless the host turned it off; what runs here for
     /// the person at this machine is not affected.
     pub fn lend_to_peers(&self, lent: bool) {
-        self.withheld.store(!lent, Ordering::Relaxed);
+        self.lending.send_replace(lent);
     }
 
     pub(crate) fn lends_to_peers(&self) -> bool {
-        !self.withheld.load(Ordering::Relaxed)
+        beep_proto::watched::read_sent(&self.lending, |lent| *lent)
+    }
+
+    /// Follows the lending setting, for a stream that ends when it goes off.
+    pub(crate) fn lending(&self) -> tokio::sync::watch::Receiver<bool> {
+        self.lending.subscribe()
     }
 
     /// Makes the node's own values, its key, name, folder and team link,
@@ -234,7 +237,7 @@ impl Offers {
             mesh,
             transfers: Sharing::default(),
             event_sources: Arc::default(),
-            withheld: Arc::default(),
+            lending: Arc::new(tokio::sync::watch::channel(true).0),
             #[cfg(test)]
             bind_gates: Arc::default(),
             skills: Skills::default(),

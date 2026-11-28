@@ -224,6 +224,7 @@ async fn run(
         Wire::Subscriptions => &PEER_READERS,
     };
     let _reader = readers.try_acquire().context("too many topic readers")?;
+    let mut lending = offers.lending();
     let mut membership = offers.mesh.subscribe();
     let mut project_changes = watched::read_and_update(&mut membership, |mesh| {
         mesh.as_ref().map(beep_mesh::Mesh::changes)
@@ -267,6 +268,11 @@ async fn run(
                     None => std::future::pending().await,
                 }
             }, if snapshot_due.is_some() => {},
+            // Lending went off: a machine's desktop is exempt, any other
+            // device loses its open stream at once, idle or not.
+            _ = watched::wait_for(&mut lending, |lent| !*lent), if !local => {
+                anyhow::bail!("this machine is no longer shared");
+            }
             request = read_request(wire, &mut rx) => {
                 anyhow::ensure!(local || offers.lends_to_peers(), "this machine is no longer shared");
 
