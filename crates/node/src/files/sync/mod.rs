@@ -703,22 +703,18 @@ impl Syncs {
     /// or whose rules can be followed now, syncs.
     pub async fn check_folders(&self) {
         self.change("check_folders", |syncs| async move {
-            syncs.do_check_folders().await;
+            let names: Vec<String> = syncs
+                .inner
+                .projects
+                .seen()
+                .iter()
+                .filter(|(_, entry)| entry.phase.is_running() || entry.phase.is_stopped())
+                .map(|(name, _)| name.clone())
+                .collect();
+            join_all(names.iter().map(|name| syncs.check_folder(name))).await;
         })
         .await
         .ok();
-    }
-
-    async fn do_check_folders(&self) {
-        let names: Vec<String> = self
-            .inner
-            .projects
-            .seen()
-            .iter()
-            .filter(|(_, entry)| entry.phase.is_running() || entry.phase.is_stopped())
-            .map(|(name, _)| name.clone())
-            .collect();
-        join_all(names.iter().map(|name| self.check_folder(name))).await;
     }
 
     async fn check_folder(&self, name: &str) {
