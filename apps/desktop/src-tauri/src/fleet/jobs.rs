@@ -26,9 +26,9 @@ pub(crate) const FAST_JOB_WAIT: Duration = Duration::from_millis(250);
 const DEFAULT_JOB_TTL: Duration = Duration::from_secs(600);
 /// Shorter TTL for transient process signals.
 const PROCESS_JOB_TTL: Duration = Duration::from_secs(60);
-/// What a job's waiters hear when it was not delivered before its time ran out.
 /// What the waiters of a job hear when sending it panicked.
 pub(super) const JOB_FAILED: &str = "the job failed";
+/// What a job's waiters hear when it was not delivered before its time ran out.
 const NOT_SENT: &str = "the machine did not take it in time";
 
 /// Outbound node-level mutation handled asynchronously by a machine's actor.
