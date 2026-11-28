@@ -314,23 +314,7 @@ where
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = Result<V>> + Send + 'static,
     {
-        self.read_with_fresh(key, |_| self.fresh, same, notify, fetch)
-            .await
-    }
-
-    pub(crate) async fn read_with_fresh<F, Fut>(
-        self: &Arc<Self>,
-        key: K,
-        fresh_for: impl FnOnce(&V) -> Duration,
-        same: impl Fn(&V, &V) -> bool + Send + 'static,
-        notify: impl FnOnce() + Send + 'static,
-        fetch: F,
-    ) -> Result<V>
-    where
-        F: FnOnce() -> Fut + Send + 'static,
-        Fut: Future<Output = Result<V>> + Send + 'static,
-    {
-        if let Some((cached, stale)) = self.peek_fresh(&key, fresh_for) {
+        if let Some((cached, stale)) = self.peek_fresh(&key, |_| self.fresh) {
             if stale {
                 drop(self.start_refresh(key, same, notify, fetch));
             }
