@@ -129,3 +129,45 @@ fn a_repeated_delete_joins_the_one_being_sent() {
     assert!(ops.next_due(machine, &lane).0.is_none());
     assert!(!ops.is_deleting_session_on(machine, &session));
 }
+
+/// Drives the `LaneWorker` guard through a panicking task, not a real job panic.
+#[tokio::test]
+async fn a_lane_whose_worker_panics_is_free_again() {
+    use super::super::node_actor::LaneWorker;
+    use std::sync::Arc;
+
+    let ops = Arc::new(NodeOps::default());
+    let machine = sample_machine(12);
+    let session = SessionId::from("a");
+    let first = JobKind::DeleteSession {
+        agent: "claude".into(),
+        session: session.clone(),
+    };
+    let lane = first.lane();
+
+    assert!(ops.push_job(machine, first, None));
+    let (id, _, _) = ops.next_due(machine, &lane).0.expect("first job");
+
+    let worker = LaneWorker {
+        ops: ops.clone(),
+        machine,
+        lane: lane.clone(),
+    };
+    let joined = tokio::spawn(async move {
+        let _worker = worker;
+        panic!("job");
+    })
+    .await;
+    assert!(joined.is_err());
+
+    // Another job of the same lane: a new worker is wanted.
+    let second = JobKind::RelocateSession {
+        agent: "claude".into(),
+        session,
+        folder: "/work/a".into(),
+    };
+    assert_eq!(second.lane(), lane);
+    assert!(ops.push_job(machine, second, None));
+    let (again, _, _) = ops.next_due(machine, &lane).0.expect("first job again");
+    assert_eq!(again, id);
+}

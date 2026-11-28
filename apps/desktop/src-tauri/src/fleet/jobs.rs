@@ -311,6 +311,20 @@ impl NodeOps {
         (None, expired)
     }
 
+    /// Frees `lane` after its worker panicked: its jobs are sendable again and the next
+    /// `push_job` starts a new worker.
+    pub(super) fn free_lane(&self, machine: EndpointId, lane: &Lane) {
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+
+        held.running.remove(&(machine, lane.clone()));
+
+        if let Some(queue) = held.queues.get_mut(&machine) {
+            for job in queue.iter_mut().filter(|job| job.kind.lane() == *lane) {
+                job.sending = false;
+            }
+        }
+    }
+
     pub(super) fn settle_job(
         &self,
         machine: EndpointId,

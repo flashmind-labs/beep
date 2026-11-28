@@ -77,6 +77,12 @@ impl NodeOps {
         machine: EndpointId,
         lane: Lane,
     ) {
+        let _lane = LaneWorker {
+            ops: self.clone(),
+            machine,
+            lane: lane.clone(),
+        };
+
         loop {
             let (due, expired) = self.next_due(machine, &lane);
 
@@ -98,6 +104,21 @@ impl NodeOps {
                     tokio::time::sleep(RETRY).await;
                 }
             }
+        }
+    }
+}
+
+/// Frees the lane if the worker panics; a worker that returns freed it in `next_due`.
+pub(super) struct LaneWorker {
+    pub(super) ops: Arc<NodeOps>,
+    pub(super) machine: EndpointId,
+    pub(super) lane: Lane,
+}
+
+impl Drop for LaneWorker {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.ops.free_lane(self.machine, &self.lane);
         }
     }
 }
