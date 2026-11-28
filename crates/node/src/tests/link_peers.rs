@@ -585,6 +585,26 @@ async fn dedicated_peer_protocols_reuse_connections_and_close_when_membership_en
     .unwrap();
 }
 
+/// The streams are taken as the mesh is installed: one a peer opens as soon
+/// as it is connected is served, and a mesh installed again is served once.
+#[tokio::test]
+async fn a_stream_opened_right_after_join_is_served() {
+    use beep_proto::node::agent::{SESSIONS_PROTOCOL, SessionsReply, SessionsRequest};
+    let pair = channel_pair(true).await;
+    let client = PeerClient::over(pair.desktop.clone(), pair.endpoint.id());
+
+    for _ in 0..2 {
+        let reply: SessionsReply = timeout(
+            Duration::from_secs(10),
+            client.call(SESSIONS_PROTOCOL, &SessionsRequest::ListAll {}),
+        )
+        .await
+        .expect("the node answered")
+        .expect("the call succeeds");
+        assert!(matches!(reply, SessionsReply::Sessions { .. }));
+    }
+}
+
 #[tokio::test]
 async fn peers_without_the_new_protocols_are_rejected_without_fallback() {
     let pair = channel_pair(false).await;

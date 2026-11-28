@@ -18,7 +18,9 @@ use crate::{
     watchdog::{self, Step},
 };
 use anyhow::{Context, Result, bail};
-use beep_mesh::{DeviceKind, DeviceStatus, Invitation, JoinProtocol, Mesh, MeshProtocol};
+use beep_mesh::{
+    DeviceKind, DeviceStatus, Invitation, JoinProtocol, Mesh, MeshProtocol, PeerStream,
+};
 use beep_proto::node::{EnvReport, LinkRx, LinkTx, status::Report};
 use beep_proto::watched;
 #[cfg(feature = "cli")]
@@ -38,7 +40,7 @@ use std::{
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, split},
-    sync::watch,
+    sync::{mpsc, watch},
     task::JoinSet,
     time::timeout,
 };
@@ -73,6 +75,13 @@ pub(super) struct Protocols {
     join: JoinProtocol,
 }
 
+/// A mesh the node took, with the streams its peers open on it. `install`
+/// takes them as it sets the mesh, so none is refused in between.
+pub(super) struct Installed {
+    pub(super) mesh: Mesh,
+    pub(super) incoming: mpsc::Receiver<PeerStream>,
+}
+
 pub(super) struct Inner {
     /// The node's key, name and folder.
     pub(super) own: Own,
@@ -88,11 +97,9 @@ pub(super) struct Inner {
     pub(super) follower: Mutex<Option<AbortOnDropHandle<()>>>,
     /// Watches the mesh and the transfers to start the follower.
     pub(super) _following: OnceLock<AbortOnDropHandle<()>>,
-    /// The streams of the mesh's peers, served from `streams::serve_meshes`
-    /// while the node is in a mesh and ended by `leave`.
-    pub(super) streams: Mutex<Option<AbortOnDropHandle<()>>>,
-    /// Watches the mesh to serve its streams.
-    pub(super) _serving: OnceLock<AbortOnDropHandle<()>>,
+    /// Hands each installed mesh and its incoming streams to
+    /// `streams::serve_meshes`, which ends with the node.
+    pub(super) installed: mpsc::UnboundedSender<Installed>,
 }
 
 impl Inner {
@@ -157,12 +164,11 @@ impl Peers {
         // Cleared first: the follower starts nothing on a mesh that is gone.
         offers.mesh.clear();
         let follower = self.inner.follower().take();
-        let streams = crate::lock(&self.inner.streams).take();
 
-        for task in [follower, streams].into_iter().flatten() {
-            task.abort();
+        if let Some(follower) = follower {
+            follower.abort();
             // Returns once the task, and the mesh it held, is gone.
-            task.await.ok();
+            follower.await.ok();
         }
 
         if let Some(transfers) = offers.transfers.get() {
@@ -349,8 +355,12 @@ impl Peers {
     /// from here on, by `streams::serve_meshes`.
     pub fn install(&self, mesh: Mesh) {
         let (peer, join) = mesh.protocols();
-        // The mesh first: `active` needs it with the protocols.
-        self.inner.offers().mesh.set(mesh);
+        // Taken here, so a stream a peer opens at once is not refused.
+        let incoming = mesh.incoming();
+        // The mesh first: `active` needs it with the protocols, and the
+        // streams are served only while it is the node's.
+        self.inner.offers().mesh.set(mesh.clone());
+        self.inner.installed.send(Installed { mesh, incoming }).ok();
         *crate::lock(&self.inner.active) = Some(Protocols { peer, join });
     }
 

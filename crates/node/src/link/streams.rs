@@ -6,7 +6,7 @@
 use crate::{
     agents::AgentKind,
     link::Protocol,
-    link::peers::{self, Inner, Offers, Own, Peers, Who, read_open, withheld},
+    link::peers::{self, Inner, Installed, Offers, Own, Peers, Who, read_open, withheld},
     link::protocol::SessionProtocol,
     machine::provision::Provision,
     run::device,
@@ -16,7 +16,7 @@ use crate::{
     tools::{self, Caller, peer_tools},
 };
 use anyhow::{Context, Result, bail};
-use beep_mesh::{PeerStream, SessionFn};
+use beep_mesh::{Mesh, PeerStream, SessionFn};
 use beep_proto::logging::RequestTrace;
 use beep_proto::node::{LinkRx, LinkTx, Opened, agent, link, version};
 use beep_proto::watched;
@@ -24,53 +24,49 @@ use std::{
     sync::{Arc, Weak},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tokio::{sync::mpsc, task::JoinSet};
-use tokio_util::task::AbortOnDropHandle;
+use tokio::{
+    sync::{mpsc, watch},
+    task::JoinSet,
+};
 
-/// Serves the streams of whichever mesh the node is in: started with the
-/// node, it takes each mesh's incoming streams as the mesh is set and lets
-/// them go when it is cleared. Ends with the node.
-pub(super) async fn serve_meshes(node: Weak<Inner>) {
-    let Some(inner) = node.upgrade() else {
-        return;
-    };
-    let mut mesh = inner.offers().mesh.subscribe();
-    drop(inner);
+/// Serves the streams of each mesh the node installs, until the mesh is
+/// replaced or cleared, then the next. Ends with the node.
+pub(super) async fn serve_meshes(
+    node: Weak<Inner>,
+    mut installed: mpsc::UnboundedReceiver<Installed>,
+    mut membership: watch::Receiver<Option<Mesh>>,
+) {
+    while let Some(Installed { mesh, incoming }) = installed.recv().await {
+        // Read and marked seen together: a change after this ends the serving,
+        // and a mesh already replaced or cleared is not served.
+        let current = watched::read_and_update(&mut membership, |current| {
+            current
+                .as_ref()
+                .is_some_and(|current| current.id() == mesh.id())
+        });
+        drop(mesh);
 
-    loop {
-        let Some(inner) = node.upgrade() else {
-            return;
-        };
-        serve_current(&inner);
-        drop(inner);
-
-        if mesh.changed().await.is_err() {
-            return;
+        if current {
+            serve_incoming(node.clone(), incoming, &mut membership).await;
         }
     }
 }
 
-/// Ends the streams served before and serves those of the mesh the node is
-/// in now, if any. The slot is held from reading the mesh to filling it, so
-/// `Peers::leave` takes what it left or finds nothing.
-fn serve_current(inner: &Arc<Inner>) {
-    let mut slot = crate::lock(&inner.streams);
-    let serving = inner.active().map(|mesh| {
-        // Weak: the node holds the task, and the task would hold the node.
-        let serving = serve_incoming(Arc::downgrade(inner), mesh.incoming());
-        AbortOnDropHandle::new(tokio::spawn(serving))
-    });
-
-    *slot = serving;
-}
-
-/// Serves each stream a peer opens, by what the peer is now, until the task
-/// is dropped.
-async fn serve_incoming(node: Weak<Inner>, mut incoming: mpsc::Receiver<PeerStream>) {
+/// Serves each stream a peer opens, by what the peer is now, until the
+/// membership changes; the streams being served end with it.
+async fn serve_incoming(
+    node: Weak<Inner>,
+    mut incoming: mpsc::Receiver<PeerStream>,
+    membership: &mut watch::Receiver<Option<Mesh>>,
+) {
     let mut serving = JoinSet::new();
 
     loop {
         tokio::select! {
+            _ = membership.changed() => {
+                serving.shutdown().await;
+                return;
+            }
             Some(stream) = incoming.recv() => {
                 serving.spawn(serve_peer_stream(node.clone(), stream));
             }

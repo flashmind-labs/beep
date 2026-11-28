@@ -28,7 +28,7 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tokio::time::timeout;
 use tokio_util::task::AbortOnDropHandle;
 
@@ -310,6 +310,7 @@ impl Peers {
     /// the offers goes elsewhere.
     pub async fn new(bound: Bound) -> Self {
         let Bound { offers, own, team } = bound;
+        let (installed, incoming) = mpsc::unbounded_channel();
         let inner = Arc::new(Inner {
             own,
             team,
@@ -317,15 +318,18 @@ impl Peers {
             later: watch::channel(BTreeSet::new()).0,
             active: Mutex::new(None),
             follower: Mutex::new(None),
-            streams: Mutex::new(None),
+            installed,
             _following: OnceLock::new(),
-            _serving: OnceLock::new(),
         });
         // Started once the node exists, which they upgrade to read.
         let following = tokio::spawn(from_mesh::run(Arc::downgrade(&inner)));
         inner._following.set(AbortOnDropHandle::new(following)).ok();
-        let serving = tokio::spawn(streams::serve_meshes(Arc::downgrade(&inner)));
-        inner._serving.set(AbortOnDropHandle::new(serving)).ok();
+        let membership = inner.offers().mesh.subscribe();
+        tokio::spawn(streams::serve_meshes(
+            Arc::downgrade(&inner),
+            incoming,
+            membership,
+        ));
 
         Self { inner }
     }
