@@ -45,8 +45,10 @@ struct Slot {
 /// Stops one sign-in, and tells when it has stopped.
 struct Running {
     id: u64,
-    cancel: oneshot::Sender<()>,
-    ended: oneshot::Receiver<()>,
+    /// Taken once the sign-in is told to stop.
+    cancel: Option<oneshot::Sender<()>>,
+    /// Taken by whoever waits for gh to be gone.
+    ended: Option<oneshot::Receiver<()>>,
 }
 
 /// What a started sign-in holds: Cancel's signal, and a sender it drops
@@ -65,15 +67,23 @@ impl GhSignIn {
     fn start(&self) -> Result<Started> {
         let mut slot = self.lock();
 
-        if slot.running.is_some() {
-            return Err(refused("A GitHub sign-in is already under way"));
+        if let Some(running) = &slot.running {
+            return Err(refused(if running.cancel.is_some() {
+                "A GitHub sign-in is already under way"
+            } else {
+                "A GitHub sign-in is still being stopped"
+            }));
         }
 
         slot.next_id += 1;
         let id = slot.next_id;
         let (cancel, cancelled) = oneshot::channel();
         let (ended_tx, ended) = oneshot::channel();
-        slot.running = Some(Running { id, cancel, ended });
+        slot.running = Some(Running {
+            id,
+            cancel: Some(cancel),
+            ended: Some(ended),
+        });
         Ok(Started {
             id,
             cancelled,
@@ -89,15 +99,19 @@ impl GhSignIn {
         }
     }
 
-    /// Stops the sign-in under way, which kills gh.
+    /// Stops the sign-in under way, which kills gh. The slot stays taken
+    /// until gh is gone and `finish` clears it.
     fn stop(&self) -> Option<oneshot::Receiver<()>> {
-        let running = self.lock().running.take()?;
+        let mut slot = self.lock();
+        let running = slot.running.as_mut()?;
         // An error means the sign-in had just ended on its own.
-        if running.cancel.send(()).is_err() {
+        if let Some(cancel) = running.cancel.take()
+            && cancel.send(()).is_err()
+        {
             log::debug!("the GitHub sign-in had already ended");
         }
 
-        Some(running.ended)
+        running.ended.take()
     }
 
     /// Stops the sign-in under way as Beep quits. The future ends once gh

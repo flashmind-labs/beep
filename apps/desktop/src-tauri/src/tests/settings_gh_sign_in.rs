@@ -79,12 +79,17 @@ fn one_sign_in_at_a_time() {
     let sign_in = GhSignIn::default();
     let first = sign_in.start().expect("nothing under way");
     assert!(sign_in.start().is_err());
-    // An old sign-in ending does not clear a newer one.
-    let ended = sign_in.stop().expect("one under way");
-    let second = sign_in.start().expect("the first was stopped");
     sign_in.finish(first.id);
-    assert!(sign_in.start().is_err());
-    sign_in.finish(second.id);
     assert!(sign_in.start().is_ok());
+}
+
+#[test]
+fn a_stopped_sign_in_holds_the_slot_until_gh_is_gone() {
+    let sign_in = GhSignIn::default();
+    let first = sign_in.start().expect("nothing under way");
+    let ended = sign_in.stop().expect("one under way");
+    assert!(sign_in.start().is_err());
+    sign_in.finish(first.id);
     drop(ended);
+    assert!(sign_in.start().is_ok());
 }
