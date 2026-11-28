@@ -141,7 +141,7 @@ async fn set(own: Own, link: TeamLink, active: Mesh, offers: Offers) {
 
 /// Applies the mesh's state to the node now and on every change, until the
 /// mesh stops.
-pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
+async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
     // Subscribed before the first scan, so no change falls between the two.
     let mut changes = mesh.changes();
     let mut updates = mesh.updates();

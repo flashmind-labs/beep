@@ -53,7 +53,7 @@ const SESSION_GAP: Duration = Duration::from_secs(30);
 const MAX_IDLE_DOUBLINGS: u32 = 3;
 
 #[derive(Clone, Debug, PartialEq)]
-enum Source {
+enum Projected {
     Read(Read),
     Plugin,
     Missing,
@@ -76,7 +76,7 @@ enum Source {
     Moves,
 }
 
-impl Source {
+impl Projected {
     fn gap(&self) -> Duration {
         match self {
             Self::Agent(_) => AGENT_GAP,
@@ -128,7 +128,7 @@ impl Source {
 
 #[derive(Clone)]
 struct Projection {
-    source: Source,
+    source: Projected,
     previous: Option<Value>,
     bytes: usize,
     dirty: bool,
@@ -146,7 +146,7 @@ struct Projection {
 }
 
 impl Projection {
-    fn new(source: Source) -> Self {
+    fn new(source: Projected) -> Self {
         Self {
             source,
             previous: None,
@@ -273,21 +273,21 @@ impl Snapshots {
         if selected("agents") {
             wanted.push((
                 Topic::new("agents"),
-                Source::Read(Read::Sessions(Box::new(SessionsRequest::ListAll {}))),
+                Projected::Read(Read::Sessions(Box::new(SessionsRequest::ListAll {}))),
             ));
         }
 
         wanted.extend(topics_named(topics, "agent").map(|topic| {
             let source = match topic.key().filter(|_| !topic.is_pattern()) {
-                Some(session) => Source::Agent(Into::<SessionId>::into(session)),
-                None => Source::Read(Read::Sessions(Box::new(SessionsRequest::ListAll {}))),
+                Some(session) => Projected::Agent(Into::<SessionId>::into(session)),
+                None => Projected::Read(Read::Sessions(Box::new(SessionsRequest::ListAll {}))),
             };
 
             (topic.clone(), source)
         }));
 
         if selected("reviews") {
-            wanted.push((Topic::new("reviews"), Source::Reviews));
+            wanted.push((Topic::new("reviews"), Projected::Reviews));
         }
         wanted.extend(topics_named(topics, "processes").filter_map(|topic| {
             let session = topic.key().filter(|_| !topic.is_pattern())?;
@@ -297,14 +297,14 @@ impl Snapshots {
 
             Some((
                 topic.clone(),
-                Source::Read(Read::Sessions(Box::new(request))),
+                Projected::Read(Read::Sessions(Box::new(request))),
             ))
         }));
 
         // A topic naming one task gets that task alone.
         for topic in topics {
             if let Some(id) = numbered(topic, "process-output") {
-                wanted.push((topic.clone(), Source::Task(id)));
+                wanted.push((topic.clone(), Projected::Task(id)));
             }
         }
 
@@ -315,7 +315,7 @@ impl Snapshots {
         }) {
             wanted.push((
                 Topic::new("processes"),
-                Source::Read(Read::Process(beep_proto::node::process::Request::List {})),
+                Projected::Read(Read::Process(beep_proto::node::process::Request::List {})),
             ));
         }
         // A topic naming one terminal gets that terminal alone; the others,
@@ -327,35 +327,35 @@ impl Snapshots {
             _ => false,
         });
         if listed {
-            wanted.push((Topic::new("terminals"), Source::Read(Read::TerminalList)));
+            wanted.push((Topic::new("terminals"), Projected::Read(Read::TerminalList)));
         }
         for topic in topics {
             if let Some(id) = one(topic) {
-                wanted.push((topic.clone(), Source::Terminal(id)));
+                wanted.push((topic.clone(), Projected::Terminal(id)));
             }
         }
 
         // These carry values released readers cannot decode, so `*` leaves them out.
         wanted.extend(
             topics_named(topics, crate::run::device::LIST_TOPIC)
-                .map(|t| (t.clone(), Source::Devices)),
+                .map(|t| (t.clone(), Projected::Devices)),
         );
 
         // Only a topic keyed by a project's name has cards: they are not for `*`.
         wanted.extend(topics_named(topics, TEAM_CARDS_TOPIC).filter_map(|topic| {
             let project = topic.key().filter(|_| !topic.is_pattern())?;
 
-            Some((topic.clone(), Source::TeamCards(project.to_owned())))
+            Some((topic.clone(), Projected::TeamCards(project.to_owned())))
         }));
         wanted.extend(
-            topics_named(topics, TEAM_INVITES_TOPIC).map(|t| (t.clone(), Source::TeamInvites)),
+            topics_named(topics, TEAM_INVITES_TOPIC).map(|t| (t.clone(), Projected::TeamInvites)),
         );
         wanted.extend(
-            topics_named(topics, FORGE_REACH_TOPIC).map(|t| (t.clone(), Source::ForgeReach)),
+            topics_named(topics, FORGE_REACH_TOPIC).map(|t| (t.clone(), Projected::ForgeReach)),
         );
         wanted.extend(
             topics_named(topics, crate::machine::provision::UPDATES_TOPIC)
-                .map(|t| (t.clone(), Source::ToolUpdates)),
+                .map(|t| (t.clone(), Projected::ToolUpdates)),
         );
         if selected("sign-in") {
             for tool in [
@@ -369,7 +369,7 @@ impl Snapshots {
                 if topics.iter().any(|wanted| wanted.covers(&topic)) {
                     wanted.push((
                         topic,
-                        Source::Read(Read::SignIn {
+                        Projected::Read(Read::SignIn {
                             tool: tool.to_string(),
                         }),
                     ));
@@ -378,19 +378,19 @@ impl Snapshots {
         }
 
         if selected("sync") {
-            wanted.push((Topic::new("sync"), Source::Read(Read::SyncList)));
+            wanted.push((Topic::new("sync"), Projected::Read(Read::SyncList)));
         }
         // Only a topic that names it gets it, never `*`.
         if topics
             .iter()
             .any(|topic| topic.name() == MOVE_PROGRESS_TOPIC)
         {
-            wanted.push((Topic::new(MOVE_PROGRESS_TOPIC), Source::Moves));
+            wanted.push((Topic::new(MOVE_PROGRESS_TOPIC), Projected::Moves));
         }
         if selected("moves") {
             wanted.push((
                 Topic::new("moves"),
-                Source::Read(Read::Sessions(Box::new(SessionsRequest::Copies {}))),
+                Projected::Read(Read::Sessions(Box::new(SessionsRequest::Copies {}))),
             ));
         }
 
@@ -408,14 +408,14 @@ impl Snapshots {
                 .filter(|topic| scope.covers(topic))
                 .cloned()
                 .collect();
-            wanted.push((scope, Source::Resources(resources)));
+            wanted.push((scope, Projected::Resources(resources)));
         }
 
         for (topic, root) in roots {
             if topics.iter().any(|wanted| wanted.matches(topic)) {
                 wanted.push((
                     topic.clone(),
-                    Source::Read(Read::Sessions(Box::new(SessionsRequest::Folder {
+                    Projected::Read(Read::Sessions(Box::new(SessionsRequest::Folder {
                         root: root.to_string_lossy().into_owned(),
                         path: String::new(),
                         ignored: false,
@@ -430,13 +430,13 @@ impl Snapshots {
             .filter(|topic| topic.name() == "files" && !topic.is_pattern())
         {
             if !roots.contains_key(topic) {
-                wanted.push((topic.clone(), Source::Missing));
+                wanted.push((topic.clone(), Projected::Missing));
             }
         }
         // Plugin publishers retain one current value per exact topic.
         for topic in offers.agents.events.published() {
             if topics.iter().any(|wanted| wanted.covers(&topic)) {
-                wanted.push((topic, Source::Plugin));
+                wanted.push((topic, Projected::Plugin));
             }
         }
         // An exact plugin subscription can precede the plugin's first publication.
@@ -444,7 +444,7 @@ impl Snapshots {
             .iter()
             .filter(|topic| !topic.is_pattern() && !PROJECTED.contains(&topic.name()))
         {
-            wanted.push((topic.clone(), Source::Plugin));
+            wanted.push((topic.clone(), Projected::Plugin));
         }
         let desired: BTreeMap<_, _> = wanted
             .into_iter()
@@ -452,7 +452,7 @@ impl Snapshots {
             .chain(queries.iter().map(|query| {
                 (
                     (query.topic.clone(), Some(query.id)),
-                    Source::Read(query.read.clone()),
+                    Projected::Read(query.read.clone()),
                 )
             }))
             .collect();
@@ -491,11 +491,11 @@ impl Snapshots {
         // A removed wildcard resource needs one authoritative tombstone too.
         for (key, previous) in &self.entries {
             if key.1.is_none()
-                && previous.source != Source::Missing
+                && previous.source != Projected::Missing
                 && !next.contains_key(key)
                 && topics.iter().any(|topic| topic.covers(&key.0))
             {
-                next.insert(key.clone(), Projection::new(Source::Missing));
+                next.insert(key.clone(), Projection::new(Projected::Missing));
             }
         }
 
@@ -505,7 +505,7 @@ impl Snapshots {
     pub(super) fn changed(&mut self, topic: &Topic, kind: ChangeKind, touched: &Touched) {
         for ((read, _), entry) in &mut self.entries {
             // Git projections read refs, the index and history, never working-tree files.
-            let git = matches!(entry.source, Source::Read(Read::Git { .. }));
+            let git = matches!(entry.source, Projected::Read(Read::Git { .. }));
 
             if affected_entry(read, &entry.source, topic) && !(git && kind == ChangeKind::WorkTree)
             {
@@ -574,18 +574,18 @@ impl Snapshots {
                 tracing::debug!(%stream, generation, query = key.1, topic = key.0.name(), "subscription snapshot read started");
                 let result = timeout(Duration::from_secs(60), async {
                     match source {
-                        Source::Read(read) => read_value(offers, caller, read).await,
-                        Source::Agent(session) => {
+                        Projected::Read(read) => read_value(offers, caller, read).await,
+                        Projected::Agent(session) => {
                             Ok(Value::Sessions(Box::new(SessionsReply::Sessions {
                                 sessions: offers.agents.sessions.listed_session(&session),
                             })))
                         }
-                        Source::Reviews => Ok(Value::Sessions(Box::new(SessionsReply::Reviews {
+                        Projected::Reviews => Ok(Value::Sessions(Box::new(SessionsReply::Reviews {
                             runs: offers.agents.reviews.review_snapshots(),
                         }))),
-                        Source::Missing => Ok(Value::Missing),
-                        Source::Resources(resources) => Ok(Value::Resources(resources)),
-                        Source::Devices => {
+                        Projected::Missing => Ok(Value::Missing),
+                        Projected::Resources(resources) => Ok(Value::Resources(resources)),
+                        Projected::Devices => {
                             let listed = match watched::wait_for(&mut devices, Option::is_some).await {
                                 Ok(()) => watched::read(&devices, Clone::clone).unwrap_or_default(),
                                 Err(_) => Vec::new(),
@@ -593,12 +593,12 @@ impl Snapshots {
 
                             Ok(Value::Devices(listed))
                         }
-                        Source::TeamCards(project) => Ok(offers
+                        Projected::TeamCards(project) => Ok(offers
                             .team
                             .as_ref()
                             .and_then(|team| crate::team::apps::cards_of(team, &project))
                             .map_or(Value::Missing, Value::TeamCards)),
-                        Source::Terminal(id) => {
+                        Projected::Terminal(id) => {
                             let list = ask(
                                 &beep_proto::node::terminal::Request::List {},
                                 crate::run::terminal::serve,
@@ -617,27 +617,27 @@ impl Snapshots {
                                 other => Value::Terminals(other),
                             })
                         }
-                        Source::Task(id) => Ok(Value::Process(
+                        Projected::Task(id) => Ok(Value::Process(
                             crate::run::tasks::answer(
                                 crate::run::tasks::Table::Shared,
                                 beep_proto::node::process::Request::Status { id },
                             )
                             .await,
                         )),
-                        Source::TeamInvites => Ok(offers
+                        Projected::TeamInvites => Ok(offers
                             .team
                             .as_ref()
                             .map_or(Value::Missing, |team| Value::TeamInvites(team.invites_waiting()))),
-                        Source::Moves => Ok(Value::Sessions(Box::new(SessionsReply::Moves {
+                        Projected::Moves => Ok(Value::Sessions(Box::new(SessionsReply::Moves {
                             moves: offers.agents.moves.entries(),
                         }))),
-                        Source::ForgeReach => Ok(Value::ForgeReach(offers.agents.ci.reach())),
-                        Source::ToolUpdates => Ok(offers
+                        Projected::ForgeReach => Ok(Value::ForgeReach(offers.agents.ci.reach())),
+                        Projected::ToolUpdates => Ok(offers
                             .provision
                             .as_ref()
                             .and_then(|provision| provision.updatable())
                             .map_or(Value::Missing, Value::ToolUpdates)),
-                        Source::Plugin => offers
+                        Projected::Plugin => offers
                             .agents
                             .events
                             .current(&key.0)
@@ -716,7 +716,7 @@ impl Snapshots {
                     // Folder listeners use the revision to recheck open files. An
                     // edit can leave every entry in the listing unchanged.
                     let folder_event = key.1.is_none()
-                        && matches!(&entry.source, Source::Read(Read::Sessions(request))
+                        && matches!(&entry.source, Projected::Read(Read::Sessions(request))
                             if matches!(request.as_ref(), SessionsRequest::Folder { .. }));
 
                     if !folder_event {
@@ -808,7 +808,7 @@ fn named(value: Value, touched: Touched) -> Value {
 }
 
 /// The names `replace` gives a source of their own. An exact topic of any other name is a
-/// plugin's, and a name missing here would be overwritten by `Source::Plugin`.
+/// plugin's, and a name missing here would be overwritten by `Projected::Plugin`.
 const PROJECTED: [&str; 18] = [
     "files",
     "agents",
@@ -908,7 +908,7 @@ fn is_unkeyed_agent(topic: &Topic) -> bool {
     topic.name() == "agent" && topic.is_pattern() && topic.resource_segments().is_empty()
 }
 
-fn affected_entry(read: &Topic, source: &Source, change: &Topic) -> bool {
+fn affected_entry(read: &Topic, source: &Projected, change: &Topic) -> bool {
     // External log writes emit unkeyed `agent` for internal log watchers
     // (spend, search, claude) and harness-scoped `agent-log.<agent>` for
     // external-session queries. Do not dirty unrelated session projections on
@@ -919,7 +919,7 @@ fn affected_entry(read: &Topic, source: &Source, change: &Topic) -> bool {
 
     if change.name() == "agent-log" {
         return match source {
-            Source::Read(Read::Sessions(request)) => match request.as_ref() {
+            Projected::Read(Read::Sessions(request)) => match request.as_ref() {
                 SessionsRequest::External { agent, .. } => {
                     change.is_pattern() || change.key() == Some(agent.as_str())
                 }

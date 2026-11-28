@@ -33,7 +33,7 @@ pub struct Change {
 }
 
 /// The most paths a change names; beyond it the paths are not known.
-pub const MAX_TOUCHED: usize = 256;
+const MAX_TOUCHED: usize = 256;
 
 /// The paths a change touched, relative to the root a `files` topic names. A change that does
 /// not know them is `All`, and so is any that passed `MAX_TOUCHED`.

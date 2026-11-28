@@ -1,4 +1,4 @@
-//! The names of the session protocols the node serves.
+//! The names of the session protocols the node serves itself. `crate::protocol` holds the ones a host adds.
 
 // Protocol names are only routed on machines hosting sessions.
 #[cfg(feature = "host")]

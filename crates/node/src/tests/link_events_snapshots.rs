@@ -23,7 +23,7 @@ async fn session_process_topics_read_children_and_follow_process_changes() {
     let key = (topic.clone(), None);
     assert_eq!(
         snapshots.entries.get(&key).map(|entry| &entry.source),
-        Some(&Source::Read(Read::Sessions(Box::new(
+        Some(&Projected::Read(Read::Sessions(Box::new(
             SessionsRequest::Processes {
                 session: "example-session".into(),
             }
@@ -172,7 +172,7 @@ async fn recovery_after_a_read_error_resends_identical_state() {
     snapshots.entries.insert(
         key.clone(),
         Projection {
-            source: Source::Plugin,
+            source: Projected::Plugin,
             previous: Some(value.clone()),
             bytes: 1,
             dirty: false,
@@ -269,7 +269,7 @@ async fn one_session_topic_reads_that_session_on_a_shorter_gap() {
     let key = (topic.clone(), None);
     assert_eq!(
         snapshots.entries.get(&key).map(|entry| &entry.source),
-        Some(&Source::Agent("example-session".into()))
+        Some(&Projected::Agent("example-session".into()))
     );
     let started = Instant::now();
     snapshots.start(&offers, caller);
@@ -326,16 +326,16 @@ fn work_tree_changes_skip_git_projections_but_refresh_folders() {
 
 #[test]
 fn outside_session_lists_wait_longer_between_reads() {
-    let external = Source::Read(Read::Sessions(Box::new(SessionsRequest::External {
+    let external = Projected::Read(Read::Sessions(Box::new(SessionsRequest::External {
         agent: "claude".into(),
         limit: 20,
         session: None,
     })));
-    let folders = Source::Read(Read::Sessions(Box::new(SessionsRequest::InFolders {
+    let folders = Projected::Read(Read::Sessions(Box::new(SessionsRequest::InFolders {
         folders: vec!["/srv/project".into()],
         limit: 20,
     })));
-    let beep = Source::Read(Read::Sessions(Box::new(SessionsRequest::ListAll {})));
+    let beep = Projected::Read(Read::Sessions(Box::new(SessionsRequest::ListAll {})));
     assert_eq!(external.gap(), SCAN_GAP);
     assert_eq!(folders.gap(), SCAN_GAP);
     assert_eq!(beep.gap(), READ_GAP);
@@ -345,7 +345,7 @@ fn outside_session_lists_wait_longer_between_reads() {
 /// at every checkout again after each session write.
 #[test]
 fn found_checkouts_kept_live_wait_a_minute_between_reads() {
-    let found = Source::Read(Read::Sessions(Box::new(SessionsRequest::Folders {
+    let found = Projected::Read(Read::Sessions(Box::new(SessionsRequest::Folders {
         limit: 100,
     })));
     assert_eq!(found.gap(), FOLDERS_GAP);
@@ -410,7 +410,7 @@ async fn a_kept_lookup_of_one_outside_session_is_not_read_again_on_every_change(
 /// promptly again once it changes.
 #[test]
 fn an_unchanged_file_read_backs_off() {
-    let source = Source::Read(Read::Sessions(Box::new(SessionsRequest::ReadFile {
+    let source = Projected::Read(Read::Sessions(Box::new(SessionsRequest::ReadFile {
         root: "/srv/project".into(),
         path: "a.txt".into(),
         offset: 0,
@@ -432,7 +432,7 @@ fn an_unchanged_file_read_backs_off() {
     assert_eq!(projection(1).gap(), READ_GAP * 2);
     assert_eq!(projection(50).gap(), READ_GAP * 8);
     let list = Projection {
-        source: Source::Read(Read::Sessions(Box::new(SessionsRequest::ListAll {}))),
+        source: Projected::Read(Read::Sessions(Box::new(SessionsRequest::ListAll {}))),
         ..projection(50)
     };
     assert_eq!(list.gap(), READ_GAP);
@@ -492,7 +492,7 @@ async fn a_failing_git_read_backs_off_until_it_succeeds() {
     assert_eq!(snapshots.entries[&key].gap(), READ_GAP);
 }
 
-fn sources(topics: &[Topic]) -> Vec<(Topic, Source)> {
+fn sources(topics: &[Topic]) -> Vec<(Topic, Projected)> {
     let mut snapshots = Snapshots::new();
     snapshots.replace(&Offers::default(), topics, &[], &BTreeMap::new());
     snapshots
@@ -519,7 +519,7 @@ fn a_released_readers_topics_get_what_a_released_node_gave() {
             .into_iter()
             .map(|(_, source)| source)
             .collect::<Vec<_>>(),
-        vec![Source::Devices, Source::ToolUpdates]
+        vec![Projected::Devices, Projected::ToolUpdates]
     );
 }
 
@@ -577,7 +577,7 @@ fn a_projects_team_cards_have_a_source_of_their_own() {
 
     assert_eq!(
         sources(std::slice::from_ref(&topic)),
-        vec![(topic.clone(), Source::TeamCards("org/repo".to_owned()))]
+        vec![(topic.clone(), Projected::TeamCards("org/repo".to_owned()))]
     );
     // Not for `*`, and not for every project at once.
     assert!(
@@ -596,7 +596,7 @@ fn move_progress_has_a_source_of_its_own() {
 
     assert_eq!(
         sources(std::slice::from_ref(&topic)),
-        vec![(topic.clone(), Source::Moves)]
+        vec![(topic.clone(), Projected::Moves)]
     );
     // Not for `*`: released readers cannot decode it.
     assert!(
@@ -613,7 +613,7 @@ fn the_invites_have_a_source_of_their_own() {
 
     assert_eq!(
         sources(std::slice::from_ref(&topic)),
-        vec![(topic.clone(), Source::TeamInvites)]
+        vec![(topic.clone(), Projected::TeamInvites)]
     );
     // Not for `*`.
     assert!(
@@ -633,13 +633,13 @@ fn a_topic_naming_one_terminal_reads_that_terminal_alone() {
 
     assert_eq!(
         sources(std::slice::from_ref(&one)),
-        vec![(one.clone(), Source::Terminal(TaskId(7)))]
+        vec![(one.clone(), Projected::Terminal(TaskId(7)))]
     );
     // A desktop from before follows every terminal's output and still gets the list.
     let every = Topic::new("terminal-output");
     assert_eq!(
         sources(std::slice::from_ref(&every)),
-        vec![(Topic::new("terminals"), Source::Read(Read::TerminalList))]
+        vec![(Topic::new("terminals"), Projected::Read(Read::TerminalList))]
     );
     // A terminal starting or ending reads that terminal again, and so does its own output.
     assert!(affected(&one, &Topic::new("terminals")));
@@ -654,7 +654,7 @@ fn a_topic_naming_one_task_reads_that_task_alone() {
 
     assert_eq!(
         sources(std::slice::from_ref(&one)),
-        vec![(one.clone(), Source::Task(TaskId(3)))]
+        vec![(one.clone(), Projected::Task(TaskId(3)))]
     );
     // A desktop from before follows every task's output and still gets the list.
     let every = Topic::new("process-output");
@@ -662,7 +662,7 @@ fn a_topic_naming_one_task_reads_that_task_alone() {
         sources(std::slice::from_ref(&every)),
         vec![(
             Topic::new("processes"),
-            Source::Read(Read::Process(beep_proto::node::process::Request::List {}))
+            Projected::Read(Read::Process(beep_proto::node::process::Request::List {}))
         )]
     );
     // A task starting or ending reads that task again, and so does any task's output.
@@ -896,22 +896,22 @@ fn only_the_agents_list_is_cut_to_rows() {
 
 #[test]
 fn unkeyed_agent_does_not_dirty_projections_and_agent_log_is_harness_scoped() {
-    let list_all = Source::Read(Read::Sessions(Box::new(SessionsRequest::ListAll {})));
-    let claude = Source::Read(Read::Sessions(Box::new(SessionsRequest::External {
+    let list_all = Projected::Read(Read::Sessions(Box::new(SessionsRequest::ListAll {})));
+    let claude = Projected::Read(Read::Sessions(Box::new(SessionsRequest::External {
         agent: "claude".into(),
         limit: 50,
         session: None,
     })));
-    let codex = Source::Read(Read::Sessions(Box::new(SessionsRequest::External {
+    let codex = Projected::Read(Read::Sessions(Box::new(SessionsRequest::External {
         agent: "codex".into(),
         limit: 50,
         session: None,
     })));
-    let in_folders = Source::Read(Read::Sessions(Box::new(SessionsRequest::InFolders {
+    let in_folders = Projected::Read(Read::Sessions(Box::new(SessionsRequest::InFolders {
         folders: vec!["/srv/project".into()],
         limit: 50,
     })));
-    let one_session = Source::Agent("s1".into());
+    let one_session = Projected::Agent("s1".into());
     let agents_topic = Topic::new("agents");
     let unkeyed_agent = Topic::new("agent");
     let keyed_agent = Topic::keyed("agent", "s1");
@@ -1027,7 +1027,7 @@ fn every_name_replace_projects_is_listed_as_projected() {
 
     for ((topic, _), entry) in &snapshots.entries {
         assert!(
-            PROJECTED.contains(&topic.name()) && entry.source != Source::Plugin,
+            PROJECTED.contains(&topic.name()) && entry.source != Projected::Plugin,
             "{} is not listed",
             topic.name()
         );
