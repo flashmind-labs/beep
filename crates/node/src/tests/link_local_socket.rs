@@ -22,3 +22,27 @@ async fn connections_in_a_row_each_reach_the_node() {
         .await
         .expect("the third connection reaches the node");
 }
+
+/// A client that opens the pipe and closes it before the node accepts
+/// must not leave the listener failing: a later client still gets in.
+#[tokio::test]
+async fn a_client_that_drops_before_accept_does_not_stop_the_listener() {
+    let socket = std::env::temp_dir().join(format!("beep-pipe-drop-test-{}", std::process::id()));
+    let mut listener = Listener::bind(&socket).expect("the pipe is made");
+    drop(
+        connect(&socket)
+            .await
+            .expect("the first client opens the pipe"),
+    );
+    let accepting = tokio::spawn(async move {
+        loop {
+            if let Ok(stream) = listener.accept().await {
+                return stream;
+            }
+        }
+    });
+    let _second = connect(&socket)
+        .await
+        .expect("a second client reaches the node");
+    accepting.await.expect("the listener keeps accepting");
+}

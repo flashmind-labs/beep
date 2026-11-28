@@ -142,10 +142,22 @@ mod windows {
         }
 
         pub(crate) async fn accept(&mut self) -> io::Result<Stream> {
-            self.next.connect().await?;
-            let fresh = ServerOptions::new()
+            if let Err(e) = self.next.connect().await {
+                // A client that closed before the connect finished leaves
+                // the instance failing with ERROR_NO_DATA until it is reset.
+                self.next.disconnect().ok();
+                return Err(e);
+            }
+            let fresh = match ServerOptions::new()
                 .reject_remote_clients(true)
-                .create(&self.name)?;
+                .create(&self.name)
+            {
+                Ok(fresh) => fresh,
+                Err(e) => {
+                    self.next.disconnect().ok();
+                    return Err(e);
+                }
+            };
             Ok(Stream::Server(mem::replace(&mut self.next, fresh)))
         }
     }
