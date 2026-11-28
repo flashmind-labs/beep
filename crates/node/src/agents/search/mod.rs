@@ -41,7 +41,7 @@ const SESSION_WAIT: Duration = Duration::from_secs(60);
 
 /// Owns whether the node has a search index: opened when the mesh is
 /// joined, and tried again on the next join if the file would not open.
-pub struct Opener {
+pub(crate) struct Opener {
     path: Option<PathBuf>,
     index: OnceLock<Arc<SearchIndex>>,
     /// What the follow reads to index conversations.
@@ -70,13 +70,13 @@ impl Opener {
     }
 
     /// The index, once it is open.
-    pub fn get(&self) -> Option<Arc<SearchIndex>> {
+    pub(crate) fn get(&self) -> Option<Arc<SearchIndex>> {
         self.index.get().cloned()
     }
 
     /// Opens the index if it is not open yet. `None` when there is no file
     /// to open or it would not open now.
-    pub async fn open(&self) -> Option<Arc<SearchIndex>> {
+    pub(crate) async fn open(&self) -> Option<Arc<SearchIndex>> {
         if let Some(index) = self.get() {
             return Some(index);
         }

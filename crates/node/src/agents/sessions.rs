@@ -270,7 +270,7 @@ impl Sessions {
 
     /// Marks the node as stopping: sessions that end from now on ended
     /// with it, even when the service manager stopped their agents first.
-    pub fn begin_stopping(&self) {
+    pub(crate) fn begin_stopping(&self) {
         self.stopping.store(true, Ordering::Relaxed);
     }
 
