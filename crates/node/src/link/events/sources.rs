@@ -56,7 +56,8 @@ pub(crate) struct Source {
     /// Held across the walk that installs a binding, so installs of one
     /// source stay in order. Nothing else waits on it.
     install: AsyncMutex<()>,
-    bare: Mutex<Bare>,
+    /// When a root bound without Git metadata last asked Git again.
+    tried: Mutex<Option<Instant>>,
     /// For a test: the next lookup says it is done, then waits to be released.
     #[cfg(test)]
     after_lookup: Mutex<Option<Gate>>,
@@ -83,7 +84,7 @@ impl Source {
             unannounced: Mutex::default(),
             watcher: Mutex::default(),
             install: AsyncMutex::default(),
-            bare: Mutex::default(),
+            tried: Mutex::default(),
             #[cfg(test)]
             after_lookup: Mutex::default(),
             _agent_sources: agent_sources,
@@ -190,12 +191,6 @@ impl Source {
             *crate::lock(&watcher.bindings) = bindings.clone();
         }
 
-        crate::lock(&self.bare).topics = bindings
-            .iter()
-            .filter(|(_, dependencies)| !has_git(dependencies))
-            .map(|(topic, _)| topic.clone())
-            .collect();
-
         for topic in std::mem::take(&mut *crate::lock(&self.unannounced)) {
             offers.agents.events.changed(topic);
         }
@@ -203,22 +198,26 @@ impl Source {
         Ok(())
     }
 
+    /// Whether a root was bound without Git metadata.
     fn has_bare(&self) -> bool {
-        !crate::lock(&self.bare).topics.is_empty()
+        held(crate::lock(&self.watcher).as_deref())
+            .values()
+            .any(|dependencies| !has_git(dependencies))
     }
 
     /// Whether one of the `changed` roots was bound without Git metadata and
     /// should ask Git again; at most once per `GIT_RETRY`.
     fn retry_git<'a>(&self, mut changed: impl Iterator<Item = &'a Topic>) -> bool {
-        let mut bare = crate::lock(&self.bare);
+        let bindings = held(crate::lock(&self.watcher).as_deref());
+        let mut tried = crate::lock(&self.tried);
 
-        if !changed.any(|topic| bare.topics.contains(topic))
-            || bare.tried.is_some_and(|tried| tried.elapsed() < GIT_RETRY)
+        if !changed.any(|topic| bindings.get(topic).is_some_and(|d| !has_git(d)))
+            || tried.is_some_and(|tried| tried.elapsed() < GIT_RETRY)
         {
             return false;
         }
 
-        bare.tried = Some(Instant::now());
+        *tried = Some(Instant::now());
         true
     }
 }
@@ -324,14 +323,6 @@ pub(crate) struct Gate {
     pub(crate) root: PathBuf,
     pub(crate) reached: tokio::sync::oneshot::Sender<()>,
     pub(crate) release: tokio::sync::oneshot::Receiver<()>,
-}
-
-/// The roots a source bound without Git metadata, and when it last asked
-/// Git again.
-#[derive(Default)]
-struct Bare {
-    topics: BTreeSet<Topic>,
-    tried: Option<Instant>,
 }
 
 pub(super) struct Subscription {

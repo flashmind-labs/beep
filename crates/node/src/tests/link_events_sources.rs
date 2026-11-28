@@ -48,6 +48,27 @@ async fn an_older_lookup_that_lands_last_does_not_replace_a_newer_one() {
     assert_eq!(roots.values().next(), Some(&new.canonicalize().unwrap()));
 }
 
+// A root without Git metadata asks Git again at most once per `GIT_RETRY`.
+#[tokio::test(start_paused = true)]
+async fn a_root_without_git_retries_once_per_retry_interval() {
+    let root = tempfile::tempdir().unwrap();
+    let offers = Offers::from_parts(Parts {
+        folders: vec![root.path().to_owned()],
+        ..Parts::default()
+    });
+    let topic = Topic::keyed("files", root.path().to_str().unwrap());
+    let source = Source::new(&offers, &topic).await.unwrap();
+    source.bind(&offers).await.unwrap();
+    assert!(source.has_bare());
+
+    let changed = [topic];
+    assert!(source.retry_git(changed.iter()));
+    assert!(!source.retry_git(changed.iter()));
+    tokio::time::advance(GIT_RETRY).await;
+    assert!(source.retry_git(changed.iter()));
+    assert!(!source.retry_git(changed.iter()));
+}
+
 // The device list is read for the two topics that say it changed, while a
 // stream holds their source, and for no other.
 #[tokio::test]
