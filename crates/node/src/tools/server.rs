@@ -42,18 +42,10 @@ pub(crate) trait Backend: Sync {
     /// Runs one call on the node.
     fn call(&self, request: &Request) -> impl Future<Output = Result<Reply>> + Send;
     /// Reads a transcript independently of the acting tools/1 requests.
-    fn read_transcript(&self, _args: Value) -> impl Future<Output = Result<Reply>> + Send {
-        async {
-            Ok(crate::agents::reply::fail(
-                "Session transcripts are unavailable on this backend.",
-            ))
-        }
-    }
+    fn read_transcript(&self, args: Value) -> impl Future<Output = Result<Reply>> + Send;
     /// Runs `session`'s `device` call: emulators and simulators, which this
     /// node reaches over `device/1`.
-    fn device(&self, _session: &SessionId, _args: Value) -> impl Future<Output = Called> + Send {
-        async { Called::failed("Devices are unavailable on this backend.") }
-    }
+    fn device(&self, session: &SessionId, args: Value) -> impl Future<Output = Called> + Send;
     /// Puts `question` to the user in `session` and waits for the answer.
     fn ask(
         &self,
@@ -68,17 +60,11 @@ pub(crate) trait Backend: Sync {
     fn assistant(&self, session: &SessionId) -> bool;
     /// Whether the mesh has no other machine to run on, so the tools that
     /// reach one are left out.
-    fn alone(&self) -> bool {
-        false
-    }
+    fn alone(&self) -> bool;
     /// Whether `session` works in a team project, which gets the team tools.
-    fn team(&self, _session: &SessionId) -> bool {
-        false
-    }
+    fn team(&self, session: &SessionId) -> bool;
     /// The media tools `session` gets from the saved API keys.
-    fn media(&self, _session: &SessionId) -> Option<Media> {
-        None
-    }
+    fn media(&self, session: &SessionId) -> Option<Media>;
 }
 
 /// Serves MCP for `session` until the reader ends and every call is
