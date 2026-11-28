@@ -107,3 +107,25 @@ fn node_ops_runs_different_lanes_together_and_settles_a_job_that_expired_unsent(
     assert!(matches!(expired.as_slice(), [JobKind::StopProcess { .. }]));
     assert!(rx.try_recv().expect("heard").is_err());
 }
+
+#[test]
+fn a_repeated_delete_joins_the_one_being_sent() {
+    let ops = NodeOps::default();
+    let machine = sample_machine(11);
+    let session = SessionId::from("s-2");
+    let delete = || JobKind::DeleteSession {
+        agent: "claude".into(),
+        session: session.clone(),
+    };
+    let lane = delete().lane();
+
+    assert!(ops.push_job(machine, delete(), None));
+    let (id, _, _) = ops.next_due(machine, &lane).0.expect("delete job");
+    assert!(!ops.push_job(machine, delete(), None));
+    assert!(ops.is_deleting_session_on(machine, &session));
+
+    ops.settle_job(machine, id, Ok(()));
+
+    assert!(ops.next_due(machine, &lane).0.is_none());
+    assert!(!ops.is_deleting_session_on(machine, &session));
+}

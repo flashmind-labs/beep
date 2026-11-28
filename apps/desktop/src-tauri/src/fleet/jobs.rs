@@ -233,9 +233,13 @@ impl NodeOps {
         let deadline = Instant::now() + kind.ttl();
         let queue = held.queues.entry(machine).or_default();
 
+        // A delete is idempotent: a second one while the first is sending shares its outcome
+        // instead of asking for a session the node has already removed.
+        let joins_sending = matches!(kind, JobKind::DeleteSession { .. });
+
         if let Some(existing) = queue
             .iter_mut()
-            .find(|job| !job.sending && job.kind.key() == key)
+            .find(|job| job.kind.key() == key && (!job.sending || joins_sending))
         {
             existing.kind = kind;
             existing.deadline = deadline;
