@@ -206,7 +206,7 @@ async fn run(app: &AppHandle, args: &str) -> Result<Value, String> {
         }
         Action::Import { projects, machines } => {
             let ids = machine_ids(&fleet, &machines)?;
-            let found = desk.group_found(held.found.last());
+            let found = desk.group_found(held.found_last());
             let import = |repo: String, place: FoundPlace| {
                 let desk = &desk;
                 async move {
@@ -388,12 +388,12 @@ async fn found(
 
     for (machine, done) in machines.iter().zip(join_all(asks).await) {
         match done {
-            Ok(found) => held.found.keep(found),
+            Ok(found) => held.keep_found(found),
             Err(why) => problems.push(json!({ "machine": fleet.name_of(*machine), "why": why })),
         }
     }
 
-    let found = desk.group_found(held.found.last());
+    let found = desk.group_found(held.found_last());
 
     json!({ "found": found, "problems": problems })
 }

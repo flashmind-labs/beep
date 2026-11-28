@@ -257,7 +257,7 @@ pub(super) async fn ensure_team_project(
         .into_iter()
         .map(|machine| machine.to_string())
         .collect();
-    let found = desk.group_found(held.found.last());
+    let found = desk.group_found(held.found_last());
 
     if let Some((remote, place)) = find_matching_place(&found, repo, &online, machine_id) {
         let imported = desk

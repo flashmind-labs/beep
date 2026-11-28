@@ -66,7 +66,7 @@ pub async fn rescan_found(
     let machine = fleet.machine(&machine_id)?;
     let problem = match direct::found_on(&fleet, machine).await {
         Ok(found) => {
-            held.found.keep(found);
+            held.keep_found(found);
             None
         }
         Err(why) => Some(why),
@@ -80,7 +80,7 @@ pub async fn rescan_found(
 /// What the machines named last, without what the mesh already has as a
 /// project.
 async fn grouped(session: &FleetState<'_>, held: &MachineLists) -> Vec<FoundProject> {
-    let here = held.found.last();
+    let here = held.found_last();
     match desk(session).await {
         Ok(desk) => desk.group_found(here),
         Err(_) => beep_projects::imports::found::group(here, &[], &[]),

@@ -214,21 +214,18 @@ pub struct MachineLists {
     /// The terminals on the other machines of the mesh, as they stand.
     pub(crate) terminals: Arc<Held<Terminal>>,
     /// The checkouts each machine of the mesh named last.
-    pub(crate) found: FoundOn,
+    found: Mutex<Vec<MachineFound>>,
 }
 
-/// What each machine named last when asked for its checkouts.
-#[derive(Default)]
-pub(crate) struct FoundOn(Mutex<Vec<MachineFound>>);
-
-impl FoundOn {
-    pub(crate) fn last(&self) -> Vec<MachineFound> {
-        lock(&self.0).clone()
+impl MachineLists {
+    /// What each machine named last when asked for its checkouts.
+    pub(crate) fn found_last(&self) -> Vec<MachineFound> {
+        lock(&self.found).clone()
     }
 
     /// Keeps `found` in place of what its machine named before.
-    pub(crate) fn keep(&self, found: MachineFound) {
-        let mut all = lock(&self.0);
+    pub(crate) fn keep_found(&self, found: MachineFound) {
+        let mut all = lock(&self.found);
         all.retain(|known| known.machine_id != found.machine_id);
         all.push(found);
     }
