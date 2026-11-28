@@ -107,12 +107,10 @@ fn a_machine_is_named_as_list_machines_names_it() {
 #[tokio::test]
 async fn metric_periods_accept_human_durations_and_enforce_retention() {
     let (_peers, node, _dir) = node("").await;
-    let own = node.own.clone();
 
     for period in ["1h", "4h", "1d", "7d", "1w", "1.5h", "1h 30m"] {
         assert!(
             metrics(
-                &own,
                 &node,
                 MetricsArgs {
                     machine: None,
@@ -139,7 +137,6 @@ async fn metric_periods_accept_human_durations_and_enforce_retention() {
     ] {
         assert!(
             metrics(
-                &own,
                 &node,
                 MetricsArgs {
                     machine: None,

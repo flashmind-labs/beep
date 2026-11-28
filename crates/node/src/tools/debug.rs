@@ -6,10 +6,7 @@
 use super::{Node, server::ASK_LIMIT};
 use crate::agents::calls::command_name;
 use crate::agents::reply::{done, fail, parse};
-use crate::{
-    agents::{Answered, Asking},
-    status::Own,
-};
+use crate::agents::{Answered, Asking};
 use beep_proto::SessionId;
 use beep_proto::node::{
     agent::{AnswerOption, OptionKind},
@@ -36,7 +33,7 @@ const SEND_AND_ISSUE: &str = "issue";
 
 /// Answers one of the tools for the session that called it.
 pub(super) async fn call(node: &Node, request: &Request) -> Reply {
-    let answered = match dispatch(&node.own, node, request).await {
+    let answered = match dispatch(node, request).await {
         Ok(answered) => answered,
         Err(bad_args) => return fail(bad_args),
     };
@@ -53,16 +50,12 @@ pub(super) async fn call(node: &Node, request: &Request) -> Reply {
     }
 }
 
-async fn dispatch(
-    own: &Own,
-    node: &Node,
-    request: &Request,
-) -> Result<Result<String, String>, String> {
+async fn dispatch(node: &Node, request: &Request) -> Result<Result<String, String>, String> {
     Ok(match request.tool {
-        Tool::BeepStatus => Ok(status(own, node).await),
-        Tool::BeepLogs => logs(own, node, parse(&request.args)?).await,
-        Tool::BeepMetrics => metrics(own, node, parse(&request.args)?).await,
-        Tool::FileReport => file(own, node, &request.session, parse(&request.args)?).await,
+        Tool::BeepStatus => Ok(status(node).await),
+        Tool::BeepLogs => logs(node, parse(&request.args)?).await,
+        Tool::BeepMetrics => metrics(node, parse(&request.args)?).await,
+        Tool::FileReport => file(node, &request.session, parse(&request.args)?).await,
         other => Err(format!("{other} is not a Beep debugging tool.")),
     })
 }
@@ -99,7 +92,8 @@ fn heading(share: &Share) -> String {
 }
 
 /// Every machine's status, version and OS: no log.
-async fn status(own: &Own, node: &Node) -> String {
+async fn status(node: &Node) -> String {
+    let own = &node.own;
     let shares = collect_within(own.report_targets(node), now(), 0).await;
     let mut text = String::new();
 
@@ -118,7 +112,8 @@ fn named(target: &Target, name: &str) -> bool {
     command_name(&target.name) == command_name(name) || target.id.to_string() == name.trim()
 }
 
-fn find_target(own: &Own, node: &Node, machine: Option<&str>) -> Result<Target, String> {
+fn find_target(node: &Node, machine: Option<&str>) -> Result<Target, String> {
+    let own = &node.own;
     let me = own.key().public();
     let name = machine.map(str::trim).unwrap_or_default();
 
@@ -280,11 +275,11 @@ impl LogsArgs {
 }
 
 /// One machine's log for the last `minutes`, its newest `lines` lines.
-async fn logs(own: &Own, node: &Node, args: LogsArgs) -> Result<String, String> {
+async fn logs(node: &Node, args: LogsArgs) -> Result<String, String> {
     let query = args.query()?;
     let minutes = args.minutes();
     let lines = args.lines();
-    let target = find_target(own, node, args.machine.as_deref())?;
+    let target = find_target(node, args.machine.as_deref())?;
 
     if let Some(query) = query {
         use beep_proto::node::logs::{QUERY_PROTOCOL, Reply};
@@ -402,7 +397,7 @@ impl MetricsArgs {
     }
 }
 
-async fn metrics(own: &Own, node: &Node, args: MetricsArgs) -> Result<String, String> {
+async fn metrics(node: &Node, args: MetricsArgs) -> Result<String, String> {
     use beep_proto::node::metrics::{PROTOCOL, QUERY_PROTOCOL, Reply, Request};
     let period = args.period.as_deref().unwrap_or("1h");
     let duration = humantime::parse_duration(period).map_err(|e| {
@@ -416,7 +411,7 @@ async fn metrics(own: &Own, node: &Node, args: MetricsArgs) -> Result<String, St
     }
 
     let query = args.query(duration)?;
-    let target = find_target(own, node, args.machine.as_deref())?;
+    let target = find_target(node, args.machine.as_deref())?;
     let client = target
         .client
         .map_err(|reason| format!("{}: {reason}", target.name))?;
@@ -470,12 +465,8 @@ struct ReportArgs {
 
 /// Puts the report to the user, then sends it as the desktop's Report a
 /// problem does, and gives its reference.
-async fn file(
-    own: &Own,
-    node: &Node,
-    session: &SessionId,
-    args: ReportArgs,
-) -> Result<String, String> {
+async fn file(node: &Node, session: &SessionId, args: ReportArgs) -> Result<String, String> {
+    let own = &node.own;
     let description = args.description.trim().to_owned();
 
     if description.is_empty() {
