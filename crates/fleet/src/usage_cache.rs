@@ -19,10 +19,10 @@ use std::{
 };
 use tokio::time::{Instant, timeout};
 
-/// How long a node may be quiet before what it has said is taken as all of it.
 /// How long a stream is kept for the plans it owes, from its opening: a node gives each CLI 30
 /// seconds to answer, its start included.
 pub(crate) const PLAN_WAIT: Duration = Duration::from_secs(35);
+/// How long a node may be quiet before what it has said is taken as all of it.
 pub(crate) const SETTLE: Duration = Duration::from_secs(2);
 pub(crate) type Replies =
     Pin<Box<dyn Stream<Item = std::result::Result<SessionsReply, MeshError>> + Send>>;
