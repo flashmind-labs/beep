@@ -937,6 +937,39 @@ fn topics_taken_while_hidden_are_primed_in_full_when_shown() {
 }
 
 #[test]
+fn topics_a_window_pauses_with_are_primed_in_full_when_shown() {
+    let events = WindowOutbox::new(iroh::SecretKey::generate().public());
+    let machine = iroh::SecretKey::generate().public();
+    let _other = heard_window(
+        &events,
+        "other",
+        Uuid::new_v4(),
+        vec![interest("files", Some(machine))],
+    );
+    events.dispatch(update(machine, 1, "files"));
+    let id = Uuid::new_v4();
+    let heard = heard_window(&events, "one", id, vec![interest("reviews", Some(machine))]);
+
+    events
+        .pause(
+            "one",
+            id,
+            Some(vec![
+                interest("reviews", Some(machine)),
+                interest("files", Some(machine)),
+            ]),
+        )
+        .unwrap();
+    assert!(heard.lock().unwrap().is_empty());
+
+    assert_eq!(
+        events.resume("one", id, None).unwrap(),
+        Some(Primed::Changes)
+    );
+    assert_eq!(heard.lock().unwrap().len(), 1);
+}
+
+#[test]
 fn a_reader_that_attaches_again_with_a_sequence_gets_only_newer_updates() {
     let events = WindowOutbox::new(iroh::SecretKey::generate().public());
     let machine = iroh::SecretKey::generate().public();

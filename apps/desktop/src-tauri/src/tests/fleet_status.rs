@@ -5,7 +5,7 @@ use std::time::Instant;
 use tokio::task::JoinSet;
 use tokio::time::timeout;
 
-use super::Status;
+use super::{Status, retry_due};
 
 #[test]
 fn telemetry_does_not_invalidate_machine_metadata() {
@@ -159,6 +159,15 @@ async fn removing_a_machine_cuts_it_off_from_every_other() {
         mac.fleet.client(gone).await.is_err(),
         "a removed machine is not reachable"
     );
+}
+
+#[test]
+fn a_follow_that_ended_waits_before_it_starts_again() {
+    assert!(!retry_due(Instant::now()));
+    let long_ago = Instant::now()
+        .checked_sub(super::RETRY)
+        .expect("the clock has run that long");
+    assert!(retry_due(long_ago));
 }
 
 #[tokio::test]

@@ -609,13 +609,14 @@ impl WindowOutbox {
         let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
         let seq = registry.latest.seq;
 
-        if !registry
+        let Some(sent) = registry
             .windows
             .get(window)
-            .is_some_and(|held| held.id == id)
-        {
+            .filter(|held| held.id == id)
+            .map(|held| held.topics.clone())
+        else {
             return Ok(false);
-        }
+        };
 
         if let Some(topics) = topics {
             registry.topics(window, id, topics)?;
@@ -630,7 +631,7 @@ impl WindowOutbox {
             held.paused = Some(Paused {
                 at: Instant::now(),
                 seq,
-                topics: held.topics.clone(),
+                topics: sent,
                 complete: true,
             });
         }

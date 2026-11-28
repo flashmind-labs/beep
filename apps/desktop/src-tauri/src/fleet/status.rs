@@ -660,7 +660,7 @@ impl Follower {
                 }
 
                 if let Some(at) = ended.get(&id).copied()
-                    && at.elapsed() < RETRY
+                    && !retry_due(at)
                 {
                     let next = at + RETRY;
                     retry = Some(retry.map_or(next, |soonest| soonest.min(next)));
@@ -730,6 +730,11 @@ fn write_seen(path: PathBuf, seen: &BTreeMap<String, u64>) {
             log::warn!("could not save when machines were seen: {e:#}");
         }
     });
+}
+
+/// Whether a follow that ended at `ended` may start again.
+fn retry_due(ended: Instant) -> bool {
+    ended.elapsed() >= RETRY
 }
 
 /// This Mac's Unix time in milliseconds.
