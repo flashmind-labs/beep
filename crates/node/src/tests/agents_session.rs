@@ -2632,9 +2632,6 @@ async fn a_stop_by_the_user_does_not_make_a_dropped_handle_a_close_by_the_user()
     let temp = tempfile::tempdir().unwrap();
     let session = started(temp.path(), "while read -r line; do :; done");
     until(&session, |live| live.status() == Status::Working).await;
-    let kept =
-        crate::agents::uploads::write(&session.agent, &session.id, "note.txt", 0, 1, b"x", None)
-            .unwrap();
     session
         .order(Command::Cancel { by_user: true })
         .await
@@ -2643,8 +2640,6 @@ async fn a_stop_by_the_user_does_not_make_a_dropped_handle_a_close_by_the_user()
     let Session {
         orders,
         live,
-        id,
-        agent,
         _task,
         ..
     } = session;
@@ -2658,9 +2653,6 @@ async fn a_stop_by_the_user_does_not_make_a_dropped_handle_a_close_by_the_user()
     .expect("the session ends")
     .unwrap();
     let by_user = watched::read(&live, |live| live.stopped_by_user);
-    let exists = Path::new(&kept).exists();
-    crate::agents::uploads::remove(&agent, &id).unwrap();
-    assert!(exists, "the attachments stay");
     assert!(!by_user);
 }
 

@@ -513,3 +513,26 @@ async fn a_steer_during_v1_compaction_waits_for_compaction_to_finish() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn a_failed_reply_for_an_echoed_steer_after_a_stop_keeps_steering_on() {
+    with_actor(async |mut actor, cx| {
+        actor.offers.takes_steering = true;
+        actor
+            .backlog
+            .begin_steer(Prompt::from("make it blue".to_owned()));
+        actor.backlog.steering_mut().unwrap().shown = true;
+
+        actor
+            .command(&cx, Command::Cancel { by_user: false })
+            .unwrap()
+            .unwrap();
+        actor
+            .steered(&cx, Err(agent_client_protocol::Error::internal_error()))
+            .unwrap();
+
+        assert!(actor.offers.takes_steering);
+        assert!(!actor.backlog.has_prompts());
+    })
+    .await;
+}

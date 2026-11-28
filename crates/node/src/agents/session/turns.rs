@@ -163,6 +163,11 @@ impl Actor {
             Ok(acp::SteeringOutcome::Injected) => {}
             // Taken back, so it is not sent again, but an adapter that failed
             // it is not asked to steer the next one.
+            Err(e) if steer.shown => {
+                self.note(&format!(
+                    "The agent echoed the steer but its delivery reply failed: {e}"
+                ));
+            }
             _ if steer.dropped => {
                 if !matches!(outcome, Ok(acp::SteeringOutcome::PromptRequired)) {
                     self.offers.takes_steering = false;
@@ -182,11 +187,6 @@ impl Actor {
                 }
 
                 return Ok(());
-            }
-            Err(e) if steer.shown => {
-                self.note(&format!(
-                    "The agent echoed the steer but its delivery reply failed: {e}"
-                ));
             }
             Ok(acp::SteeringOutcome::Failed) | Err(_) => {
                 let reason = outcome.err().map(|e| format!(": {e}")).unwrap_or_default();
@@ -526,10 +526,6 @@ impl Actor {
             && self.asked.is_empty()
     }
 
-    pub(super) fn has_waiting_prompts(&self) -> bool {
-        self.backlog.has_prompts()
-    }
-
     /// Sends the next waiting prompt, if any.
     pub(super) fn next_prompt(&mut self, cx: &ConnectionTo<Agent>) {
         // A session that moves still runs what waited before the
@@ -542,7 +538,7 @@ impl Actor {
             return;
         };
 
-        let waiting = self.has_waiting_prompts();
+        let waiting = self.backlog.has_prompts();
 
         // A conversation past the threshold compacts as soon as its turn
         // ends, so the next message need not wait for it. A session that
