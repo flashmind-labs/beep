@@ -22,7 +22,7 @@ export async function writeClipboard(text: string) {
 /// Copies `text` and says so on `on` for a moment.
 export async function copy(text: string, on?: HTMLElement | null) {
   await writeClipboard(text);
-  if (!on) return;
+  if (!on || on.textContent === "Copied") return;
   const was = on.innerHTML;
   on.textContent = "Copied";
   setTimeout(() => { if (on.isConnected) on.innerHTML = was; }, 1200);

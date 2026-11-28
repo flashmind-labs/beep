@@ -13,6 +13,7 @@ import { makeTouchBar } from "./touchbar.tsx";
 import { ZOOMED } from "../../ui/zoom-state.ts";
 import { APPLE, isTouchDevice, onPhone } from "../../ui/platform.ts";
 import { skinChanged } from "../../ui/skin.ts";
+import { writeClipboard } from "../../ui/clipboard.ts";
 import { logError } from "../../ui/tauri.ts";
 import type { Screen } from "../../stores/terminals/terminal-state.ts";
 
@@ -279,7 +280,7 @@ export function makeScreen(el: HTMLElement = document.createElement("div")): Scr
         const text = parts.input.selectedText();
         if (text === null) return;
         e.preventDefault();
-        void navigator.clipboard.writeText(text);
+        void writeClipboard(text);
         return;
       }
       case "paste":

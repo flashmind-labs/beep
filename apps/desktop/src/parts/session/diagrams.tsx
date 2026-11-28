@@ -4,6 +4,7 @@ import { type SyntheticEvent } from "react";
 import { createDocumentScope } from "../../ui/document-root.tsx";
 import { skinChanged } from "../../ui/skin.ts";
 import { invoke, useBuildCapabilities } from "../../ui/tauri.ts";
+import { writeClipboard } from "../../ui/clipboard.ts";
 import { saveUrl } from "./media.tsx";
 import { notice } from "./viewer-overlay.tsx";
 
@@ -159,7 +160,7 @@ addEventListener("message", event => {
     if (diagram.fallback) diagram.fallback.hidden = true;
   } else if (data.action === "expand") expand(diagram.source);
   else if (data.action === "close") close();
-  else if (data.action === "copy") navigator.clipboard.writeText(diagram.source).then(() => notice("Copied diagram source"), () => notice("Could not copy diagram source", { bad: true }));
+  else if (data.action === "copy") writeClipboard(diagram.source).then(() => notice("Copied diagram source"), () => notice("Could not copy diagram source", { bad: true }));
   else if ((data.action === "save" || data.action === "copy-image") && (data.mime === "image/svg+xml" || data.mime === "image/png")
     && typeof data.data === "string" && data.data.length <= 24000000 && /^[A-Za-z0-9+/]*={0,2}$/.test(data.data)) {
     if (data.action === "copy-image" && data.mime === "image/png") {
