@@ -14,6 +14,7 @@ use beep_proto::node::{
     events::{self, Topic},
     subscriptions::{Reply, Request},
 };
+use beep_proto::watched;
 use iroh::EndpointId;
 use std::{
     collections::HashSet,
@@ -221,7 +222,7 @@ impl SubscriptionWorker {
                                 // The windows get the screen as the view the command gives.
                                 ring(app, Change::OutputPushed { machine, topic: snapshot.topic.clone(), value: snapshot.value.clone() });
                             } else if (machine != fleet.me || !controller_topic(&snapshot.topic))
-                                && app.state::<WindowOutbox>().node_wanted(machine, &snapshot.topic) {
+                                && watched::read_sent(&app.state::<WindowOutbox>().wants, |wants| wants.node_wanted(machine, &snapshot.topic)) {
                                 let data = serde_json::to_value(&snapshot.value).ok();
                                 let update = Update { machine_id: machine.to_string(), revision: snapshot.revision, query: snapshot.query, initial, data, topic: snapshot.topic.clone(), seq: 0 };
 
@@ -251,7 +252,7 @@ impl SubscriptionWorker {
                                 ring(app, Change::Failed { topic: topic.clone(), reason: reason.clone() });
                             }
 
-                            if (machine != fleet.me || !controller_topic(&topic)) && app.state::<WindowOutbox>().node_wanted(machine, &topic) {
+                            if (machine != fleet.me || !controller_topic(&topic)) && watched::read_sent(&app.state::<WindowOutbox>().wants, |wants| wants.node_wanted(machine, &topic)) {
                                 app.state::<WindowOutbox>().dispatch_node(Update { machine_id: machine.to_string(), revision, query, initial: false, data: Some(serde_json::json!({ "error": reason })), topic, seq: 0 });
                             }
                         },

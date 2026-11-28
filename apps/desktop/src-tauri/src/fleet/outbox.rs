@@ -7,7 +7,10 @@ use super::{
     view_signal::{Interest, Update, Wants, aliased, join_changed},
 };
 use crate::error::{DesktopError, Result};
-use beep_proto::node::events::{self, Topic};
+use beep_proto::{
+    node::events::{self, Topic},
+    watched,
+};
 use iroh::EndpointId;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
@@ -945,16 +948,6 @@ impl WindowOutbox {
         self.forge.subscribe()
     }
 
-    pub(crate) fn node_wanted(&self, machine: EndpointId, topic: &Topic) -> bool {
-        let id = machine.to_string();
-        self.registry
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .receiving()
-            .flat_map(|window| &window.topics)
-            .any(|interest| interest.wants_node(&id, topic))
-    }
-
     pub(crate) fn forget_queries(&self, machine: EndpointId, queries: &[events::Query]) {
         let machine = machine.to_string();
         let ids: BTreeSet<_> = queries.iter().map(|query| query.id).collect();
@@ -984,21 +977,10 @@ impl WindowOutbox {
             .resources(&machine.to_string(), scope, resources);
     }
 
-    /// Whether a shown or briefly hidden window wants the controller view `topic`, so a
-    /// drawn view is kept for it.
-    pub(crate) fn controller_held(&self, topic: &Topic) -> bool {
-        self.registry
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .receiving()
-            .flat_map(|window| &window.topics)
-            .any(|interest| interest.wants_view(topic))
-    }
-
     /// Sends a rendered view to the windows that want it. One the same as the last sent is
     /// dropped: the windows hold it, and a window that opens is primed with it.
     pub(crate) fn publish_views(&self, machine: EndpointId, topic: Topic, data: serde_json::Value) {
-        if !self.controller_held(&topic) {
+        if !watched::read_sent(&self.wants, |wants| wants.controller_held(&topic)) {
             return;
         }
 
@@ -1028,7 +1010,7 @@ impl WindowOutbox {
         revision: u64,
         data: serde_json::Value,
     ) {
-        if !self.node_wanted(machine, &topic) {
+        if !watched::read_sent(&self.wants, |wants| wants.node_wanted(machine, &topic)) {
             return;
         }
 

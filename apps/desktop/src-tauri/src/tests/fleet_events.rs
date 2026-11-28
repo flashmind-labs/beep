@@ -44,13 +44,15 @@ fn register(
     topics: Vec<Interest>,
     send: Sink,
 ) -> watch::Receiver<()> {
-    events
+    let reader = events
         .registry
         .lock()
         .unwrap()
         .register(label, id, topics, send)
         .unwrap()
-        .unwrap()
+        .unwrap();
+    events.changed();
+    reader
 }
 
 #[test]
@@ -1038,7 +1040,8 @@ fn the_tray_standing_interest_keeps_the_stream_on_and_takes_no_updates() {
         .hold_set("tray", vec![interest("agents", None)])
         .unwrap();
 
-    assert!(!events.node_wanted(machine, &Topic::new("agents")));
+    assert!(!watched::read_sent(&events.wants, |wants| wants
+        .node_wanted(machine, &Topic::new("agents"))));
     events.dispatch(Update {
         machine_id: machine.to_string(),
         topic: Topic::new("agents"),
@@ -1060,7 +1063,8 @@ fn the_tray_standing_interest_keeps_the_stream_on_and_takes_no_updates() {
         Uuid::new_v4(),
         vec![interest("agents", None)],
     );
-    assert!(events.node_wanted(machine, &Topic::new("agents")));
+    assert!(watched::read_sent(&events.wants, |wants| wants
+        .node_wanted(machine, &Topic::new("agents"))));
 }
 
 #[test]
@@ -1074,11 +1078,13 @@ fn a_standing_interest_in_a_view_has_it_neither_drawn_nor_kept() {
         .unwrap();
 
     assert!(!wanted(&events, &Topic::new("sync")));
-    assert!(!events.controller_held(&Topic::new("moves")));
+    assert!(!watched::read_sent(&events.wants, |wants| wants
+        .controller_held(&Topic::new("moves"))));
 
     let _window = heard_window(&events, "one", Uuid::new_v4(), vec![interest("sync", None)]);
     assert!(wanted(&events, &Topic::new("sync")));
-    assert!(events.controller_held(&Topic::new("sync")));
+    assert!(watched::read_sent(&events.wants, |wants| wants
+        .controller_held(&Topic::new("sync"))));
     assert!(!wanted(&events, &Topic::new("moves")));
 }
 
@@ -1098,8 +1104,10 @@ fn a_terminal_list_is_not_taken_for_a_terminals_output() {
         Arc::new(|_| true),
     );
 
-    assert!(!events.node_wanted(machine, &Topic::new("terminals")));
-    assert!(events.node_wanted(machine, &Topic::keyed("terminal-output", "7")));
+    assert!(!watched::read_sent(&events.wants, |wants| wants
+        .node_wanted(machine, &Topic::new("terminals"))));
+    assert!(watched::read_sent(&events.wants, |wants| wants
+        .node_wanted(machine, &Topic::keyed("terminal-output", "7"))));
 }
 
 /// Whether a shown window wants the controller view `topic`, as `Views` hears it.
