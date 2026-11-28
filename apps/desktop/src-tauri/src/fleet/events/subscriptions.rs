@@ -1,6 +1,6 @@
 //! One snapshot worker per demanded topic, independent of action delivery.
 
-use super::commands::{Idle, retrying};
+use super::commands::{Idle, SEND_LIMIT, retrying};
 use crate::error::{DesktopError, Result};
 use crate::fleet::outbox::{WindowOutbox, controller_topic};
 use crate::fleet::{
@@ -10,23 +10,45 @@ use crate::fleet::{
 };
 use beep_mesh::{Heard, Snapshots};
 use beep_proto::node::{
+    LinkTx,
     agent::SessionsReply,
-    events::{self, Topic},
+    events::{self, Query, Topic},
     subscriptions::{Reply, Request},
 };
 use beep_proto::watched;
 use iroh::EndpointId;
-use std::{
-    collections::HashSet,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{collections::HashSet, sync::Arc, time::Instant};
 use tauri::{AppHandle, Manager};
 use tokio::time::timeout;
 use uuid::Uuid;
 
 /// The node topic of the tools it found a newer release of.
 pub(super) const TOOL_UPDATES: &str = "tool-updates";
+
+/// The request that makes the node watch `topic` with `queries`, answered as watch `id`.
+fn watch(id: u64, topic: &Topic, queries: Vec<Query>) -> Request {
+    Request::Watch {
+        id,
+        topic: topic.clone(),
+        queries,
+        deltas: true,
+        query_deltas: true,
+    }
+}
+
+/// Sends `request`, or fails when the machine takes `SEND_LIMIT`.
+async fn send(tx: &mut LinkTx, request: Request) -> Result<()> {
+    timeout(SEND_LIMIT, tx.send(&request))
+        .await
+        .map_err(|_| DesktopError::Lost("the machine".into()))??;
+
+    Ok(())
+}
+
+fn bump(next: u64) -> Result<u64> {
+    next.checked_add(1)
+        .ok_or_else(|| DesktopError::BadRequest("request sequence exhausted".into()))
+}
 
 pub(super) struct SubscriptionWorker {
     pub(super) app: AppHandle,
@@ -85,18 +107,7 @@ impl SubscriptionWorker {
             "node watch sending machine={machine} generation={generation} watch=1 topics=1 queries={}",
             queries.len()
         );
-        timeout(
-            Duration::from_secs(15),
-            tx.send(&Request::Watch {
-                id: 1,
-                topic: topic.clone(),
-                queries,
-                deltas: true,
-                query_deltas: true,
-            }),
-        )
-        .await
-        .map_err(|_| DesktopError::Lost("the machine".into()))??;
+        send(&mut tx, watch(1, topic, queries)).await?;
         let mut watches = HashSet::from([1]);
         let mut sweep = tokio::time::interval(beep_mesh::LINGER / 3);
         let mut next = 1_u64;
@@ -118,26 +129,13 @@ impl SubscriptionWorker {
                 }
 
                 sent = queries.clone();
-                next = next
-                    .checked_add(1)
-                    .ok_or_else(|| DesktopError::BadRequest("request sequence exhausted".into()))?;
+                next = bump(next)?;
                 log::debug!(
                     "node watch sending machine={machine} generation={generation} watch={next} topics=1 queries={}",
                     queries.len()
                 );
                 watches.insert(next);
-                timeout(
-                    Duration::from_secs(15),
-                    tx.send(&Request::Watch {
-                        id: next,
-                        topic: topic.clone(),
-                        queries,
-                        deltas: true,
-                        query_deltas: true,
-                    }),
-                )
-                .await
-                .map_err(|_| DesktopError::Lost("the machine".into()))??;
+                send(&mut tx, watch(next, topic, queries)).await?;
                 dirty = false;
             }
 
@@ -151,10 +149,9 @@ impl SubscriptionWorker {
                 },
                 changed = refresh.changed() => {
                     if changed.is_err() { return Ok(()); }
-                    next = next.checked_add(1).ok_or_else(|| DesktopError::BadRequest("request sequence exhausted".into()))?;
+                    next = bump(next)?;
                     watches.insert(next);
-                    timeout(Duration::from_secs(15), tx.send( &Request::Refresh { id: next }))
-                        .await.map_err(|_| DesktopError::Lost("the machine".into()))??;
+                    send(&mut tx, Request::Refresh { id: next }).await?;
                 },
                 () = idle.expired() => {
                     return Err(DesktopError::Lost("the machine".into()));

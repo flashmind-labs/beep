@@ -33,7 +33,7 @@ pub(super) type Commands = Arc<Mutex<HashMap<EndpointId, (Uuid, mpsc::Sender<Cal
 
 /// A silent stream is lost after this long without a message.
 const IDLE: Duration = Duration::from_secs(35);
-const SEND_LIMIT: Duration = Duration::from_secs(15);
+pub(super) const SEND_LIMIT: Duration = Duration::from_secs(15);
 
 /// A deadline across `select!` iterations that restarts only when a message arrives.
 pub(super) struct Idle(Pin<Box<Sleep>>);
