@@ -19,7 +19,7 @@ use reqwest::{
 };
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
-    future::{Future, pending},
+    future::pending,
     path::Path,
     sync::{Arc, Mutex, PoisonError},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -280,12 +280,8 @@ impl World for Alone {
         BTreeSet::new()
     }
 
-    #[allow(
-        clippy::manual_async_fn,
-        reason = "the future must not borrow the world"
-    )]
-    fn ask(&self, _: EndpointId) -> impl Future<Output = Result<ForgeReach>> + Send + 'static {
-        async { bail!("nobody else") }
+    fn reach_view(&self, _: &BTreeSet<EndpointId>) -> Option<BTreeMap<EndpointId, ForgeReach>> {
+        Some(BTreeMap::new())
     }
 
     async fn changed(&mut self) -> bool {
@@ -314,12 +310,8 @@ impl World for Empty {
         BTreeSet::new()
     }
 
-    #[allow(
-        clippy::manual_async_fn,
-        reason = "the future must not borrow the world"
-    )]
-    fn ask(&self, _: EndpointId) -> impl Future<Output = Result<ForgeReach>> + Send + 'static {
-        async { bail!("nobody else") }
+    fn reach_view(&self, _: &BTreeSet<EndpointId>) -> Option<BTreeMap<EndpointId, ForgeReach>> {
+        Some(BTreeMap::new())
     }
 
     async fn changed(&mut self) -> bool {

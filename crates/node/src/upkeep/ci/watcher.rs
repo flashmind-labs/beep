@@ -3,8 +3,8 @@
 //! runs of those it holds: every minute while a run goes or after a push
 //! from a checkout here, every `QUIET` otherwise, and at once when a GitHub
 //! project's check every `CHECK` sees its runs changed. The other machines are
-//! asked how they reach the hosts when one comes or goes, and every `QUIET`
-//! only those from before 0.8.28, which do not push it.
+//! followed for how they reach the hosts, which `Reaches` owns, and elected on
+//! when one comes or goes or says something new.
 //! A mesh change elects again. Going runs are waited on by at most
 //! `MAX_WAITS` CLI processes at once, owned here and killed when the role
 //! moves away or the node stops. Every call to a forge runs in its own task,
@@ -19,7 +19,7 @@ use super::{
 };
 use crate::{
     agents::moving::project_folder,
-    machine::elect::{Reaches, gather, online},
+    machine::elect::{Reaches, online},
 };
 use anyhow::{Result, bail};
 use beep_mesh::Mesh;
@@ -41,7 +41,7 @@ use tokio::{
     select,
     sync::watch,
     task::{AbortHandle, Id, JoinError, JoinSet, spawn_blocking},
-    time::{Instant, MissedTickBehavior, interval, interval_at, sleep_until, timeout},
+    time::{Instant, MissedTickBehavior, interval, interval_at, timeout},
 };
 
 /// How often a busy project's runs are listed: one with a run going, or
@@ -65,21 +65,18 @@ pub(super) trait World: Send + Sync + 'static {
     fn projects(&self) -> Vec<Project>;
     /// The other members online now.
     fn online(&self) -> BTreeSet<EndpointId>;
-    /// How `peer` reaches the hosts; an error when it cannot say, as a node
-    /// from before the watch, which then never watches.
-    /// The answer is waited on in a task of its own, so it holds nothing of the world.
-    fn ask(&self, peer: EndpointId) -> impl Future<Output = Result<ForgeReach>> + Send + 'static;
+    /// Follows `wanted`; idempotent.
+    fn track(&self, _wanted: &BTreeSet<EndpointId>) {}
+    /// What the machines said, once every one of `wanted` has said something;
+    /// none before.
+    fn reach_view(&self, wanted: &BTreeSet<EndpointId>)
+    -> Option<BTreeMap<EndpointId, ForgeReach>>;
     /// Waits for the mesh to change; false once it is gone.
     fn changed(&mut self) -> impl Future<Output = bool> + Send;
     /// Rises when a machine pushes a different reach; none for a world
     /// whose machines push nothing.
     fn reached(&self) -> Option<watch::Receiver<()>> {
         None
-    }
-    /// Whether `peer` pushes its reach, so asking it again says nothing new;
-    /// false for a node before 0.8.28, which is asked every `QUIET`.
-    fn pushes(&self, _peer: EndpointId) -> bool {
-        false
     }
     /// When this machine's checkout of `project` last moved a remote's ref,
     /// as a push does; `None` with no checkout here or no such ref.
@@ -146,12 +143,9 @@ pub(super) struct Watcher<F, W> {
     logins: HashMap<String, String>,
     /// Rises when a machine pushes a different reach.
     reached: Option<watch::Receiver<()>>,
-    /// What the online machines said of their reach, when last asked.
-    peers: BTreeMap<EndpointId, ForgeReach>,
-    /// The machines being asked now: at most one gather, a newer one replaces it.
-    asking: JoinSet<BTreeMap<EndpointId, ForgeReach>>,
-    /// Whether the machines have answered once, so an election has their reach to go on.
-    answered: bool,
+    /// Whether the machines have said something once, so an election had their
+    /// reach to go on.
+    elected: bool,
     /// The pinned projects, as last read.
     projects: Vec<Project>,
     /// The projects this machine watches.
@@ -168,8 +162,6 @@ pub(super) struct Watcher<F, W> {
     queued: VecDeque<RunKey>,
     /// The last read of each run waited on or queued.
     last: HashMap<RunKey, WorkflowRun>,
-    /// When the machines were last asked, and which were online then.
-    asked: Option<(Instant, BTreeSet<EndpointId>)>,
     /// When each held project is listed next.
     next: HashMap<String, Instant>,
     /// Each project's last push seen here, and until when it is busy.
@@ -193,9 +185,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
             books,
             file,
             logins: HashMap::new(),
-            peers: BTreeMap::new(),
-            asking: JoinSet::new(),
-            answered: false,
+            elected: false,
             projects: Vec::new(),
             held: BTreeSet::new(),
             waits: JoinSet::new(),
@@ -206,7 +196,6 @@ impl<F: Forge, W: World> Watcher<F, W> {
             tasks: HashMap::new(),
             queued: VecDeque::new(),
             last: HashMap::new(),
-            asked: None,
             next: HashMap::new(),
             pushes: HashMap::new(),
             busy_until: HashMap::new(),
@@ -220,21 +209,12 @@ impl<F: Forge, W: World> Watcher<F, W> {
         // The first list comes with the first tick; the first check after.
         let mut check = interval_at(Instant::now() + CHECK, CHECK);
         check.set_missed_tick_behavior(MissedTickBehavior::Delay);
-        // With nothing held here, the machines are asked again every `QUIET`
-        // and nothing else wakes until the mesh changes.
-        let mut parked_until = Instant::now() + QUIET;
-
         loop {
-            let parked = self.held.is_empty() && self.asked.is_some();
+            let parked = self.held.is_empty() && self.elected;
 
             select! {
                 _ = check.tick(), if !parked => self.check_due(),
                 _ = tick.tick(), if !parked => self.poll().await,
-                // Compat: only a machine before 0.8.28 does not push its reach.
-                () = sleep_until(parked_until), if parked && self.asks_needed() => {
-                    parked_until = Instant::now() + QUIET;
-                    self.poll().await;
-                }
                 () = async {
                     if let Some(reached) = &mut self.reached
                         && reached.changed().await.is_ok()
@@ -244,36 +224,15 @@ impl<F: Forge, W: World> Watcher<F, W> {
 
                     std::future::pending::<()>().await;
                 } => {
-                    // A machine pushed how it reaches the hosts: elect on it.
-                    self.ask_peers();
+                    // A machine said how it reaches the hosts: elect on it.
+                    self.reelect();
                 }
                 alive = self.world.changed() => {
                     if !alive {
                         return;
                     }
                     // A machine came or went: its reach decides the watcher.
-                    let online = self.world.online();
-
-                    if self.asked.as_ref().is_some_and(|(_, then)| *then != online) {
-                        // The answers elect when they arrive.
-                        self.ask_peers();
-                    } else {
-                        for project in self.elect() {
-                            self.begin(project, Todo::List);
-                        }
-                    }
-                }
-                Some(done) = self.asking.join_next(), if !self.asking.is_empty() => {
-                    // A gather that a newer one replaced ends cancelled.
-                    if let Ok(peers) = done {
-                        self.peers = peers;
-                        self.answered = true;
-                        parked_until = Instant::now() + QUIET;
-
-                        for project in self.elect() {
-                            self.begin(project, Todo::List);
-                        }
-                    }
+                    self.reelect();
                 }
                 Some(done) = self.waits.join_next_with_id(), if !self.waits.is_empty() => {
                     self.waited(done);
@@ -285,74 +244,57 @@ impl<F: Forge, W: World> Watcher<F, W> {
         }
     }
 
-    /// Asks the machines again when that is due, elects the watchers and
-    /// lists the held projects that are due.
+    /// Follows the machines, elects the watchers once they have said how they
+    /// reach the hosts, and lists the held projects that are due.
     async fn poll(&mut self) {
-        let due = self
-            .asked
-            .as_ref()
-            .is_none_or(|(at, _)| at.elapsed() >= QUIET && self.asks_needed());
-        if due {
-            self.ask_peers();
-        }
-
         // The first election waits for the first answers: another machine may be the better one.
-        if !self.answered {
+        let Some(peers) = self.peers() else {
             return;
-        }
+        };
 
-        self.elect();
+        self.elect(peers);
         self.list_due().await;
     }
 
-    /// Whether an online machine with a checkout does not push its reach, and
-    /// so has to be asked again to see it change.
-    fn asks_needed(&self) -> bool {
-        let me = self.world.me();
-        let online = self.world.online();
+    /// Elects again on what the machines say, and starts the listing of what
+    /// this machine took on.
+    fn reelect(&mut self) {
+        let Some(peers) = self.peers() else {
+            return;
+        };
 
-        self.world
-            .projects()
-            .iter()
-            .flat_map(|project| project.machines.iter().copied())
-            .any(|machine| {
-                machine != me && online.contains(&machine) && !self.world.pushes(machine)
-            })
+        for project in self.elect(peers) {
+            self.begin(project, Todo::List);
+        }
     }
 
-    /// Starts asking every online machine with a checkout of a pinned project
-    /// how it reaches the hosts, all at once, in place of an ask still going.
-    fn ask_peers(&mut self) {
+    /// What the online machines with a checkout of a pinned project said of
+    /// their reach, once all have said something.
+    fn peers(&mut self) -> Option<BTreeMap<EndpointId, ForgeReach>> {
         let me = self.world.me();
         let online = self.world.online();
-        let asked: BTreeSet<EndpointId> = self
+        let wanted: BTreeSet<EndpointId> = self
             .world
             .projects()
             .iter()
             .flat_map(|project| project.machines.iter().copied())
             .filter(|machine| *machine != me && online.contains(machine))
             .collect();
-        self.asked = Some((Instant::now(), online));
-        let asks: Vec<_> = asked
-            .into_iter()
-            .map(|peer| (peer, self.world.ask(peer)))
-            .collect();
-        self.asking.abort_all();
-        self.asking.spawn(gather("CI watch", asks));
+
+        self.world.track(&wanted);
+        let peers = self.world.reach_view(&wanted)?;
+        self.elected = true;
+
+        Some(peers)
     }
 
     /// Elects the watcher of every pinned project; the projects this machine
     /// took on now. What it lost stops at once.
-    fn elect(&mut self) -> Vec<Project> {
+    fn elect(&mut self, mut peers: BTreeMap<EndpointId, ForgeReach>) -> Vec<Project> {
         let me = self.world.me();
         let online = self.world.online();
         self.projects = self.world.projects();
-        let peers: BTreeMap<EndpointId, ForgeReach> = self
-            .peers
-            .iter()
-            .filter(|(peer, _)| online.contains(*peer))
-            .map(|(peer, reach)| (*peer, reach.clone()))
-            .collect();
+        peers.retain(|peer, _| online.contains(peer));
         let held: BTreeSet<String> = self
             .projects
             .iter()
@@ -789,20 +731,19 @@ impl World for MeshWorld {
         online(&self.mesh)
     }
 
-    #[allow(
-        clippy::manual_async_fn,
-        reason = "the future must not borrow the world"
-    )]
-    fn ask(&self, peer: EndpointId) -> impl Future<Output = Result<ForgeReach>> + Send + 'static {
-        self.reaches.ask(peer)
+    fn track(&self, wanted: &BTreeSet<EndpointId>) {
+        self.reaches.track(wanted.iter().copied());
+    }
+
+    fn reach_view(
+        &self,
+        wanted: &BTreeSet<EndpointId>,
+    ) -> Option<BTreeMap<EndpointId, ForgeReach>> {
+        self.reaches.settled(wanted).then(|| self.reaches.view())
     }
 
     fn reached(&self) -> Option<watch::Receiver<()>> {
         Some(self.reaches.changes())
-    }
-
-    fn pushes(&self, peer: EndpointId) -> bool {
-        self.reaches.pushes(peer)
     }
 
     async fn changed(&mut self) -> bool {
