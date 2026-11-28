@@ -129,45 +129,6 @@ pub struct Syncs {
     inner: Arc<Inner>,
 }
 
-impl Inner {
-    /// Whether `peer` was removed from the mesh the node is in. Asked on
-    /// every connection and request, so a removed device is out at once,
-    /// before the project's peer list catches up. A device that never
-    /// joined is no concern of the mesh: a machine still linked through
-    /// the server keeps the grants the server issued it.
-    fn removed(&self, peer: &EndpointId) -> bool {
-        self.mesh.get().is_some_and(|mesh| mesh.is_removed(*peer))
-    }
-}
-
-impl Inner {
-    /// Whether `peer` may fetch anything at all: a device the node's mesh
-    /// lists as removed may not, whatever is open for it.
-    fn allows(&self, peer: &EndpointId) -> bool {
-        !self.removed(peer)
-    }
-
-    fn may_connect(&self, peer: &EndpointId) -> bool {
-        self.allows(peer)
-            && self
-                .projects
-                .seen()
-                .values()
-                .filter_map(Entry::running)
-                .any(|shared| shared.has_peer(peer))
-    }
-
-    fn may_get(&self, peer: &EndpointId, hash: &Hash) -> bool {
-        self.allows(peer)
-            && self
-                .projects
-                .seen()
-                .values()
-                .filter_map(Entry::running)
-                .any(|shared| shared.has_peer(peer) && shared.has(hash))
-    }
-}
-
 /// Which state a project in `folder` keeps; another folder starts over.
 fn key_of(name: &str, folder: &Path) -> Key {
     let mut bytes = name.as_bytes().to_vec();
@@ -274,7 +235,14 @@ impl Syncs {
 
     /// Whether `peer` may fetch the blob `hash` of a synced project.
     pub(crate) fn may_get(&self, peer: &EndpointId, hash: &Hash) -> bool {
-        self.inner.may_get(peer, hash)
+        self.allows(peer)
+            && self
+                .inner
+                .projects
+                .seen()
+                .values()
+                .filter_map(Entry::running)
+                .any(|shared| shared.has_peer(peer) && shared.has(hash))
     }
 
     /// How other nodes reach this one.
@@ -1088,13 +1056,28 @@ impl Syncs {
     }
 
     pub(crate) fn is_peer(&self, peer: &EndpointId) -> bool {
-        self.inner.may_connect(peer)
+        self.allows(peer)
+            && self
+                .inner
+                .projects
+                .seen()
+                .values()
+                .filter_map(Entry::running)
+                .any(|shared| shared.has_peer(peer))
     }
 
-    /// Whether `peer` may still make requests: it was not removed from the
-    /// mesh.
+    /// Whether `peer` may fetch anything at all: a device the node's mesh
+    /// lists as removed may not, whatever is open for it. Asked on every
+    /// connection and request, so a removed device is out at once, before
+    /// the project's peer list catches up. A device that never joined is no
+    /// concern of the mesh: a machine still linked through the server keeps
+    /// the grants the server issued it.
     pub(crate) fn allows(&self, peer: &EndpointId) -> bool {
-        self.inner.allows(peer)
+        !self
+            .inner
+            .mesh
+            .get()
+            .is_some_and(|mesh| mesh.is_removed(*peer))
     }
 }
 

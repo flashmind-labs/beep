@@ -82,14 +82,14 @@ async fn a_removed_device_is_refused_and_mesh_owns_configure() {
     let refused = syncs.configure_from_mesh(vec![project]).await;
     assert!(refused.is_empty(), "{refused:?}");
     let id = node.id();
-    assert!(syncs.inner.may_connect(&id), "a peer of the list connects");
+    assert!(syncs.is_peer(&id), "a peer of the list connects");
 
     mesh.remove(id).await.expect("the removal is signed");
-    assert!(!syncs.inner.may_connect(&id), "a removed device does not");
+    assert!(!syncs.is_peer(&id), "a removed device does not");
 
     // Leaving the mesh clears the one copy: no mesh, nobody is removed.
     syncs.inner.mesh.clear();
-    assert!(syncs.inner.allows(&id), "no mesh removes nobody");
+    assert!(syncs.allows(&id), "no mesh removes nobody");
     joined.close().await.ok();
     transfers.shutdown().await.expect("the node stops");
 }
