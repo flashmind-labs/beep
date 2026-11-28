@@ -7,7 +7,7 @@ use super::{
     catalog::Catalog,
     kinds::{self, AgentKind, Detection},
 };
-use crate::status::Agent;
+use crate::{known::Known, status::Agent};
 use beep_proto::node::AdapterInstall;
 use std::{
     collections::BTreeMap,
@@ -45,21 +45,28 @@ impl Catalog {
         }))
     }
 
+    /// Records what `detection` found and sets the agents it can start;
+    /// the known agents still lacking an adapter come back.
+    fn apply(&self, detection: Detection) -> Vec<&'static Known> {
+        self.adapters.saw(&detection);
+        self.set_kinds(detection.kinds);
+        detection.lacking
+    }
+
     /// One detection, and the installs it calls for, one at a time.
     async fn keep_adapters(&self, node_dir: &Path, extra: &[AgentKind]) {
         let Some(detection) = detect(node_dir, extra).await else {
             return;
         };
-        self.adapters.saw(&detection);
-        self.set_kinds(detection.kinds);
+        let lacking = self.apply(detection);
 
-        if detection.lacking.is_empty() {
+        if lacking.is_empty() {
             return;
         }
 
         let root = layout::root(node_dir);
 
-        for known in detection.lacking {
+        for known in lacking {
             log::info!("{} found, installing its adapter", known.cli);
             self.adapters.set(known.name, Install::Running);
 
@@ -73,8 +80,7 @@ impl Catalog {
                     self.adapters.set(known.name, Install::Done);
 
                     if let Some(after) = detect(node_dir, extra).await {
-                        self.adapters.saw(&after);
-                        self.set_kinds(after.kinds);
+                        self.apply(after);
                     }
                 }
                 Err(e) => {

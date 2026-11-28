@@ -13,7 +13,7 @@ use std::{
 };
 
 /// An agent this node can start: a program that speaks ACP on its stdio.
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AgentKind {
     /// What Beep calls it, such as `claude`; its protocol is `claude/1`.
     pub name: String,
@@ -250,10 +250,8 @@ fn in_wsl_kind(known: &'static Known) -> Option<AgentKind> {
         program,
         args,
         env,
-        compact: None,
-        compact_models: Vec::new(),
-        default_model: None,
         bridge: Some(bridge),
+        ..Default::default()
     })
 }
 
@@ -368,10 +366,7 @@ pub(super) fn launch(
         program,
         args,
         env: env(known),
-        compact: None,
-        compact_models: Vec::new(),
-        default_model: None,
-        bridge: None,
+        ..Default::default()
     };
     Some(if bridged {
         direct(&kind).map_or(Launch::LacksAdapter, Launch::Direct)

@@ -1,6 +1,10 @@
 //! Version negotiation and the session operations shared by both ACP versions.
 
-use super::{Offered, ResumeMethod, session};
+use super::{
+    Offered, ResumeMethod,
+    prompt::{takes_images, takes_steering},
+    session::{self, resume_method},
+};
 use agent_client_protocol::{
     Error, JsonRpcMessage, UntypedMessage, v1::schema as v1, v2::schema as v2,
 };
@@ -94,10 +98,10 @@ impl Protocol {
                     serde_json::from_value(answer).map_err(invalid)?;
                 Ok(Capabilities {
                     protocol: Self::V1,
-                    images: super::takes_images(&initialized),
-                    steering: super::takes_steering(&initialized),
+                    images: takes_images(&initialized),
+                    steering: takes_steering(&initialized),
                     system_prompt: session::system_prompt_format(&initialized),
-                    resume: super::resume_method(&initialized),
+                    resume: resume_method(&initialized),
                 })
             }
             (Self::V2, Some(2)) => {
