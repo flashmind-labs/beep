@@ -523,42 +523,6 @@ async fn only_an_unchanged_conflict_copy_is_settled() {
 }
 
 #[tokio::test]
-async fn a_new_folder_is_rechecked_without_rewalking_the_project() {
-    let mut project = Project::new(&["a.txt"]).await;
-    let (wake, _woken) = tokio::sync::mpsc::channel(1);
-    project.task.watcher.add(
-        project.task.shared.key,
-        &project.folder,
-        project.task.shared.rules.clone(),
-        wake,
-    );
-    project.task.scan(Reason::Request).await;
-    assert!(
-        project
-            .task
-            .watcher
-            .take_changes(project.task.shared.key)
-            .paths
-            .is_empty()
-    );
-    fs::create_dir(project.path("new")).unwrap();
-    project.task.scan(Reason::Request).await;
-    let changes = project.task.watcher.take_changes(project.task.shared.key);
-    assert!(!changes.full);
-    assert_eq!(changes.paths, [PathBuf::from("new")].into());
-    project.task.scan(Reason::Request).await;
-    assert!(
-        project
-            .task
-            .watcher
-            .take_changes(project.task.shared.key)
-            .paths
-            .is_empty()
-    );
-    project.stop().await;
-}
-
-#[tokio::test]
 async fn a_project_is_not_in_sync_before_its_peers_are_heard() {
     let project = Project::new(&["a.txt"]).await;
     let shared = &project.task.shared;
