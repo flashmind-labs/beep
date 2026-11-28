@@ -26,8 +26,7 @@ export function keepNativeSession(row: AgentSession, parent?: AgentRow) {
     nativeParents.delete(oldest);
   }
 
-  const at = sessions.findIndex(s => s.machine_id === row.machine_id && s.id === row.id);
-  if (at < 0) sessions.push(row); else sessions[at] = row;
+  show();
 }
 
 export const parentSession = (row: AgentRow) => parentRow(sessions, row) ?? nativeParents.get(sessionKey(row));
@@ -78,11 +77,13 @@ listen<AgentStarted>("agent-started", ({ payload: { start, session } }) => {
 });
 // A title comes with its value, a cleared one with the agent's own: the kept rows take it.
 listen<Retitled>("agent-title-changed", ({ payload }) => {
-  const next = retitled(sessions, payload);
-  if (!next) return;
+  if (!retitled(sessions, payload)) return;
   if (listed) listed = retitled(listed, payload) ?? listed;
-  sessions = next;
-  for (const f of sessionsRead) f();
+  for (const [key, row] of nativeSessions) {
+    const next = retitled([row], payload);
+    if (next) nativeSessions.set(key, next[0]);
+  }
+  show();
 });
 
 /// Resolves at the next change of the sessions, or after `ms`: for a page that looks for a row
