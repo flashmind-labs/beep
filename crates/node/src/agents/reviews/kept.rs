@@ -32,12 +32,6 @@ pub(super) struct Kept {
     pub(super) _watch: Option<AbortOnDropHandle<()>>,
 }
 
-impl Default for Reviews {
-    fn default() -> Self {
-        Self::new(crate::events::system().clone(), Arc::default())
-    }
-}
-
 impl Reviews {
     pub(crate) fn new(events: crate::events::Hub, sessions: Arc<Sessions>) -> Self {
         Self {
