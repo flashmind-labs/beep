@@ -15,8 +15,18 @@ export let sessions: AgentSession[] = [];
 const nativeSessions = new Map<string, AgentSession>();
 const nativeParents = new Map<string, AgentRow>();
 
+const same = (a: AgentSession, b: AgentSession) => {
+  const x: Record<string, unknown> = { ...a }, y: Record<string, unknown> = { ...b };
+  const keys = Object.keys(x);
+  return keys.length === Object.keys(y).length && keys.every(k => JSON.stringify(x[k]) === JSON.stringify(y[k]));
+};
+/// Titles that came before the first list, applied when it lands.
+const pendingTitles: Retitled[] = [];
+
 export function keepNativeSession(row: AgentSession, parent?: AgentRow) {
   const key = sessionKey(row);
+  const had = nativeSessions.get(key);
+  if (had && same(had, row) && (!parent || nativeParents.get(key) === parent)) return;
   if (parent) nativeParents.set(key, parent);
   nativeSessions.set(key, row);
 
@@ -41,6 +51,7 @@ export const sessionsRead = new Set<() => void>();
 
 /// Takes `list` as the sessions: a session that moved is on two machines for a while, it shows once.
 function take(list: AgentSession[]) {
+  for (const change of pendingTitles.splice(0)) list = retitled(list, change) ?? list;
   takeSessionPlaces(list);
   listed = list;
   taken++;
@@ -77,8 +88,9 @@ listen<AgentStarted>("agent-started", ({ payload: { start, session } }) => {
 });
 // A title comes with its value, a cleared one with the agent's own: the kept rows take it.
 listen<Retitled>("agent-title-changed", ({ payload }) => {
+  if (!listed) { pendingTitles.push(payload); return; }
   if (!retitled(sessions, payload)) return;
-  if (listed) listed = retitled(listed, payload) ?? listed;
+  listed = retitled(listed, payload) ?? listed;
   for (const [key, row] of nativeSessions) {
     const next = retitled([row], payload);
     if (next) nativeSessions.set(key, next[0]);

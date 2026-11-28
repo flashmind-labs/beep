@@ -6,7 +6,7 @@ import type { Machine } from "./importproject.tsx";
 import type { MachineFolder } from "../../stores/project/projects-state.ts";
 import { SyncthingChoice } from "../project/syncthing-choice.tsx";
 import type { SyncthingImportChoice } from "../project/syncthing.ts";
-import { Button, type ButtonLook, ChipToggle, NO_AUTO, SheetHead, Spinner } from "../../ui/kit.tsx";
+import { Button, type ButtonLook, NO_AUTO, SheetHead, Spinner } from "../../ui/kit.tsx";
 
 interface Props {
   state: ImportState; machines: readonly Machine[]; preview: PreviewView | null | undefined; previewFor: string; previewError: string; fork: ImportFork | null | undefined; picks: BranchPicks;
@@ -28,7 +28,7 @@ function Form(p: Props) {
   const repo = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => { const el = repo.current; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, []);
   const fork = p.previewFor === p.state.repo.trim() && p.listing?.origin == null ? forkNote(p.fork) : null;
-  return <><div className="am-label">Repository</div><div className="am-line"><input ref={repo} className="ip-field" type="text" placeholder="org/repo or https://github.com/org/repo" {...NO_AUTO} aria-label="Repository" value={p.state.repo} onChange={e => p.edit(e.currentTarget.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); p.submit(); } }} /></div><div className="am-label">Machine</div><div className="am-line"><div className="dchips">{machineChips(p.machines).map(chip => <ChipToggle key={chip.id ?? "auto"} label={chip.label} selected={chip.id === p.state.machine} onToggle={() => p.pick(chip.id)} />)}</div></div>
+  return <><div className="am-label">Repository</div><div className="am-line"><input ref={repo} className="ip-field" type="text" placeholder="org/repo or https://github.com/org/repo" {...NO_AUTO} aria-label="Repository" value={p.state.repo} onChange={e => p.edit(e.currentTarget.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); p.submit(); } }} /></div><div className="am-label">Machine</div><div className="am-line"><div className="dchips">{machineChips(p.machines).map(chip => <button type="button" className="dchip" key={chip.id ?? "auto"} aria-pressed={chip.id === p.state.machine} onClick={() => p.pick(chip.id)}>{chip.label}</button>)}</div></div>
     <div className="am-label">{p.state.chosen ? "Folder" : "Clone into"}</div><Folder p={p} />{p.listing ? <div className="ip-found">{p.listing.origin != null && <span className="ddot" />}{folderNote(p.listing, p.state.repo)}</div> : <div className="am-sub ip-to">{p.goes}</div>}{fork && <div className="ip-found ip-fork"><span className="ddot" />{fork}</div>}<div className="am-sub">{folderHelp(p.state, p.machines, p.customFolder)}</div><Branches p={p} /><SyncthingChoice choice={p.syncChoice} />{p.state.error && <div className="am-msg bad">{p.state.error}</div>}<div className="am-line ip-foot"><Button look="primary" className="ip-go" disabled={!looksLikeRepo(p.state.repo)} onClick={p.submit}>Import</Button><Button look="quiet" onClick={p.close}>Cancel</Button></div></>;
 }
 function FocusButton({ look, onClick, children }: { look: ButtonLook; onClick(): void; children: string }) {

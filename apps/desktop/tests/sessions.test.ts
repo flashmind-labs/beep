@@ -33,3 +33,17 @@ test("keeping a session rings the readers once", async () => {
   assert.equal(rung, 1);
   assert.ok(sessions.some(s => s.id === "n2"));
 });
+
+test("keeping a row identical to the kept one does not ring the readers", async () => {
+  answers.agent_sessions = [row("a1")];
+  await loadSessions();
+  const kept = { ...row("n3"), external: true };
+  keepNativeSession(kept);
+
+  let rung = 0;
+  const count = () => { rung++; };
+  sessionsRead.add(count);
+  keepNativeSession({ ...kept });
+  sessionsRead.delete(count);
+  assert.equal(rung, 0);
+});
