@@ -62,12 +62,8 @@ impl Reach {
 
 /// A watch being looked up: its sources are found while the stream goes on.
 struct Watched {
-    id: u64,
+    watch: Queued,
     started: Instant,
-    topics: Vec<Topic>,
-    queries: Vec<events::Query>,
-    deltas: bool,
-    query_deltas: bool,
     result: Result<Subscriptions>,
 }
 
@@ -94,16 +90,16 @@ async fn begin_watch(
         id,
         topics: wanted,
         queries: wanted_queries,
-        deltas,
-        query_deltas,
-    } = queued;
+        ..
+    } = &queued;
+    let id = *id;
     let started = Instant::now();
     tracing::info!(%stream, watch = id, topics = wanted.len(), queries = wanted_queries.len(), "subscription watch received");
-    for query in &wanted_queries {
+    for query in wanted_queries {
         tracing::info!(%stream, watch = id, query = query.id, topic = query.topic.name(), "subscription query received");
     }
 
-    let valid = if !reach.allows(&wanted, &wanted_queries) {
+    let valid = if !reach.allows(wanted, wanted_queries) {
         Err(anyhow::anyhow!(
             "a node may watch only the agents and forge-reach topics"
         ))
@@ -112,22 +108,18 @@ async fn begin_watch(
     } else if wanted.iter().any(|topic| !topic.valid()) {
         Err(anyhow::anyhow!("invalid subscription topics"))
     } else {
-        Snapshots::validate(&wanted_queries)
+        Snapshots::validate(wanted_queries)
     };
 
     match valid {
         Ok(()) => {
             let offers = offers.clone();
-            let source_topics = sources(&wanted, &wanted_queries);
+            let source_topics = sources(wanted, wanted_queries);
             watching.spawn(async move {
                 let result = sources::subscribe(&offers, &source_topics).await;
                 Watched {
-                    id,
+                    watch: queued,
                     started,
-                    topics: wanted,
-                    queries: wanted_queries,
-                    deltas,
-                    query_deltas,
                     result,
                 }
             });
@@ -314,12 +306,8 @@ async fn run(
             },
             Some(done) = watching.join_next(), if !watching.is_empty() => {
                 let Watched {
-                    id,
+                    watch: Queued { id, topics: wanted, queries: wanted_queries, deltas, query_deltas },
                     started,
-                    topics: wanted,
-                    queries: wanted_queries,
-                    deltas,
-                    query_deltas,
                     result,
                 } = done.context("a topic watch stopped")?;
 
