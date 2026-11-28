@@ -445,6 +445,10 @@ async fn a_thread_runs_as_a_persona_on_its_harness_when_this_machine_has_it() {
             .as_deref(),
         Some("researcher")
     );
+    // A blank harness names none.
+    let (failed, text) = start("researcher", Some("  ")).await;
+    assert!(!failed, "{text}");
+    assert_eq!(view(&text).harness, "codex");
     // Claude's, which it has not: the chat's.
     let (failed, text) = start("writer", None).await;
     assert!(!failed, "{text}");

@@ -213,7 +213,11 @@ impl Calls<'_> {
             None => cwd,
         };
 
-        let harness = harness.map(|name| name.trim().to_owned());
+        let harness = harness
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
         let persona = match persona.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             None => None,
             Some(_) if target.is_some() => {
