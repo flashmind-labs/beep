@@ -2452,7 +2452,7 @@ pub(crate) async fn answer(
         return Ok(());
     };
 
-    if !alerts::reaches(fleet, &key.machine_id) {
+    if fleet.member(&key.machine_id).is_none() {
         return Err(DesktopError::NotInMesh);
     }
 

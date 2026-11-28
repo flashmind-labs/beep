@@ -17,7 +17,6 @@ use beep_proto::{
 use iroh::EndpointId;
 use std::{
     collections::HashSet,
-    str::FromStr,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -320,13 +319,6 @@ fn new_phones(known: &mut Option<HashSet<DeviceId>>, listed: Vec<Device>) -> Vec
 /// as a conflict when the session no longer asks it.
 pub(crate) async fn answer(fleet: &Fleet, key: &AgentNoticeKey, reply: &str) -> Result<()> {
     Ok(shared::answer(fleet.reach(), key, reply).await?)
-}
-
-/// Whether `machine`, as text, is this Mac or a member of its mesh: the
-/// machines `answer` reaches.
-pub(crate) fn reaches(fleet: &Fleet, machine: &str) -> bool {
-    EndpointId::from_str(machine)
-        .is_ok_and(|id| id == fleet.id() || fleet.mesh().is_some_and(|mesh| mesh.is_member(id)))
 }
 
 #[cfg(all(test, desktop))]
