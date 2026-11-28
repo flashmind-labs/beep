@@ -172,10 +172,14 @@ fn change(path: &Path, harness: Harness, change: Change) -> Result<Reply> {
                     config: SecretText::new(config),
                 },
                 previous_name,
-            )?
+            )?;
+            true
         }
         Change::Remove(name) => doc.remove(&name)?,
-        Change::Apply(server) => doc.put(&server, None)?,
+        Change::Apply(server) => {
+            doc.put(&server, None)?;
+            true
+        }
     };
 
     let servers = doc.servers(harness)?;
@@ -290,29 +294,10 @@ impl Document {
     }
 
     fn contains(&self, name: &str) -> Result<bool> {
-        Ok(match self {
-            Self::Codex(doc) => doc
-                .get("mcp_servers")
-                .map(|item| {
-                    item.as_table_like()
-                        .context("Codex's mcp_servers must be a table.")
-                        .map(|table| table.contains_key(name))
-                })
-                .transpose()?
-                .unwrap_or_default(),
-            Self::Json(label, doc) => doc
-                .get("mcpServers")
-                .map(|item| {
-                    item.as_object()
-                        .with_context(|| format!("{label}'s mcpServers must be an object."))
-                        .map(|object| object.contains_key(name))
-                })
-                .transpose()?
-                .unwrap_or_default(),
-        })
+        Ok(self.names()?.contains(&name))
     }
 
-    fn put(&mut self, server: &NativeServer, previous: Option<&str>) -> Result<bool> {
+    fn put(&mut self, server: &NativeServer, previous: Option<&str>) -> Result<()> {
         if previous != Some(server.name.as_str()) {
             ensure!(
                 !server.name.is_empty()
@@ -393,7 +378,7 @@ impl Document {
             }
         }
 
-        Ok(true)
+        Ok(())
     }
 
     fn remove(&mut self, name: &str) -> Result<bool> {
