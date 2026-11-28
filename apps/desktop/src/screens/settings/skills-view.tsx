@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useStore } from "zustand";
-import { Button, NO_AUTO, Spinner } from "../../ui/kit.tsx";
+import { Button, GitChip, NO_AUTO, Spinner } from "../../ui/kit.tsx";
 import { Icon } from "../../ui/icons.tsx";
 import { confirmSheet, openMenu, type MenuItem } from "../../ui/menu.tsx";
 import { skills, type SkillsState } from "../../stores/settings/skills.ts";
-import { foundWhere, libraryProjects, placeText, plural, problemLines, skillPlace, urlText, whereChip, type FoundLibrary, type SkillLibrary } from "../../stores/settings/skills-state.ts";
+import { foundWhere, libraryProjects, placeText, problemLines, skillPlace, urlText, whereChip, type FoundLibrary, type SkillLibrary } from "../../stores/settings/skills-state.ts";
+import { plural } from "../../ui/format.ts";
 
 export function SkillsView() {
   const state = useStore(skills.state);
@@ -30,7 +31,7 @@ function LibraryRow({ library, state }: { library: SkillLibrary; state: SkillsSt
   const where = whereChip(library), problems = problemLines(state.problems, library.name);
   const acts = <>{busy && <Spinner />}<Button look="quiet" small aria-expanded={open} onClick={() => skills.toggleOpen(library.name)}>{open ? "Hide skills" : "Skills"}</Button><Button look="quiet" small aria-label={`More for ${library.name}`} aria-haspopup="menu" disabled={busy} onClick={event => openMenu(event.nativeEvent, library.name, libraryMenu(library))}>&#8943;</Button></>;
   return <Row name={library.name} account={urlText(library.url)} acts={acts}
-    chips={<><Chip>{plural(library.skills.length, "skill")}</Chip><Chip title={where.title}>{where.text}</Chip><Chip title="Commit">{library.revision.slice(0, 7)}</Chip></>}>
+    chips={<><GitChip>{plural(library.skills.length, "skill", "skills")}</GitChip><GitChip title={where.title}>{where.text}</GitChip><GitChip title="Commit">{library.revision.slice(0, 7)}</GitChip></>}>
     {open && <div className="dskill-list">{library.skills.map(skill => {
       const place = skillPlace(library, skill.name);
       return <div className="dskill-line" key={skill.name}><code>{skill.name}</code><span className="desc">{skill.description}</span><span className="at">{placeText(place)}</span>
@@ -46,7 +47,7 @@ function libraryMenu(library: SkillLibrary): MenuItem[] {
   const projects = libraryProjects(library), global = library.global !== "None";
   return [
     { label: global ? "Uninstall globally" : "Install globally", on: () => void skills.setGlobal(library.name, global ? "None" : "All") },
-    ...(projects.length ? [{ label: `Uninstall from ${plural(projects.length, "project")}`, on: () => void skills.uninstallProjects(library.name) }] : []),
+    ...(projects.length ? [{ label: `Uninstall from ${plural(projects.length, "project", "projects")}`, on: () => void skills.uninstallProjects(library.name) }] : []),
     { label: "Update", on: () => void skills.update(library.name) },
     { kind: "separator" },
     { label: "Remove library", warn: true, on: () => confirmSheet({
@@ -93,13 +94,10 @@ function FoundRow({ found, adopting }: { found: FoundLibrary; adopting: string |
   const busy = adopting === found.url;
   return <Row name={found.name} account={urlText(found.url)}
     acts={<><Button small disabled={adopting !== null} onClick={() => void skills.adopt(found)}>{busy ? "Adding…" : "Add as library"}</Button><Button look="quiet" small disabled={busy} onClick={() => skills.ignore(found.url)}>Ignore</Button></>}
-    chips={<><Chip>{plural(found.skills.length, "skill")}</Chip><Chip title={found.places.map(p => `${p.folder} on ${p.machine}`).join("\n")}>{foundWhere(found)}</Chip></>} />;
+    chips={<><GitChip>{plural(found.skills.length, "skill", "skills")}</GitChip><GitChip title={found.places.map(p => `${p.folder} on ${p.machine}`).join("\n")}>{foundWhere(found)}</GitChip></>} />;
 }
 
 function Row({ name, account, acts, chips, children }: { name: string; account: string; acts: ReactNode; chips: ReactNode; children?: ReactNode }) {
   return <div className="dgit" data-library={name}><span className="ic"><span><Icon name="book" /></span></span><div className="l1"><b>{name}</b><span className="acct">{account}</span><span className="acts">{acts}</span></div><div className="l2">{chips}</div>{children}</div>;
 }
 
-function Chip({ title = null, children }: { title?: string | null; children: ReactNode }) {
-  return <span className="dgchip" title={title ?? undefined}>{children}</span>;
-}

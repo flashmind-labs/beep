@@ -481,8 +481,7 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 .pj-start { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 9px 12px; border-top: 1px solid var(--border); font-size: 12px }
 .pj-start.ask { flex-direction: column; align-items: flex-start }
 .pj-start .acts { display: flex; gap: 6px }
-.pj-start .skip, .pj-proj { color: var(--muted) }
-.pj-proj { font-size: 11px; margin-left: 6px }
+.pj-start .skip { color: var(--muted) }
 .pj-tag.lab { cursor: default }
 .pj-tag.lab:hover { color: var(--fg) }
 .pj-tag.lab.on { color: var(--fg); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent) }
@@ -813,7 +812,6 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 .us-table :is(td,th):last-child { padding-right: 0 }
 .us-row { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; font-variant-numeric: tabular-nums }
 .us-row > :first-child { flex: 1 1 0; min-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.us-row > .us-r { flex: 0 1 auto; max-width: 60%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right }
 .us-note { font-size: 11px; color: var(--muted); line-height: 15px }
 .us-seg { display: flex; gap: 2px; padding: 2px; margin-bottom: 12px; border-radius: var(--radius-sm); background: var(--ctl-fill) }
 .us-seg.us-filter { flex-wrap: wrap }
@@ -822,7 +820,6 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 .us-seg button:hover { color: var(--fg) }
 .us-seg button.on { background: var(--ctl-fill-hi); color: var(--fg) }
 .us-seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
-.us-pop h5.us-sub { margin-top: 8px }
 /* The bell and its notifications pane, beside the usage pill. */
 .nt { position: relative; flex: none; margin-left: 10px }
 .nt[hidden] { display: none }

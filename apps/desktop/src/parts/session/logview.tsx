@@ -52,6 +52,7 @@ import { AgentStatus } from "./mode-view.tsx";
 import type { BlockedRow, ContextRow, PromptRow, ReplyRow } from "./reply-view.tsx";
 import { sessionBody } from "../../stores/agents/session-frame-state.ts";
 import { glide } from "../../ui/motion.ts";
+import { baseName } from "../../stores/agentpane/media-state.ts";
 
 logStale.follow(() => drawAgentBody());
 
@@ -629,7 +630,7 @@ function agentReply(en: AgentEntry, at: number): (ReplyRow | BlockedRow)[] {
 function runRow(p: AgentPage, ats: number[]): ActivityRow {
   const en = (at: number) => p.entries[at - p.earlier];
   const kind = toolKind(en(ats[0]).text);
-  const names = ats.map(at => rowParts(en(at).text).target.split("/").pop() || "").filter(Boolean);
+  const names = ats.map(at => baseName(rowParts(en(at).text).target)).filter(Boolean);
   const shown = names.slice(0, 3).join(", ") + (names.length > 3 ? ` and ${names.length - 3} more` : "");
   const open = !!AG.open && turnsOf(AG.open.session).runs.has(ats[0]);
   const tools = ats.flatMap(at => toolRows(en(at), at));

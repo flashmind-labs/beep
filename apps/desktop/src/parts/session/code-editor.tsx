@@ -21,7 +21,7 @@ import { tokens } from "../../ui/syntax.ts";
 import { wordSpanAt } from "../../stores/agentpane/lsp-state.ts";
 import type { FileEdit, TextPlace } from "../../stores/agentpane/pane-state.ts";
 
-export interface DefinitionRequest {
+interface DefinitionRequest {
   line: number;
   column: number;
   text: string;

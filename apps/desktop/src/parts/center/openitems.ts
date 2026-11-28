@@ -62,7 +62,7 @@ export function itemMenu(item: GitItemRow, project: StartProject, machines: Host
   return [fix, reply, { kind: "separator" }, open];
 }
 
-export type OpenRepo = ReturnType<typeof projectsWithOpen>[number];
+type OpenRepo = ReturnType<typeof projectsWithOpen>[number];
 
 /// Repositories being imported from their row, by key, and why one failed.
 export const rowImports = new Map<string, "busy" | { error: string }>();

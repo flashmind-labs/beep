@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { NO_AUTO } from "../../ui/kit.tsx";
+import { NO_AUTO, Switch } from "../../ui/kit.tsx";
 import { useStore } from "zustand";
 import { onShownChange, pageShown } from "../../ui/active.ts";
 import { invoke, listen } from "../../ui/tauri.ts";
@@ -68,7 +68,7 @@ function NodeView({ node, plugin }: { node: PluginNode; plugin: string }) {
     case "button":
       return <button type="button" className="dbtn small pluginctl" aria-label={node.label} onClick={() => send(plugin, node.onPress, { kind: "press" })}>{node.children.length > 0 ? children(node.children, plugin) : node.label}</button>;
     case "toggle":
-      return <button type="button" className="dswitch pluginctl" role="switch" aria-checked={node.value} aria-label={node.label} onClick={() => send(plugin, node.onChange, { kind: "toggle", value: !node.value })} />;
+      return <Switch className="pluginctl" on={node.value} label={node.label} flip={() => send(plugin, node.onChange, { kind: "toggle", value: !node.value })} />;
     case "input":
       return <PluginInput node={node} plugin={plugin} />;
   }

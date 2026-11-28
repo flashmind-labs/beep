@@ -116,11 +116,22 @@ export function Checkbox({ checked, change, mixed = false, disabled = false, lab
 }
 
 /// The app's on/off switch (`dswitch`). `contained` keeps clicks and keys from the row it sits in.
-export function Switch({ on, flip, label, disabled = false, id, contained = false }: {
-  on: boolean; flip(): void; label: string; disabled?: boolean; id?: string; contained?: boolean;
+export function Switch({ on, flip, label, disabled = false, id, contained = false, title, className }: {
+  on: boolean; flip(): void; label: string; disabled?: boolean; id?: string; contained?: boolean; title?: string; className?: string;
 }) {
-  return <button type="button" className="dswitch" role="switch" id={id} aria-checked={on} aria-label={label} disabled={disabled}
+  return <button type="button" className={className ? `dswitch ${className}` : "dswitch"} role="switch" id={id} aria-checked={on} aria-label={label} disabled={disabled} title={title}
     onClick={event => { if (contained) contain(event); flip(); }} onKeyDown={contained ? contain : undefined} />;
+}
+
+/// A small status chip on a settings row (`dgchip`); `kind` colors it, such as `ready`, `warn` or `err`.
+export function GitChip({ children, title = null, kind }: { children: ReactNode; title?: string | null; kind?: string }) {
+  return <span className={`dgchip${kind ? ` ${kind}` : ""}`} title={title ?? undefined}>{children}</span>;
+}
+
+/// A row of a settings page: its label and help on the left (`flag` after the label), the control
+/// on the right.
+export function SettingField({ label, help, flag, children }: { label: string; help: string; flag?: ReactNode; children: ReactNode }) {
+  return <div className="hv-f"><span><b>{label}</b>{flag}<small>{help}</small></span>{children}</div>;
 }
 
 /// The thin bar along the top of a message field while something it waits on copies, such as an

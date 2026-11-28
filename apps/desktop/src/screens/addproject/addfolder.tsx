@@ -14,7 +14,7 @@ import type { FolderOffer } from "../../parts/project/addmachine-state.ts";
 import type { MachineFolder, ProjectRow } from "../../stores/project/projects-state.ts";
 
 /// What the window hands the sheet.
-export interface AddFolderOptions {
+interface AddFolderOptions {
   /// The machines Home lists.
   machines?: readonly { id: string; name: string; online: boolean; can_host?: boolean }[];
   /// This computer's machine id, when it is one.

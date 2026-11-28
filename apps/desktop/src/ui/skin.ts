@@ -48,7 +48,7 @@ const TOKENS_KEY = "beep.skin.tokens";
 /// A plugin skin's id in the pick.
 const PLUGIN = "plugin:";
 
-export interface SkinPreference {
+interface SkinPreference {
   /// Whether the window switches between `dark` and `light` with the OS preference.
   system: boolean;
   /// The skin id drawn right now.

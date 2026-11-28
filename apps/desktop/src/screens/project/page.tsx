@@ -57,7 +57,7 @@ sessionsChanged.follow(project => {
   if (project !== null && currentLocation()?.view === "projects" && state.picked === project) drawProjects();
 });
 
-export function drawProjects() {
+function drawProjects() {
   const el = boxOf("projects");
   if (!el) return;
   const rows = projectRows();

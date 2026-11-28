@@ -21,7 +21,7 @@ import { rememberGitRow } from "./loads.tsx";
 
 /// The project's navigation and Overview stay mounted in their own elements while
 /// other tiles show, so their rows, focus and scroll survive a visit to Git or Running.
-export interface ProjectShell {
+interface ProjectShell {
   project: string;
   navigation: HTMLElement;
   overview: HTMLElement;

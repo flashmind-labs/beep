@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PAGE_CACHE_FORMAT, PageCache, REFRESH_MS, backgroundTick, evict } from "../src/ui/pagecache.ts";
+import { PAGE_CACHE_FORMAT, PageCache, REFRESH_MS, evict } from "../src/ui/pagecache.ts";
 
 /// A clock the test moves by hand.
 function clock(start = 1_000_000) {
@@ -121,13 +121,6 @@ test("sign-out and another account clear it", () => {
   cache.setAccount(null);
   assert.equal(cache.size, 0);
   assert.equal(cache.toFile(), null);
-});
-
-test("background ticks run online, skip offline, and skip one late after sleep", () => {
-  const every = 4 * 60_000;
-  assert.equal(backgroundTick(0, every, every, true), "run");
-  assert.equal(backgroundTick(0, every, every, false), "offline");
-  assert.equal(backgroundTick(0, 2 * every + 1, every, true), "woke");
 });
 
 test("data held without a read keeps the read time, is not saved alone and survives a restore", () => {

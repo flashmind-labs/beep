@@ -41,7 +41,7 @@ const activityOf = (s: AgentRow): Activity =>
 
 /// The cursor a follow goes on from. A page with no fingerprint has none to match, and any `after`
 /// makes the node read its whole tail, so it asks for the newest page instead.
-export const followFrom = (cursor: TranscriptCursor | undefined): TranscriptCursor | null => cursor?.fingerprint ? cursor : null;
+const followFrom = (cursor: TranscriptCursor | undefined): TranscriptCursor | null => cursor?.fingerprint ? cursor : null;
 
 /// Follows the open session and, off screen, those that run or ask, so they
 /// show at once when opened again. Off screen an update only joins its model.
@@ -132,7 +132,7 @@ const tried = new Map<string, string>();
 /// those asking, then those running, then the latest visited. Each takes its page kept on disk; one
 /// that asks or runs is then followed off screen, from the cursor of that page when it has one. An
 /// idle one is not read over the mesh before a click.
-export function warmSessions(all: readonly AgentRow[]) {
+function warmSessions(all: readonly AgentRow[]) {
   if (!paneShown() || onPhone()) return;
   // A start has no stream to follow.
   const rows = conversationHistory.order(all, null).filter(r => r.status !== "starting" && !isStarting(r.id));

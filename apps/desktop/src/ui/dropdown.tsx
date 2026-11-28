@@ -8,7 +8,7 @@ import { Icon } from "./icons.tsx";
 import { spoken } from "./format.ts";
 
 /// One choice. Options sharing a `section` are listed under it; `tag` is a short status on the right.
-export interface DropdownOption<K extends string> { id: K; label: string; section?: string; tag?: string; disabled?: boolean }
+interface DropdownOption<K extends string> { id: K; label: string; section?: string; tag?: string; disabled?: boolean }
 
 /// A single choice, opened from a compact toolbar button or, with `field`, a form field.
 export interface DropdownProps<K extends string> {

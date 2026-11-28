@@ -6,7 +6,7 @@ import { dragHandle } from "./drag.ts";
 
 /// A column the grip resizes: the custom property it sets on the grip's parent, where the
 /// width is kept, its bounds and the grip's label.
-export interface Column {
+interface Column {
   property: `--${string}`;
   key: string;
   min: number;

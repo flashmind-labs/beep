@@ -126,7 +126,7 @@ const pageHost = createRef<HTMLDivElement>();
 
 /// The sheet's frame, which Settings renders its content in. The window
 /// hands it over (sheet.ts), so the bar never loads the window's modules.
-export interface SettingsSheetOwner { show(sheet: HTMLElement, content: ReactNode): void; close(): void }
+interface SettingsSheetOwner { show(sheet: HTMLElement, content: ReactNode): void; close(): void }
 let sheetOwner: SettingsSheetOwner | null = null;
 export function connectSettingsSheet(owner: SettingsSheetOwner) { sheetOwner = owner; }
 

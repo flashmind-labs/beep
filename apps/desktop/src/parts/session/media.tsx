@@ -127,7 +127,7 @@ export function viewerKeys(e: KeyboardEvent, cmd: boolean) {
 export async function saveUrl(url: string, name: string) {
   try {
     const path = await invoke<string>("save_picture", { name, url });
-    notice(`Saved ${path.split("/").pop()} to ${savedIn(path)}`, { path });
+    notice(`Saved ${baseName(path)} to ${savedIn(path)}`, { path });
   } catch (e) {
     notice(`Could not save it. ${e}`, { bad: true });
   }

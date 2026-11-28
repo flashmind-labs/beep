@@ -722,7 +722,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agturn { display: flex; flex-direction: column; gap: 12px; min-width: 0; contain: layout style }
 .agturn[hidden], .agspace[hidden] { display: none }
 .agspace { flex: none }
-.dcoderen, .plain-reply { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0 }
+.dcoderen { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0 }
 .dcoderen.user { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--elev); font-size: 13.5px; line-height: 20px }
 .dcoderen.user b { font-size: 11.5px; font-weight: 600; color: var(--muted) }
 .dcoderen.user a { color: var(--accent); overflow-wrap: anywhere }
@@ -1425,7 +1425,6 @@ mark.chat-match.current{background:#f0c14b;color:#181818}
 .attachment-gallery .att .preview { display: flex; flex-direction: column; align-items: stretch; width: 100%; gap: 8px }
 .attachment-gallery .att img { width: 100%; height: 112px; object-fit: contain; border-radius: var(--radius-sm); background: var(--elev) }
 .attachment-gallery .att .nm { width: 100% }
-.agc .row > .ag-att { padding: 0 }
 
 /* Keep selection on the text itself, so a click between messages cannot select the log. */
 .reply-body, .dcoderen.user .said, .sessionbody, .ag-plan > .md, .dthink .tx, .beepctx pre,

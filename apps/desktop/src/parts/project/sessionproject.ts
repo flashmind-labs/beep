@@ -6,7 +6,7 @@ import { nextRunning } from "./sessionsload.ts";
 import { openProjects } from "./addflow.ts";
 
 /// The project a coding session runs in, and how to open it.
-export interface SessionProject {
+interface SessionProject {
   label: string;
   name: string;
   open(): void;

@@ -1,4 +1,4 @@
-import { Button, NO_AUTO, Picker, SkeletonRows, Spinner } from "../../ui/kit.tsx";
+import { Button, GitChip, NO_AUTO, Picker, SkeletonRows, Spinner } from "../../ui/kit.tsx";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { apiKeys, forgejoTokenPage, ghChoices, unsavedProviders, githubAccounts, hostOf, teaHas, teaOffers, GITHUB_TOKEN_PAGE, type ApiKey, type CredCheck, type Credential, type CredState, type GitHubAccount } from "../../stores/settings/credentials.ts";
 import { Icon, type IconName } from "../../ui/icons.tsx";
@@ -16,11 +16,10 @@ function DefaultButton({ action }: { action: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   return <Button small disabled={busy} onClick={() => { setBusy(true); void action().finally(() => setBusy(false)); }}>Make default</Button>;
 }
-function Chip({ children, title, kind }: { children: ReactNode; title?: string; kind?: string }) { return <span className={`dgchip${kind ? ` ${kind}` : ""}`} title={title}>{children}</span>; }
 function CliChip({ cli, machines }: { cli: string; machines: Machines }) {
   if (!machines) return null;
   const names = machines.filter(m => m.env?.tools?.some(t => t.name === cli)).map(m => m.name);
-  return <Chip title={names.length ? names.join(", ") : undefined}>{names.length === 0 ? `${cli} on no machine yet` : names.length === 1 ? `${cli} on ${names[0]}` : `${cli} on ${names.length} machines`}</Chip>;
+  return <GitChip title={names.length ? names.join(", ") : undefined}>{names.length === 0 ? `${cli} on no machine yet` : names.length === 1 ? `${cli} on ${names[0]}` : `${cli} on ${names.length} machines`}</GitChip>;
 }
 function Link({ href, actions, children }: { href: string; actions: CredentialActions; children: ReactNode }) { return <a href={href} className="dlink" onClick={e => { e.preventDefault(); e.stopPropagation(); actions.open(href); }}>{children}</a>; }
 function Form({ state, actions, title, subtitle, children }: { state: CredState; actions: CredentialActions; title: string; subtitle?: string; children: ReactNode }) {
@@ -37,16 +36,16 @@ function Waiting({ state, actions }: { state: CredState; actions: CredentialActi
 function Use({ label, busy, action }: { label: string; busy: boolean; action: () => void }) { return <Button look="primary" small disabled={busy} onClick={action}>{busy ? "Checking…" : label}</Button>; }
 function GitRow({ icon, name, account, tag, usable, acts, chips, children }: { icon: IconName; name: string; account?: string; tag?: ReactNode; usable: boolean; acts: ReactNode; chips?: ReactNode; children?: ReactNode }) { return <div className={`dgit${usable ? "" : " off"}`}><span className="ic"><span><Icon name={icon} /></span></span><div className="l1"><b>{name}</b>{account && <span className="acct">{account}</span>}{tag}<span className="acts">{acts}</span></div>{chips && <div className="l2">{chips}</div>}{children}</div>; }
 function CheckChip({ check, name, known }: { check: CredCheck | undefined; name: string; known: boolean }) {
-  if (check?.state === "checking") return <Chip>checking from your machines…</Chip>;
-  if (check?.state === "valid") return check.machine ? <Chip title={`This device cannot reach ${name}; ${check.machine} can`}>checked from {check.machine}</Chip> : null;
-  if (check?.state === "refused") return <Chip kind="err" title={check.message}>token refused</Chip>;
-  if (check?.state === "unreachable") return <Chip kind="warn" title={check.message}>not reachable from any of your machines</Chip>;
-  return known ? null : <Chip kind="warn">not checked: Beep could not reach it</Chip>;
+  if (check?.state === "checking") return <GitChip>checking from your machines…</GitChip>;
+  if (check?.state === "valid") return check.machine ? <GitChip title={`This device cannot reach ${name}; ${check.machine} can`}>checked from {check.machine}</GitChip> : null;
+  if (check?.state === "refused") return <GitChip kind="err" title={check.message}>token refused</GitChip>;
+  if (check?.state === "unreachable") return <GitChip kind="warn" title={check.message}>not reachable from any of your machines</GitChip>;
+  return known ? null : <GitChip kind="warn">not checked: Beep could not reach it</GitChip>;
 }
 function EditRemove({ actions, name, keyName, id }: { actions: CredentialActions; name: string; keyName: string; id: string }) { return <><IconButton icon="edit" label={`Replace the token for ${name}`} onClick={() => actions.edit(keyName)} /><IconButton icon="remove" label={`Remove ${name}`} onClick={() => actions.remove(id)} /></>; }
 function Account({ account, state, machines, actions }: { account: GitHubAccount; state: CredState; machines: Machines; actions: CredentialActions }) {
   const usable = !account.unreadable, cli = state.cli, ghHere = cli?.github_accounts?.some(g => g.login.toLowerCase() === account.login.toLowerCase()) || cli?.github?.state === "signed_in", what = account.login ? `@${account.login}` : "GitHub", orgs = account.orgs ?? [], more = orgs.slice(3);
-  return <GitRow icon="github" name="GitHub" account={account.login ? `@${account.login}` : ""} usable={usable} tag={account.default && <Chip title="GH_TOKEN on your machines">default</Chip>} acts={<>{!usable && ghHere && <Use label="Use gh sign-in" busy={state.cliBusy === "github"} action={() => actions.useCli("github")} />}{!account.default && <DefaultButton action={() => actions.defaultAccount(account.id)} />}<EditRemove actions={actions} name={what} keyName={`github:${account.id}`} id={account.id} /></>} chips={<>{!usable && <Chip kind="err">Re-enter this token</Chip>}{orgs.slice(0, 3).map(org => <Chip key={org}>{org}</Chip>)}{more.length > 0 && <Chip title={more.join(", ")}>+{more.length}</Chip>}<CliChip cli="gh" machines={machines} /></>}>
+  return <GitRow icon="github" name="GitHub" account={account.login ? `@${account.login}` : ""} usable={usable} tag={account.default && <GitChip title="GH_TOKEN on your machines">default</GitChip>} acts={<>{!usable && ghHere && <Use label="Use gh sign-in" busy={state.cliBusy === "github"} action={() => actions.useCli("github")} />}{!account.default && <DefaultButton action={() => actions.defaultAccount(account.id)} />}<EditRemove actions={actions} name={what} keyName={`github:${account.id}`} id={account.id} /></>} chips={<>{!usable && <GitChip kind="err">Re-enter this token</GitChip>}{orgs.slice(0, 3).map(org => <GitChip key={org}>{org}</GitChip>)}{more.length > 0 && <GitChip title={more.join(", ")}>+{more.length}</GitChip>}<CliChip cli="gh" machines={machines} /></>}>
     {!usable && state.cliError?.key === "github" && <span className="derr">{state.cliError.message}</span>}
   </GitRow>;
 }
@@ -73,12 +72,12 @@ function Forgejo({ credential, state, machines, actions }: { credential: Extract
   const name = hostOf(credential.url), key = `forgejo:${credential.url}`, usable = !credential.unreadable, check = state.checks?.[credential.id];
   if (state.edit?.kind === "forgejo" && state.edit.id === credential.id) { const page = forgejoTokenPage(credential.url); return <Form state={state} actions={actions} title={name} subtitle="Replace the token">{page && <>Make one at <Link href={page} actions={actions}>{hostOf(page)}</Link>, with repository and issue access.</>}</Form>; }
   const login = credential.account || (check?.state === "valid" ? check.account : ""), error = state.cliError?.key === key ? state.cliError.message : check?.state === "refused" ? check.message : "";
-  return <GitRow icon="forgejo" name={name} account={usable && login ? `@${login}` : ""} usable={usable} acts={<>{!usable && teaHas(state.cli, credential.url) && <Use label="Use teacli sign-in" busy={state.cliBusy === key} action={() => actions.useCli(key)} />}<EditRemove actions={actions} name={name} keyName={`forgejo:${credential.id}`} id={credential.id} /></>} chips={<>{!usable && <Chip kind="err">Re-enter this token</Chip>}{usable && <CheckChip check={check} name={name} known={!!credential.account} />}<CliChip cli="teacli" machines={machines} /></>}>{error && <span className="derr">{error}</span>}</GitRow>;
+  return <GitRow icon="forgejo" name={name} account={usable && login ? `@${login}` : ""} usable={usable} acts={<>{!usable && teaHas(state.cli, credential.url) && <Use label="Use teacli sign-in" busy={state.cliBusy === key} action={() => actions.useCli(key)} />}<EditRemove actions={actions} name={name} keyName={`forgejo:${credential.id}`} id={credential.id} /></>} chips={<>{!usable && <GitChip kind="err">Re-enter this token</GitChip>}{usable && <CheckChip check={check} name={name} known={!!credential.account} />}<CliChip cli="teacli" machines={machines} /></>}>{error && <span className="derr">{error}</span>}</GitRow>;
 }
 function ApiKeyRow({ credential, state, actions }: { credential: ApiKey; state: CredState; actions: CredentialActions }) {
   const provider = state.providers?.find(p => p.provider === credential.provider), name = provider?.name ?? credential.provider;
   if (state.edit?.kind === "api_key" && state.edit.id === credential.id) return <Form state={state} actions={actions} title={name} subtitle="Replace the key">{null}</Form>;
-  return <GitRow icon="key" name={name} account={`…${credential.last4}`} usable={!credential.unreadable} acts={<><IconButton icon="edit" label={`Replace the key for ${name}`} onClick={() => actions.edit(`api_key:${credential.id}`)} /><IconButton icon="remove" label={`Remove ${name}`} onClick={() => actions.remove(credential.id)} /></>} chips={<>{credential.unreadable && <Chip kind="err">Re-enter this key</Chip>}<Chip title="The env var your machines get">{credential.env_var}</Chip></>} />;
+  return <GitRow icon="key" name={name} account={`…${credential.last4}`} usable={!credential.unreadable} acts={<><IconButton icon="edit" label={`Replace the key for ${name}`} onClick={() => actions.edit(`api_key:${credential.id}`)} /><IconButton icon="remove" label={`Remove ${name}`} onClick={() => actions.remove(credential.id)} /></>} chips={<>{credential.unreadable && <GitChip kind="err">Re-enter this key</GitChip>}<GitChip title="The env var your machines get">{credential.env_var}</GitChip></>} />;
 }
 function ApiKeys({ state, actions }: { state: CredState; actions: CredentialActions }) {
   const keys = apiKeys(state), adding = state.edit?.kind === "api_key" && !state.edit.id;

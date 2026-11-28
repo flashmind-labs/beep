@@ -7,7 +7,7 @@ import { Separator } from "react-aria-components/Separator";
 import { useStore } from "zustand";
 import { skillSync, projectSync, dockerContainers, type SyncSettingKind } from "../../stores/settings/skill-sync.ts";
 import type { MacSettings } from "./settings.tsx";
-import { Button, Switch } from "../../ui/kit.tsx";
+import { Button, GitChip, Switch } from "../../ui/kit.tsx";
 import { Icon } from "../../ui/icons.tsx";
 import { bytes, spoken } from "../../ui/format.ts";
 import { useDialogRef } from "../../ui/parts.tsx";
@@ -137,13 +137,13 @@ function DictationPreference({ credentials }: { credentials(): void }) {
           <Button look="quiet" small onClick={() => void dictationSettings.cancelDownload(modelId)}>Cancel</Button>
         </>;
       }
-      if (status?.installed) return <span className="dgchip ready">On device · {bytes(total)}</span>;
+      if (status?.installed) return <GitChip kind="ready">On device · {bytes(total)}</GitChip>;
       return <Button look="primary" small onClick={() => void dictationSettings.downloadModel(modelId)}>Download ({bytes(total)})</Button>;
     }
 
     if (saved.model === null && ready?.provider === "local") {
       const status = localModelStatus(ready.id, state.localModels);
-      return <span className="dgchip ready">On device · {bytes(status?.bytes ?? ready.bytes ?? 0)}</span>;
+      return <GitChip kind="ready">On device · {bytes(status?.bytes ?? ready.bytes ?? 0)}</GitChip>;
     }
 
     const cloud = pickedProvider && pickedProvider !== "local"
@@ -153,7 +153,7 @@ function DictationPreference({ credentials }: { credentials(): void }) {
         : null;
     const key = cloud ? state.keys[cloud] : undefined;
     return <>
-      {cloud && key !== undefined ? <span className="dgchip">{PROVIDER_NAMES[cloud]} key{key ? ` …${key}` : ""}</span> : null}
+      {cloud && key !== undefined ? <GitChip>{PROVIDER_NAMES[cloud]} key{key ? ` …${key}` : ""}</GitChip> : null}
       <Button look={cloud && key !== undefined ? "quiet" : "secondary"} small onClick={credentials}>{cloud && key !== undefined ? "Credentials…" : "Add API key…"}</Button>
     </>;
   };

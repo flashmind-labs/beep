@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { ModelContextView } from "./model-context-view.tsx";
 import type { ModelContextPanel } from "../../stores/settings/model-context.ts";
 import { FlshView } from "./flsh-view.tsx";
@@ -7,7 +7,7 @@ import { FailBanner } from "../../ui/failbanner-view.tsx";
 import { HarnessIcon } from "../../ui/icons.tsx";
 import { adapterLine, type AdapterInstall } from "../../stores/machines/adapters-state.ts";
 import { compactKind, differsLabel, differsOn, draftChanged, envProblem, harnessName, hasUpdate, listRows, planOf, summaryLine, versionLine, type AutoCompactDraft, type HarnessDraft, type HarnessesView, type HarnessView, type MachineSettings, type SharedField } from "../../stores/settings/providers-state.ts";
-import { Button, Checkbox, ChipToggle, CopyButton, EmptyPanel, NO_AUTO, onRowKey, Picker, Switch } from "../../ui/kit.tsx";
+import { Button, Checkbox, ChipToggle, CopyButton, EmptyPanel, NO_AUTO, onRowKey, Picker, SettingField, Switch } from "../../ui/kit.tsx";
 import type { invoke as Invoke } from "../../ui/tauri.ts";
 
 export interface SharedProviderSettings {
@@ -60,10 +60,10 @@ function SharedSettings({ value, p }: { value: SharedProviderSettings; p: Provid
   const compact = value.compact, directCli = DIRECT_CLIS[value.agent] ?? null;
   useEffect(() => { if (compact && !compact.loaded) p.loadCompact(value.agent); }, [value.agent, compact?.loaded, p.loadCompact]);
   return <section className="hv-scope hv-d"><h3>All machines</h3><div className="hv-note">These settings apply on every machine.</div>
-    {compact && <><div className="hv-f"><span><b>Auto-compact</b><small>Applies to sessions on every machine.</small></span><span className="fl-row">
+    {compact && <><SettingField label="Auto-compact" help="Applies to sessions on every machine."><span className="fl-row">
       <Switch label={`Auto-compact for ${harnessName(value.agent)}`} on={compact.draft.compactOn} disabled={!compact.loaded || compact.busy} flip={() => p.changeCompact(value.agent, { compactOn: !compact.draft.compactOn })} />
       {compactKind(value.agent) === "percent" && <input className="hv-in" value={compact.draft.compactPercent} placeholder="80% or 350000" aria-label="Auto-compact threshold" {...NO_AUTO} disabled={!compact.loaded || compact.busy} onChange={event => p.changeCompact(value.agent, { compactPercent: event.currentTarget.value })} />}
-    </span></div><div className="hv-acts"><Button look="primary" disabled={!compact.canSave} onClick={() => p.saveCompact(value.agent)}>{compact.busy ? "Saving…" : "Save auto-compact"}</Button><Button look="quiet" hidden={!compact.edited} disabled={compact.busy} onClick={() => p.discardCompact(value.agent)}>Discard</Button><span className="derr">{compact.error}</span></div></>}
+    </span></SettingField><div className="hv-acts"><Button look="primary" disabled={!compact.canSave} onClick={() => p.saveCompact(value.agent)}>{compact.busy ? "Saving…" : "Save auto-compact"}</Button><Button look="quiet" hidden={!compact.edited} disabled={compact.busy} onClick={() => p.discardCompact(value.agent)}>Discard</Button><span className="derr">{compact.error}</span></div></>}
     {directCli && <DriverField key={value.agent} agent={value.agent} cli={directCli} invoke={p.invoke} />}
     {(value.agent === "flsh" || value.agent === "pi") && <FlshView panel={p.flsh} agent={value.agent} />}
     {value.machineName && <div className="hv-note">Model choices and reported limits come from {value.machineName}.</div>}
@@ -91,10 +91,10 @@ function DriverField({ agent, cli, invoke }: { agent: string; cli: string; invok
     setError("");
     invoke("harness_driver_save", { agent, driver: next }).catch(e => { setDriver(was); setError(String(e)); });
   };
-  return <div className="hv-f"><span><b>Harness</b><small>Direct runs the {cli} CLI without the npm adapter. New sessions use it.</small></span><span className="fl-row">
+  return <SettingField label="Harness" help={`Direct runs the ${cli} CLI without the npm adapter. New sessions use it.`}><span className="fl-row">
     <span className="dchips" role="group" aria-label="Harness">{DRIVERS.map(option => <ChipToggle key={option.id} label={option.label} selected={driver === option.id} onToggle={() => pick(option.id)} />)}</span>
     <span className="derr">{error}</span>
-  </span></div>;
+  </span></SettingField>;
 }
 
 function HarnessSwitch({ hv, p, on }: { hv: HarnessView; p: ProviderProps; on: boolean }) {
@@ -111,9 +111,7 @@ function Summary({ hv, p }: { hv: HarnessView; p: ProviderProps }) {
   const on = hv.installed && hv.settings.enabled;
   return <div className={`hv-sum${hv.installed && !on ? " off" : ""}`}><HarnessIcon agent={hv.agent} /><Name name={harnessName(hv.agent)} version={hv.installed && hv.version ? `v${hv.version}` : ""} latest={hasUpdate(hv) ? hv.latest : null} status={s.text} bad={s.bad} />{hv.installed ? <><span className="on">{on ? "On" : "Off"} for {p.machineName}</span><HarnessSwitch hv={hv} p={p} on={on} /></> : <><span /><span /></>}</div>;
 }
-function Field({ label, help, names, children }: { label: string; help: string; names?: readonly string[]; children: ReactNode }) {
-  return <div className="hv-f"><span><b>{label}</b>{!!names?.length && <span className="hv-diff" title={`Not the same on ${names.join(", ")}`}>{differsLabel(names)}</span>}<small>{help}</small></span>{children}</div>;
-}
+const differs = (names: readonly string[]) => names.length ? <span className="hv-diff" title={`Not the same on ${names.join(", ")}`}>{differsLabel(names)}</span> : undefined;
 function Runtime({ hv, p }: { hv: HarnessView; p: ProviderProps }) {
   const draft = p.draft, name = harnessName(hv.agent), pending = p.adapter, busy = p.updating;
   const field = (label: SharedField) => p.others && p.machine ? differsOn(p.others, p.machine, label) : [];
@@ -129,8 +127,8 @@ function Runtime({ hv, p }: { hv: HarnessView; p: ProviderProps }) {
       {status.state === "unknown" && p.inSettings && <div className="hv-note">{name} does not say whether it is signed in. Run it on {p.machineName} to sign in.</div>}
       {pending ? <>{(!p.inSettings || pending.failed !== null) && <div className={`hv-note${pending.failed === null ? "" : " bad"}`}>{adapterLine(pending)}</div>}{pending.failed !== null && <div className="hv-acts"><Button disabled={busy} onClick={() => p.retryAdapter(hv.agent)}>{busy ? "Trying again…" : "Try again"}</Button></div>}</> : !hv.runnable && <div className="hv-note">Restart beep-node to use it.</div>}
       {hasUpdate(hv) && <div className="hv-acts"><Button disabled={busy || !hv.install} title={!hv.install ? "Beep knows no way to update it here" : undefined} onClick={() => p.update(hv)}>{busy ? "Updating…" : `Update to v${hv.latest}`}</Button></div>}
-      {draft && <><h4>Runtime</h4><Field label="Binary path" help={`The command Beep starts for ${name} on ${p.machineName}.${adapterOnly}`} names={field("program")}><TextInput label="Binary path" placeholder={hv.program ?? hv.agent} value={draft.program} change={v => p.setDraft({ program: v })} /></Field><Field label={hv.home_var ?? "Home folder"} help="Its home and config folder." names={field("home")}><TextInput label={hv.home_var ?? "Home folder"} placeholder={hv.home_default ?? ""} value={draft.home} change={v => p.setDraft({ home: v })} /></Field><Field label="Launch arguments" help={`Added to every session it starts.${adapterOnly}`} names={field("args")}><TextInput label="Launch arguments" placeholder="none" value={draft.args} change={v => p.setDraft({ args: v })} /></Field>
-      <Field label="Environment" help="Encrypted, never shown again. Put keys in Credentials." names={field("env")}><div className="hv-envs">{[...draft.env, { name: "", value: "", saved: false }].map((v, i) => { const last = i === draft.env.length; const set = (change: Partial<typeof v>) => { const env = [...draft.env]; if (last) env.push({ ...v, ...change }); else env[i] = { ...v, ...change }; p.setDraft({ env }); }; return <div className="hv-env" key={i}><TextInput label="Variable name" placeholder="NAME" value={v.name} change={value => set({ name: value })} /><TextInput type="password" label="Value" placeholder={v.saved ? "saved; type to replace" : "value"} value={v.value} change={value => set({ value })} />{last ? <span /> : <Button look="quiet" small aria-label={`Remove ${v.name}`} onClick={() => p.setDraft({ env: draft.env.filter((_, j) => j !== i) })}>×</Button>}</div>; })}</div></Field>
+      {draft && <><h4>Runtime</h4><SettingField label="Binary path" help={`The command Beep starts for ${name} on ${p.machineName}.${adapterOnly}`} flag={differs(field("program"))}><TextInput label="Binary path" placeholder={hv.program ?? hv.agent} value={draft.program} change={v => p.setDraft({ program: v })} /></SettingField><SettingField label={hv.home_var ?? "Home folder"} help="Its home and config folder." flag={differs(field("home"))}><TextInput label={hv.home_var ?? "Home folder"} placeholder={hv.home_default ?? ""} value={draft.home} change={v => p.setDraft({ home: v })} /></SettingField><SettingField label="Launch arguments" help={`Added to every session it starts.${adapterOnly}`} flag={differs(field("args"))}><TextInput label="Launch arguments" placeholder="none" value={draft.args} change={v => p.setDraft({ args: v })} /></SettingField>
+      <SettingField label="Environment" help="Encrypted, never shown again. Put keys in Credentials." flag={differs(field("env"))}><div className="hv-envs">{[...draft.env, { name: "", value: "", saved: false }].map((v, i) => { const last = i === draft.env.length; const set = (change: Partial<typeof v>) => { const env = [...draft.env]; if (last) env.push({ ...v, ...change }); else env[i] = { ...v, ...change }; p.setDraft({ env }); }; return <div className="hv-env" key={i}><TextInput label="Variable name" placeholder="NAME" value={v.name} change={value => set({ name: value })} /><TextInput type="password" label="Value" placeholder={v.saved ? "saved; type to replace" : "value"} value={v.value} change={value => set({ value })} />{last ? <span /> : <Button look="quiet" small aria-label={`Remove ${v.name}`} onClick={() => p.setDraft({ env: draft.env.filter((_, j) => j !== i) })}>×</Button>}</div>; })}</div></SettingField>
       <div className="hv-acts hv-save"><Button look="primary" title={`Save for ${p.machineName} only`} disabled={p.saving || !draftChanged(hv, draft) || !!envProblem(draft.env)} onClick={() => p.save(hv)}>{p.saving ? "Saving…" : "Save"}</Button>{p.others && p.others.length > 1 && <><Button title="Save these settings on every machine; offline ones get them when they next connect" disabled={p.saving || !!envProblem(draft.env)} onClick={() => p.saveAll(hv)}>{p.saving ? "Saving…" : "Save to all hosts"}</Button><label className="hv-incl" title="Binary paths usually differ between machines"><Checkbox checked={p.includeProgram} change={p.setIncludeProgram} />Include binary path</label></>}<Button look="quiet" hidden={!draftChanged(hv, draft)} onClick={p.discard}>Discard</Button><span className="hv-ok">{draftChanged(hv, draft) ? "" : p.savedAll}</span><span className="derr">{envProblem(draft.env)}</span></div></>}
     </>}
   </div>;

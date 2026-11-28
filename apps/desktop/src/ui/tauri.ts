@@ -60,7 +60,7 @@ declare global {
 const core = window.__TAURI__.core;
 export const { Channel } = core;
 
-export interface BuildCapabilities {
+interface BuildCapabilities {
   local_host: boolean;
   metrics_recording: boolean;
   autostart: boolean;

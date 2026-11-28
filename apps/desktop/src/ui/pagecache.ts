@@ -268,13 +268,3 @@ export class PageCache {
     };
   }
 }
-
-/// What a background tick of the hidden window does: `run` reads, `woke`
-/// skips one that came far too late because the Mac slept (the reconnect
-/// that follows reads anyway), `offline` skips while the connection is down.
-type Tick = "run" | "woke" | "offline";
-
-export function backgroundTick(last: number, now: number, every: number, online: boolean): Tick {
-  if (now - last > every * 2) return "woke";
-  return online ? "run" : "offline";
-}

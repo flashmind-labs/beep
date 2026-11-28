@@ -32,7 +32,7 @@ interface PreparedProject {
 }
 
 /// A contact's invite to their team, waiting for Accept (InviteView).
-export interface TeamInvite {
+interface TeamInvite {
   from: string;
   login: string | null;
   /// `host/org/name`.

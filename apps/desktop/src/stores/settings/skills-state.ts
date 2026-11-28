@@ -1,5 +1,7 @@
 // Skill libraries (#674): the mesh records as the desktop reads them, and the sums Settings >
 // Skills and a project's Skills sheet draw from. skills.ts loads and saves them.
+import { plural } from "../../ui/format.ts";
+
 
 /// Which of a library's skills a place gets, as serde writes `Pick`.
 export type Pick = "None" | "All" | { Only: string[] };
@@ -111,8 +113,8 @@ export function whereChip(library: SkillLibrary): { text: string; title: string 
   const projects = libraryProjects(library);
   const chats = Object.values(library.chats).filter(pick => pick !== "None").length;
   if (!projects.length && !chats) return { text: "Not installed", title: null };
-  if (!projects.length) return { text: `In ${plural(chats, "chat")}`, title: null };
-  return { text: `In ${[plural(projects.length, "project"), ...chats ? [plural(chats, "chat")] : []].join(" and ")}`, title: projects.join(", ") };
+  if (!projects.length) return { text: `In ${plural(chats, "chat", "chats")}`, title: null };
+  return { text: `In ${[plural(projects.length, "project", "projects"), ...chats ? [plural(chats, "chat", "chats")] : []].join(" and ")}`, title: projects.join(", ") };
 }
 
 /// The repository as the row shows it: without its scheme or `.git`.
@@ -136,10 +138,6 @@ export function problemLines(problems: readonly LibraryProblem[], library: strin
   });
 }
 
-export function plural(count: number, word: string) {
-  return `${count} ${word}${count === 1 ? "" : "s"}`;
-}
-
 /// One library's line in a project's Skills sheet.
 export type ProjectLine =
   | { kind: "global"; library: SkillLibrary }
@@ -152,7 +150,7 @@ export function projectLines(libraries: readonly SkillLibrary[], picks: Readonly
     if (coverage(library.global, library.skills) === "all") return { kind: "global", library };
     const pick = picks[library.name] ?? "None";
     const covered = coverage(pick, library.skills);
-    const sub = covered === "some" ? `${pickedCount(pick, library.skills)} of ${plural(library.skills.length, "skill")}` : plural(library.skills.length, "skill");
+    const sub = covered === "some" ? `${pickedCount(pick, library.skills)} of ${plural(library.skills.length, "skill", "skills")}` : plural(library.skills.length, "skill", "skills");
     return { kind: "pick", library, pick, coverage: covered, sub };
   });
 }

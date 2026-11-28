@@ -161,13 +161,13 @@ function scrollsSideways(target: EventTarget | null): Record<Swipe, boolean> {
 }
 
 /// How a jump moves: a glide to a place to read, a snap between items and sections.
-export type ScrollFeel = "glide" | "snap";
+type ScrollFeel = "glide" | "snap";
 
 /// Where a jump goes: a position, or the end of the scroller, which may grow on the way.
-export type ScrollGoal = number | "end";
+type ScrollGoal = number | "end";
 
 /// What a jump does once it arrives: light up `landed`, then run `done`.
-export interface Arrival { landed: HTMLElement | null; done: (() => void) | null }
+interface Arrival { landed: HTMLElement | null; done: (() => void) | null }
 
 /// A feel's duration, from a base and a little more per pixel up to a cap, how far it
 /// travels before cutting the rest short, and how long its landing stays lit.

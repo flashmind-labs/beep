@@ -10,7 +10,7 @@ import { type Allowed, keepEffort, type MachineRow } from "../../stores/agents/a
 // time a picker opens.
 const picker = () => import("./agentpicker.tsx");
 
-export interface PickPopoverOpts {
+interface PickPopoverOpts {
   picked: Picked;
   /// The machine models are listed on, with its harnesses; null for none.
   machine: () => { id: string; name: string; agents: readonly string[] } | null;
@@ -28,7 +28,7 @@ export interface PickPopoverOpts {
   draw: (sync: boolean) => void;
 }
 
-export interface PickPopover {
+interface PickPopover {
   readonly open: boolean;
   readonly view: ReactElement | null;
   /// The elements the view renders: the box clicks inside keep the picker

@@ -23,6 +23,7 @@ import { savedIn } from "../../ui/platform.ts";
 import { renameSheet } from "../../ui/menu.tsx";
 import type { MachineView } from "../../parts/machines/machine-state.ts";
 import { reason } from "../../ui/format.ts";
+import { baseName } from "../../stores/agentpane/media-state.ts";
 
 // ---------- Machines ----------
 
@@ -226,7 +227,7 @@ async function readLog(id: string) {
 async function saveLog(m: Machine) {
   try {
     const path = await invoke<string>("save_machine_log", { name: m.name, text: log?.text ?? "" });
-    notice(`Saved ${path.split("/").pop()} to ${savedIn(path)}`, { path });
+    notice(`Saved ${baseName(path)} to ${savedIn(path)}`, { path });
   } catch (e) {
     notice(`Could not save it. ${e}`, { bad: true });
   }

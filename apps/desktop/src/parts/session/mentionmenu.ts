@@ -137,7 +137,7 @@ export interface MenuPlace {
 
 /// Whose commands a menu offers: the running session `session` of harness
 /// `agent`, or, while it is null or not read yet, what `agent` last reported.
-export interface MenuCommands {
+interface MenuCommands {
   agent: string;
   machine: string;
   session: string | null;

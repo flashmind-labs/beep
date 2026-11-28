@@ -62,6 +62,7 @@ import { AgentButton } from "../review/feedback-view.tsx";
 import { askPrompt, claim, heldText, type Claim } from "../../stores/project/team-state.ts";
 import { assign, heldBy, readTeam, takeFree, teamOf } from "./team.ts";
 import { thr } from "./stores.ts";
+import { baseName } from "../../stores/agentpane/media-state.ts";
 
 let finishCopy: (() => void) | undefined;
 
@@ -158,10 +159,10 @@ function openFolderMenu(e: MouseEvent) {
   const trees = knownWorktrees(sessions, place.machine_id, place.cwd);
   const pick = (to: CheckoutPick) => () => { pc.checkout = to; pc.target = null; projectChanged.notify(); };
   openMenu(e, "Folder", [
-    { label: `Current checkout (${place.cwd.split("/").pop()})`, on: pick("current") },
+    { label: `Current checkout (${baseName(place.cwd)})`, on: pick("current") },
     { label: "New worktree", on: pick("new") },
     { label: "New branch in the checkout", on: pick("branch") },
-    ...trees.map(t => ({ label: `Worktree ${t.split("/").pop()}`, on: pick({ worktree: t }) })),
+    ...trees.map(t => ({ label: `Worktree ${baseName(t)}`, on: pick({ worktree: t }) })),
   ]);
 }
 

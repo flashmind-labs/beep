@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { useStore } from "zustand";
 import { modelDraft, modelProblem, modelRules } from "../../stores/settings/model-context-state.ts";
 import { contextOf, supportsOverrides, type ModelContextPanel } from "../../stores/settings/model-context.ts";
-import { Button, NO_AUTO } from "../../ui/kit.tsx";
+import { Button, NO_AUTO, SettingField } from "../../ui/kit.tsx";
 
 export function ModelContextView({ panel, machine, agent }: { panel: ModelContextPanel; machine: string; agent: string }) {
   const state = useStore(panel.states, states => contextOf(states, machine, agent));
@@ -21,11 +21,11 @@ export function ModelContextView({ panel, machine, agent }: { panel: ModelContex
   const limit = (n: number | null | undefined) => n ? n.toLocaleString("en-US") : "Not reported";
   const changeRule = (index: number, change: { model?: string; threshold?: string }) => update({ draft: state.draft.map((rule, i) => i === index ? { ...rule, ...change } : rule) });
   return <><h4>Models and context</h4>
-    <div className="hv-f"><span><b>Default model</b><small>Used for new sessions on every machine. Blank uses the harness default.</small></span><div>
+    <SettingField label="Default model" help="Used for new sessions on every machine. Blank uses the harness default."><div>
       <input className="hv-in" aria-label="Default model" list="harness-default-models" placeholder="Harness default" autoCorrect="off" autoCapitalize="off" spellCheck={false} disabled={state.savingDefault} value={state.defaultText} onChange={e => { const defaultText = e.currentTarget.value, value = defaultText.trim(); update({ defaultText, defaultModel: defaultModels.find(model => model.name === value)?.id ?? value }); }} />
       <datalist id="harness-default-models">{defaultModels.map(model => <option key={model.id} value={model.name} />)}</datalist>
       <Button look="primary" disabled={state.savingDefault || state.defaultModel.trim() === state.savedDefault} onClick={() => void panel.saveDefault(machine, agent)}>{state.savingDefault ? "Saving…" : "Save default model"}</Button><span className="derr">{state.defaultError}</span>
-    </div></div>
+    </div></SettingField>
     {(hasDefaultLimit || hasMaxLimit) && <div className="hv-note">Limits from this machine's harness.{hasMaxLimit && " Maximum usable can be smaller than the API limit."}</div>}
     {editable && <div className="hv-note">Overrides apply to new or resumed sessions on every machine, between turns. Blank uses Auto-compact above; off disables Beep's trigger. The harness may compact earlier. Enter 80%, 350000, or off.</div>}
     {!rows.length && <div className="hv-note">This harness did not list its models.</div>}

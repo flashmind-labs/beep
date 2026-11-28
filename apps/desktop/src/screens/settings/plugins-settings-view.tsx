@@ -3,7 +3,7 @@ import { confirmSheet } from "../../ui/menu.tsx";
 import { openSheet } from "../../ui/parts.tsx";
 import { useStore } from "zustand";
 import { Icon } from "../../ui/icons.tsx";
-import { NO_AUTO, Spinner } from "../../ui/kit.tsx";
+import { GitChip, NO_AUTO, Spinner, Switch } from "../../ui/kit.tsx";
 import type { PluginsSettings, PluginsState } from "./plugins-settings.ts";
 import {
   consentAction, consentTitle, consentVersions, isNewPermission, permissionLabel, permissionMeaning, rowOffers, runLine,
@@ -97,10 +97,10 @@ function Row({ row, store, state, working }: { row: PluginRow; store: PluginsSet
   return <div className={`dgit plg${offers.on ? "" : " off"}`} role="listitem" data-plugin={row.id}>
     <span className="ic"><Icon name="plugin" /></span>
     <div className="l1"><b>{row.name}</b><span className="acct">{row.version}</span>
-      <button type="button" className="dswitch" role="switch" aria-label={row.name} aria-checked={offers.on} disabled={busy || offers.switchLocked} title={offers.switchLocked ? "Allow this plugin first" : undefined} onClick={() => { void store.setEnabled(row.id, !offers.on); }} />
+      <Switch label={row.name} on={offers.on} disabled={busy || offers.switchLocked} title={offers.switchLocked ? "Allow this plugin first" : undefined} flip={() => { void store.setEnabled(row.id, !offers.on); }} />
     </div>
     {row.description !== "" && <span className="plg-desc">{row.description}</span>}
-    <div className="l2">{row.permissions.length === 0 ? <span className="dgchip">Asks for no permissions</span> : row.permissions.map(permission => <PermissionChip key={permission} permission={permission} />)}</div>
+    <div className="l2">{row.permissions.length === 0 ? <GitChip>Asks for no permissions</GitChip> : row.permissions.map(permission => <PermissionChip key={permission} permission={permission} />)}</div>
     <div className="dline plg-foot">
       <span className={`plg-state ${line.tone}`}>{line.text}</span><span className="dsub plg-src">{sourceLabel(row.source)}</span>
       <span className="acts">
@@ -115,7 +115,7 @@ function Row({ row, store, state, working }: { row: PluginRow; store: PluginsSet
 }
 
 function PermissionChip({ permission }: { permission: PluginPermission }) {
-  return <span className="dgchip" title={permissionMeaning(permission)}>{permissionLabel(permission)}</span>;
+  return <GitChip title={permissionMeaning(permission)}>{permissionLabel(permission)}</GitChip>;
 }
 
 /// What the consent sheet shows: what the plugin is, what it asks for, and what changed.
@@ -130,7 +130,7 @@ function ConsentView({ flow, confirm, cancel }: { flow: Consenting; confirm(): v
     {preview.permissions.length === 0
       ? <div className="plg-perms none">This plugin asks for no permissions.</div>
       : <><div className="am-label">It asks to:</div><ul className="plg-perms">{preview.permissions.map(permission => <li key={permission}>
-        <b>{permissionLabel(permission)}{isNewPermission(preview, permission) && <span className="dgchip warn">New</span>}</b><small>{permissionMeaning(permission)}</small>
+        <b>{permissionLabel(permission)}{isNewPermission(preview, permission) && <GitChip kind="warn">New</GitChip>}</b><small>{permissionMeaning(permission)}</small>
       </li>)}</ul></>}
     {preview.kind === "update" && preview.removed.length > 0 && <div className="plg-removed">No longer asked for: {preview.removed.map(permissionLabel).join(", ")}.</div>}
     <div className="am-sub">A plugin is a script that runs on this computer in a sandbox. It can only do what is listed here.</div>
