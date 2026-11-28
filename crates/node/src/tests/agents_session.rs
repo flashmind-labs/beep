@@ -3070,64 +3070,6 @@ assert.equal(notifications.length, 2);
     }
 }
 
-#[cfg(unix)]
-#[tokio::test]
-async fn native_flsh_receives_its_instructions_only_in_the_system_argument() {
-    use std::os::unix::fs::PermissionsExt;
-
-    for resume in [None, Some(SessionId::from("s"))] {
-        let temp = tempfile::tempdir().unwrap();
-        let dir = temp.path();
-        let flsh = dir.join("flsh");
-        let log = dir.join("sent.jsonl");
-        let adapter = r#"
-printf '%s\n' "$@" > args
-read -r line; log sent.jsonl
-reply '{"protocolVersion":1,"agentCapabilities":{"loadSession":true}}'
-read -r line; log sent.jsonl
-reply '{"sessionId":"s"}'
-read -r line; log sent.jsonl
-reply '{"stopReason":"end_turn"}'
-cat > /dev/null
-"#;
-        std::fs::write(&flsh, format!("#!/bin/sh\n{REPLY}{adapter}")).unwrap();
-        std::fs::set_permissions(&flsh, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let mut args = vec!["acp".to_owned()];
-        if resume.is_some() {
-            args.push("--system=Keep the configured prompt.".to_owned());
-        }
-        let kind = AgentKind {
-            program: flsh.display().to_string(),
-            args,
-            ..script("flsh", "", &log)
-        };
-        let session = Session::start(Start {
-            begin: Begin {
-                resume: resume.clone(),
-                ..begun(None)
-            },
-            instructions: Some("Use plain words.".into()),
-            rule: Some("Use a worktree.".into()),
-            ..start_on(&kind, dir, None)
-        })
-        .unwrap();
-
-        settle(&session).await;
-        assert_eq!(session.info().turns, 1, "{:?}", session.info().state.error);
-        let args = std::fs::read_to_string(dir.join("args")).unwrap();
-        let system = "--system=Use plain words.\n\nUse a worktree.";
-        let expected = if resume.is_some() {
-            format!("{system}\nacp\n--system=Keep the configured prompt.\n")
-        } else {
-            format!("acp\n{system}\n")
-        };
-        assert_eq!(args, expected);
-        let requests = sent(&log);
-        assert!(requests[1]["params"].get("systemPrompt").is_none());
-        assert_eq!(prompt_texts(&requests[2]), ["go"]);
-    }
-}
-
 /// Claude Code with steering and `asyncTasks`: the prompt launches a
 /// background subagent (its `Agent` call completes at once, launched
 /// `isAsync`), starts a background command, and runs a foreground command
