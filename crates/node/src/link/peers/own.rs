@@ -5,6 +5,7 @@
 use super::read_open;
 use crate::{
     link::{protocol::SessionProtocol, report::serve_report},
+    logs::found::unix_secs,
     status::{self, LocalStatus, Own},
     tools::Node,
 };
@@ -12,11 +13,7 @@ use anyhow::{Result, bail};
 use beep_mesh::{DeviceKind, Mesh, PeerClient, SessionFn};
 use beep_proto::node::{LinkRx, LinkTx, Opened, report};
 use beep_report::Target;
-use std::{
-    path::Path,
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{path::Path, sync::Arc};
 
 impl Own {
     /// Whether `protocol` is one every machine of the mesh may read, shared
@@ -193,11 +190,4 @@ impl Own {
             .map(|mesh| mesh.devices())
             .unwrap_or_default()
     }
-}
-
-/// Seconds since the Unix epoch; 0 for a time before it.
-fn unix_secs(at: SystemTime) -> u64 {
-    at.duration_since(UNIX_EPOCH)
-        .map(|since| since.as_secs())
-        .unwrap_or(0)
 }
