@@ -130,9 +130,7 @@ pub struct Offers {
     /// The user's coding agent skills, synced with the mesh when the host
     /// names their home folder.
     pub skills: Skills,
-    /// The node's key, name and folder, once the node is made.
-    pub(crate) own: Option<Own>,
-    /// The node's team link, once the node is made.
+    /// The node's team link, once the node is made; the team topics read it.
     pub(crate) team: Option<TeamLink>,
     /// Answers the assistant's project tools, for the desktop app. Other
     /// nodes send them to a desktop of the mesh.
@@ -176,7 +174,6 @@ impl Offers {
             started: SystemTime::now(),
         };
         self.team = Some(team.clone());
-        self.own = Some(own.clone());
 
         Bound {
             offers: self,
@@ -197,11 +194,6 @@ impl Offers {
             own: own.clone(),
             log: self.log.clone(),
         }
-    }
-
-    /// What the tools read of this node, once the node is made.
-    pub(crate) fn made_node(&self) -> Option<Node> {
-        Some(self.node(self.own.as_ref()?, self.team.as_ref()?))
     }
 
     /// What every node serves, the CLI and the Mac app alike: the coding
@@ -242,7 +234,6 @@ impl Offers {
             #[cfg(test)]
             bind_gates: Arc::default(),
             skills: Skills::default(),
-            own: None,
             team: None,
             project_tools: None,
         }

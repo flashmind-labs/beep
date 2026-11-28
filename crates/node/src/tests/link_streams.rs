@@ -87,6 +87,7 @@ async fn only_a_controller_can_read_or_change_mcp_servers() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let offers = Offers::local(Parts::default(), Provision::new(dir.path()));
     let peer = iroh::SecretKey::generate().public();
+    let node = Node::test(dir.path()).await;
     let protocol = SessionProtocol::McpServers;
 
     let link = local_link();
@@ -97,11 +98,11 @@ async fn only_a_controller_can_read_or_change_mcp_servers() -> Result<()> {
         node_rx,
         protocol.clone(),
         offers.clone(),
+        node.clone(),
         Who::Node {
             peer,
             desktop_here: false,
         },
-        false,
         false,
     )
     .await?;
@@ -113,14 +114,14 @@ async fn only_a_controller_can_read_or_change_mcp_servers() -> Result<()> {
     let link = local_link();
     let (mut tx, mut rx) = link.caller;
     let (node_tx, node_rx) = link.node;
-    let node = tokio::spawn(serve_open(
+    let served = tokio::spawn(serve_open(
         node_tx,
         node_rx,
         protocol,
         offers,
+        node,
         Who::Everything(peer),
         false,
-        true,
     ));
     tx.send(&Request::Harnesses).await?;
     assert!(matches!(rx.recv::<Opened>().await?, Some(Opened::Ready {})));
@@ -128,7 +129,7 @@ async fn only_a_controller_can_read_or_change_mcp_servers() -> Result<()> {
         rx.recv::<Reply>().await?,
         Some(Reply::Harnesses(_))
     ));
-    node.await??;
+    served.await??;
 
     Ok(())
 }
@@ -148,7 +149,7 @@ fn a_desktop_of_the_mesh_runs_commands_and_agents_only_while_this_machine_is_len
 }
 
 /// What a desktop's `tools/1` RunOn answers, through the real serve path.
-async fn desktop_runs(offers: &Offers, who: Who) -> beep_proto::node::tools::Reply {
+async fn desktop_runs(offers: &crate::link::Bound, who: Who) -> beep_proto::node::tools::Reply {
     use beep_proto::node::{
         local_link,
         tools::{Request, Tool},
@@ -161,9 +162,9 @@ async fn desktop_runs(offers: &Offers, who: Who) -> beep_proto::node::tools::Rep
         node_tx,
         node_rx,
         SessionProtocol::Tools,
-        offers.clone(),
+        offers.offers.clone(),
+        Node::of(offers),
         who,
-        false,
         false,
     ));
     tx.send(&Request {

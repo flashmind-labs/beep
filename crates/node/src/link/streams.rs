@@ -13,7 +13,7 @@ use crate::{
     run::shell,
     run::tasks,
     run::terminal,
-    tools::{self, Caller, peer_tools},
+    tools::{self, Caller, Node, peer_tools},
 };
 use anyhow::{Context, Result, bail};
 use beep_mesh::{Mesh, PeerStream, SessionFn};
@@ -198,9 +198,9 @@ async fn serve_protocol(
     trace.phase("serving");
     trace.long_lived();
     let offers = inner.offers().clone();
+    let node = offers.node(&inner.own, &inner.team);
     // Diagnostics are open to every machine of the mesh, even when not lent.
     if Own::is_diagnostic(&protocol) {
-        let node = offers.node(&inner.own, &inner.team);
         return inner
             .own
             .serve_diagnostic(protocol, tx, rx, node, compress)
@@ -208,13 +208,13 @@ async fn serve_protocol(
     }
 
     // The person at this machine is not held to the setting; a device of the mesh is.
-    let local = who.id() == inner.own.endpoint.id();
+    let local = who.id() == node.own.endpoint.id();
     if !local && let Some(reason) = withheld(protocol.as_ref(), offers.lends_to_peers()) {
         let mut tx = tx;
         return tx.send(&Opened::Refused { reason }).await;
     }
 
-    serve_open(tx, rx, protocol, offers, who, compress, local).await
+    serve_open(tx, rx, protocol, offers, node, who, compress).await
 }
 
 /// Why another node may not run commands or start agents here, if
@@ -276,10 +276,13 @@ pub(super) async fn serve_open(
     rx: LinkRx,
     protocol: SessionProtocol,
     offers: Offers,
+    node: Node,
     who: Who,
     compress: bool,
-    local: bool,
 ) -> Result<()> {
+    // The person at this machine is not held to the setting.
+    let local = who.id() == node.own.endpoint.id();
+
     if matches!(who, Who::Node { .. }) && !node_may_open(&protocol) {
         let reason = format!("a node may not open {}", protocol);
         return tx.send(&Opened::Refused { reason }).await;
@@ -319,7 +322,6 @@ pub(super) async fn serve_open(
                 .await
             }
             SessionProtocol::Tools => {
-                let node = offers.made_node().context("this node is not made yet")?;
                 let caller = match who {
                     Who::Everything(peer) => Caller {
                         from: Some(peer),
