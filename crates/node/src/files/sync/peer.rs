@@ -136,6 +136,23 @@ impl SyncPool {
         }
 
         let dial = lock(&self.dials).entry(peer.id).or_default().clone();
+        let lease = self.dial(&dial, endpoint, peer).await;
+
+        // The map and this call hold the lock: nobody else waits on it.
+        let mut dials = lock(&self.dials);
+        if Arc::strong_count(&dial) == 2 {
+            dials.remove(&peer.id);
+        }
+
+        lease
+    }
+
+    async fn dial(
+        &self,
+        dial: &DialLock,
+        endpoint: &Endpoint,
+        peer: &EndpointAddr,
+    ) -> Result<SyncLease> {
         let _guard = dial.lock().await;
 
         if let Some(lease) = self.try_reuse(peer.id) {
@@ -461,3 +478,7 @@ fn caught_up(shared: &Shared, peer: &EndpointId) {
     shared.heard(peer);
     shared.caught_up(peer);
 }
+
+#[cfg(test)]
+#[path = "../../tests/files_sync_pool.rs"]
+mod tests;
