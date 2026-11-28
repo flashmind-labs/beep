@@ -4,8 +4,8 @@
 use super::common::Agent;
 use super::{Stores, agy, codex_run};
 use crate::calls::Tool as BeepTool;
-use crate::logs::subagent::Run as SubagentRun;
 use crate::logs::subagent::Subagent;
+use crate::logs::subagent::{Conversation, Run as SubagentRun};
 use crate::logs::window::Excerpt;
 use crate::logs::window::{content_text, finish_tool_call, tail_lines, titled_call, window};
 use crate::tags;
@@ -43,33 +43,52 @@ impl Stores {
         let Some(seen) = self.seen(None, id) else {
             return Ok(None);
         };
-        let mut entries = match (seen.agent, &seen.file, &self.agy) {
-            (Agent::Agy, _, root) => {
-                let Some(database) = self.agy_database(root.as_deref(), id) else {
-                    bail!(
-                        "Antigravity conversation {} is not on this machine",
-                        id.as_ref()
-                    );
-                };
-                self.memos
-                    .transcripts
-                    .read_database(&database, || agy::transcript(&database).map(Arc::new))?
+        if seen.agent == Agent::Agy {
+            let database = match Conversation::try_from(id.as_ref()) {
+                Ok(Conversation::Agy(_)) => seen.file,
+                _ => self.agy_database(self.agy.as_deref(), id),
+            };
+            let Some(database) = database else {
+                bail!(
+                    "Antigravity conversation {} is not on this machine",
+                    id.as_ref()
+                );
+            };
+
+            let log = agy::transcript(&database, &self.memos)?;
+            let range = window(0, log.entries.len(), last, before);
+            let earlier = range.start;
+            let mut entries = log.entries[range].to_vec();
+            for (index, card) in log.child_cards(
+                &database,
+                &self.memos,
+                entries.len(),
+                log.spawns()
+                    .filter_map(|(index, id)| Some((index.checked_sub(earlier)?, id))),
+            ) {
+                entries[index].text = card;
             }
-            (agent, file, _) => {
-                let (parse, file): (Parse, _) = match (agent, file) {
-                    (Agent::Codex, Some(file)) => (codex, file),
-                    (Agent::Pi, Some(file)) => (pi, file),
-                    (Agent::Flsh, Some(file)) => (flsh, file),
-                    (agent, _) => bail!(
-                        "{}'s transcript cannot be read yet, only its title and folder",
-                        agent.as_ref()
-                    ),
-                };
-                self.memos
-                    .transcripts
-                    .read(file, || parse(file).map(Arc::new))?
-            }
+
+            return Ok(Some(Excerpt {
+                earlier: earlier as u64,
+                entries,
+                pictures: Vec::new(),
+            }));
+        }
+
+        let (parse, file): (Parse, _) = match (seen.agent, &seen.file) {
+            (Agent::Codex, Some(file)) => (codex, file),
+            (Agent::Pi, Some(file)) => (pi, file),
+            (Agent::Flsh, Some(file)) => (flsh, file),
+            (agent, _) => bail!(
+                "{}'s transcript cannot be read yet, only its title and folder",
+                agent.as_ref()
+            ),
         };
+        let mut entries = self
+            .memos
+            .transcripts
+            .read(file, || parse(file).map(Arc::new))?;
         if seen.agent == Agent::Codex {
             let parent = id
                 .as_ref()
@@ -92,9 +111,27 @@ impl Stores {
 }
 
 impl Stores {
-    /// The database of Antigravity conversation `id`: in `root`, else in a
-    /// WSL distribution's store.
-    fn agy_database(&self, root: Option<&Path>, id: &SessionId) -> Option<PathBuf> {
+    /// Use the invocation IDs shared by ACP and the saved Antigravity conversation.
+    pub(crate) fn agy_child_cards(
+        &self,
+        parent: &SessionId,
+        calls: &[(usize, String)],
+        len: usize,
+    ) -> Result<Vec<(usize, String)>> {
+        let Some(database) = self.agy_database(self.agy.as_deref(), parent) else {
+            return Ok(Vec::new());
+        };
+        let log = agy::transcript(&database, &self.memos)?;
+        Ok(log.child_cards(
+            &database,
+            &self.memos,
+            len,
+            calls.iter().map(|(at, call)| (*at, call.as_str())),
+        ))
+    }
+
+    /// The database of Antigravity conversation `id`, local or in WSL.
+    pub(super) fn agy_database(&self, root: Option<&Path>, id: &SessionId) -> Option<PathBuf> {
         let wsl = (!self.in_wsl).then(super::wsl_stores).into_iter().flatten();
         root.map(|root| agy::database(root, id))
             .into_iter()

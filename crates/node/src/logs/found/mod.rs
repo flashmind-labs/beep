@@ -2,6 +2,7 @@
 //! keeps on this machine (`Stores`), for suggesting projects to import and
 //! listing an imported project's sessions.
 
+use crate::logs::subagent::Conversation;
 use beep_proto::SessionId;
 use beep_proto::node::agent::{
     AgentSessions, ExternalSession, HistoryCursor, Presence, SessionFolder,
@@ -162,6 +163,19 @@ impl Stores {
         .collect()
     }
 
+    pub(crate) fn agy_follow_paths(&self) -> Vec<PathBuf> {
+        self.agy
+            .iter()
+            .flat_map(|root| {
+                std::iter::once(root.clone()).chain(
+                    agy::summaries_at(root)
+                        .into_iter()
+                        .flat_map(|summary| [wal_path(&summary), summary]),
+                )
+            })
+            .collect()
+    }
+
     /// Every session in the stores, `agent`'s only when given.
     pub(crate) fn sessions(&self, agent: Option<Agent>) -> Vec<Seen> {
         let wants = |one: Agent| agent.is_none_or(|agent| agent == one);
@@ -228,15 +242,12 @@ impl Stores {
     /// `seen` as `describe` lists it, its title read from its file when the
     /// store gave none.
     pub(crate) fn describe(&self, mut seen: Seen, now: SystemTime) -> ExternalSession {
-        let native_run = seen
-            .id
-            .as_ref()
-            .starts_with("subagent:")
-            .then(|| {
-                seen.file
-                    .as_deref()
-                    .and_then(|file| codex_run::read(file).ok())
-            })
+        let conversation = Conversation::try_from(seen.id.as_ref());
+        let native_run = matches!(conversation, Ok(Conversation::Codex(_)))
+            .then(|| codex_run::read(seen.file.as_deref()?).ok())
+            .flatten();
+        let agy_state = matches!(conversation, Ok(Conversation::Agy(_)))
+            .then(|| agy::child_state(seen.file.as_deref()?, &self.memos))
             .flatten();
         if seen.title.is_none()
             && let Some(file) = seen.file.as_deref()
@@ -260,6 +271,13 @@ impl Stores {
                 Presence::Stopped
             };
             session.last_message = run.result.unwrap_or_default();
+        } else if let Some(state) = agy_state {
+            session.presence = if state == common::AgyStatus::InProgress {
+                Presence::Working
+            } else {
+                Presence::Stopped
+            };
+            session.pid = None;
         }
 
         session
@@ -339,10 +357,17 @@ impl Stores {
 
     pub(crate) fn seen(&self, agent: Option<Agent>, id: &SessionId) -> Option<Seen> {
         if id.as_ref().starts_with("subagent:") {
-            return agent
-                .is_none_or(|agent| agent == Agent::Codex)
-                .then(|| codex::native(self.codex.as_deref()?, id))
-                .flatten();
+            return match Conversation::try_from(id.as_ref()).ok()? {
+                Conversation::Codex(_) if agent.is_none_or(|agent| agent == Agent::Codex) => {
+                    codex::native(self.codex.as_deref()?, id)
+                }
+                Conversation::Agy(child) if agent.is_none_or(|agent| agent == Agent::Agy) => {
+                    let database =
+                        self.agy_database(self.agy.as_deref(), &SessionId::from(child))?;
+                    agy::native(&database, id, &self.memos)
+                }
+                _ => None,
+            };
         }
 
         self.sessions(agent)

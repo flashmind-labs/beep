@@ -8,7 +8,7 @@ use super::{
 };
 use crate::agents::{acp::wire_name, tool_diff::diff_text};
 use crate::calls::Tool as BeepTool;
-use crate::logs::found::folder_place::call_folder;
+use crate::logs::found::{agy::SPAWN_TOOL, folder_place::call_folder};
 use crate::logs::picture::{Picture, picture_of};
 use crate::logs::subagent::{Activity, Conversation, Run, Subagent};
 use crate::logs::tool_details;
@@ -37,6 +37,22 @@ pub(crate) struct CodexChild {
 }
 
 impl Live {
+    /// The Antigravity invocations in this transcript window, by ACP call ID.
+    pub(crate) fn agy_calls(&self, earlier: u64, len: usize) -> Vec<(usize, String)> {
+        self.tools
+            .iter()
+            .filter_map(|(id, call)| {
+                if call.details.name.as_deref() != Some(SPAWN_TOOL)
+                    && call.title != "Run invoke_subagent"
+                {
+                    return None;
+                }
+                let index = usize::try_from(call.entry.checked_sub(earlier)?).ok()?;
+                (index < len).then(|| (index, id.to_string()))
+            })
+            .collect()
+    }
+
     /// Recover omitted spawns once, retaining their transcript positions on later reads.
     pub(crate) fn recover_codex_children(&mut self, runs: &[Run]) -> bool {
         // A synthetic tool inserted between message chunks would split the reply.

@@ -6,7 +6,7 @@ use rusqlite::Connection;
 fn conversation(root: &Path, id: &str, folder: &str, created: i64, steps: i64) {
     let conn = Connection::open(root.join(format!("{id}.db"))).expect("a database");
     conn.execute_batch(
-        "CREATE TABLE steps (idx INTEGER PRIMARY KEY, metadata BLOB);
+        "CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER, status INTEGER, step_payload BLOB);
          CREATE TABLE trajectory_metadata_blob (id TEXT DEFAULT 'main' PRIMARY KEY, data BLOB);",
     )
     .expect("the schema");
@@ -135,8 +135,9 @@ fn reads_a_conversations_steps_as_its_transcript() {
     }
     drop(conn);
 
-    let read: Vec<(EntryKind, String)> = transcript(&path)
+    let read: Vec<(EntryKind, String)> = read_transcript(&path)
         .expect("the conversation reads")
+        .entries
         .into_iter()
         .map(|entry| (entry.kind, entry.text))
         .collect();
@@ -150,5 +151,178 @@ fn reads_a_conversations_steps_as_its_transcript() {
             (EntryKind::Other, "API error".into()),
             (EntryKind::Compacted, COMPACTED_ENTRY.into()),
         ]
+    );
+}
+
+#[test]
+fn native_invocations_keep_their_card_state_and_open_the_child_transcript() {
+    let home = tempfile::tempdir().expect("a temp folder");
+    let root = home.path().join("conversations");
+    std::fs::create_dir_all(&root).expect("a folder");
+    conversation(&root, "parent", "/srv/project", 100, 0);
+    conversation(&root, "child", "/srv/project", 101, 0);
+    let parent = Connection::open(root.join("parent.db")).expect("a parent database");
+    let child = Connection::open(root.join("child.db")).expect("a child database");
+    let summary = Connection::open(home.path().join("conversation_summaries.db"))
+        .expect("a summary database");
+    summary
+        .execute_batch(
+            "PRAGMA journal_mode=WAL;
+             CREATE TABLE conversation_summaries (conversation_id TEXT PRIMARY KEY,
+               title TEXT, parent_conversation_id TEXT, status TEXT, killed INTEGER);
+             CREATE TABLE conversation_parents (conversation_id TEXT, parent_id TEXT);
+             CREATE TABLE conversations_fts (conversation_id TEXT, chunk_index INTEGER, user_body TEXT);
+             INSERT INTO conversation_summaries
+             VALUES ('child', 'Review fixtures', 'parent', 'CASCADE_RUN_STATUS_RUNNING', 0);",
+        )
+        .expect("a running child summary");
+
+    let spawn = Call {
+        id: "call-native".into(),
+        name: SPAWN_TOOL.into(),
+        args: r#"{"Prompt":"Review the test fixtures","Role":"Review fixtures","TypeName":"self"}"#
+            .into(),
+    };
+    let cancelled = Call {
+        id: "call-cancelled".into(),
+        args: r#"{"Role":"Cancelled task"}"#.into(),
+        ..spawn.clone()
+    };
+    let ordinary = Call {
+        id: "call-file".into(),
+        name: "read_file".into(),
+        args: r#"{"Path":"tests/fixtures.rs"}"#.into(),
+    };
+    let record = |conn: &Connection, index, kind, status, bytes: Vec<u8>| {
+        conn.execute(
+            "INSERT INTO steps VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![index, kind, status, bytes],
+        )
+        .expect("a saved step");
+    };
+    record(
+        &parent,
+        0,
+        REPLY,
+        SUCCEEDED,
+        ReplyStep {
+            reply: Some(Reply {
+                calls: vec![spawn.clone(), cancelled.clone(), ordinary.clone()],
+                ..Reply::default()
+            }),
+        }
+        .encode_to_vec(),
+    );
+    let result = |call| {
+        CallStep {
+            meta: Some(StepMeta { call: Some(call) }),
+        }
+        .encode_to_vec()
+    };
+    let mut launched = result(spawn);
+    launched.extend(
+        InvocationStep {
+            output: Some(InvocationResult {
+                response: Some(InvocationResponse {
+                    result: Some(InvocationPayload {
+                        invocation: Some(Invocation {
+                            reference: Some(ConversationReference { id: "child".into() }),
+                        }),
+                    }),
+                }),
+            }),
+        }
+        .encode_to_vec(),
+    );
+    record(&parent, 1, CALL, SUCCEEDED, launched);
+    record(&parent, 2, CALL, CANCELLED, result(cancelled));
+    record(
+        &child,
+        0,
+        REPLY,
+        SUCCEEDED,
+        ReplyStep {
+            reply: Some(Reply {
+                text: "Fixtures checked.".into(),
+                calls: vec![ordinary],
+                ..Reply::default()
+            }),
+        }
+        .encode_to_vec(),
+    );
+
+    let stores = super::super::Stores {
+        agy: Some(root),
+        ..Default::default()
+    };
+    let parent_id = SessionId::from("parent");
+    let native_id = SessionId::from("subagent:agy:child");
+    let parent_page = |last| {
+        stores
+            .transcript(&parent_id, last, None)
+            .expect("history can be read")
+            .expect("the parent is found")
+    };
+    let page = parent_page(20);
+    assert!(
+        page.entries[0]
+            .text
+            .starts_with("Review fixtures [in_progress]")
+    );
+    assert!(
+        page.entries[0]
+            .text
+            .contains("[session] subagent:agy:child")
+    );
+    assert!(page.entries[0].text.contains("[steps] 1"));
+    assert!(page.entries[1].text.starts_with("Cancelled task [failed]"));
+    assert!(!page.entries[1].text.contains("[session]"));
+    assert_eq!(page.entries[2].text, "read_file: tests/fixtures.rs");
+
+    let live = stores
+        .agy_child_cards(
+            &parent_id,
+            &[(7, "call-native".into()), (4, "unrelated".into())],
+            9,
+        )
+        .expect("live call IDs resolve");
+    assert_eq!(live, [(7, page.entries[0].text.clone())]);
+    assert_eq!(parent_page(2).earlier, 1);
+    assert!(parent_page(2).entries[0].text.starts_with("Cancelled task"));
+
+    let native = stores
+        .find(Agent::Agy, &native_id)
+        .expect("the linked child opens");
+    assert_eq!(native.presence, beep_proto::node::agent::Presence::Working);
+    assert_eq!(native.cwd, "/srv/project");
+    assert_eq!(
+        stores
+            .transcript(&native_id, 20, None)
+            .expect("native transcript")
+            .expect("child page")
+            .entries[0]
+            .text,
+        "Fixtures checked."
+    );
+    assert_eq!(stores.sessions(Some(Agent::Agy)).len(), 1);
+
+    summary
+        .execute(
+            "UPDATE conversation_summaries SET status = 'CASCADE_RUN_STATUS_IDLE'",
+            [],
+        )
+        .expect("the child finishes");
+    assert!(
+        parent_page(20).entries[0]
+            .text
+            .starts_with("Review fixtures [completed]")
+    );
+    summary
+        .execute("UPDATE conversation_summaries SET killed = 1", [])
+        .expect("the child stops");
+    assert!(
+        parent_page(20).entries[0]
+            .text
+            .starts_with("Review fixtures [failed]")
     );
 }

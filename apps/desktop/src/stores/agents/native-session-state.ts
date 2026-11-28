@@ -1,6 +1,6 @@
 import type { AgentRow, AgentSession } from "./agents-state.ts";
 
-export const isNativeSession = (id: string) => /^subagent:(?:codex:[\w-]+|claude:[\w-]+:[\w-]+)$/.test(id);
+export const isNativeSession = (id: string) => /^subagent:(?:(?:codex|agy):[\w-]+|claude:[\w-]+:[\w-]+)$/.test(id);
 
 /// A native thread shares its parent's machine and harness, with its own id and state.
 export function nativeSession(parent: AgentRow, id: string, title: string, status: string): AgentSession | null {

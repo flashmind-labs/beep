@@ -12,6 +12,7 @@ use serde_json::Value;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Conversation<'a> {
     Codex(&'a str),
+    Agy(&'a str),
     Claude { parent: &'a str, agent: &'a str },
 }
 
@@ -30,6 +31,7 @@ impl<'a> TryFrom<&'a str> for Conversation<'a> {
             .context("invalid subagent id")?;
         let found = match harness {
             "codex" => Self::Codex(first),
+            "agy" => Self::Agy(first),
             "claude" => Self::Claude {
                 parent: first,
                 agent: parts
@@ -52,6 +54,7 @@ impl std::fmt::Display for Conversation<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Codex(thread) => write!(f, "subagent:codex:{thread}"),
+            Self::Agy(child) => write!(f, "subagent:agy:{child}"),
             Self::Claude { parent, agent } => write!(f, "subagent:claude:{parent}:{agent}"),
         }
     }
@@ -253,16 +256,20 @@ pub(crate) struct Run {
 impl Run {
     /// A recovered child uses the same card format as an ACP spawn.
     pub(crate) fn entry(&self) -> Entry {
-        let title = self
-            .task
-            .as_deref()
-            .or(self.name.as_deref())
-            .unwrap_or("Subagent");
         let status = if self.working {
             "in_progress"
         } else {
             "completed"
         };
+        self.entry_with_status(status)
+    }
+
+    pub(crate) fn entry_with_status(&self, status: &str) -> Entry {
+        let title = self
+            .task
+            .as_deref()
+            .or(self.name.as_deref())
+            .unwrap_or("Subagent");
         let mut text = format!("{title} [{status}]\n[steps] {}", self.count);
         for step in &self.steps {
             let status = if step.done || !self.working {

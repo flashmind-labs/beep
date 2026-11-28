@@ -74,6 +74,36 @@ impl Transcripts {
             }
         }
 
+        if session.agent == "agy" {
+            let (parent, calls) = watched::read(&session.live, |live| {
+                (
+                    live.agent_session.clone(),
+                    live.agy_calls(earlier, entries.len()),
+                )
+            });
+            if let Some(parent) = parent
+                && !calls.is_empty()
+            {
+                let stores = self.listings.stores().clone();
+                let len = entries.len();
+                match tokio::task::spawn_blocking(move || {
+                    stores.agy_child_cards(&parent, &calls, len)
+                })
+                .await
+                {
+                    Ok(Ok(cards)) => {
+                        for (index, text) in cards {
+                            entries[index].text = text;
+                        }
+                    }
+                    Ok(Err(error)) => {
+                        log::debug!("Antigravity child conversations not linked: {error}")
+                    }
+                    Err(error) => log::debug!("Antigravity child reader failed: {error}"),
+                }
+            }
+        }
+
         child_reach::show_children(&self.family, session, &mut entries);
         let start = native + earlier.saturating_sub(dropped);
         if let Some(history) = history

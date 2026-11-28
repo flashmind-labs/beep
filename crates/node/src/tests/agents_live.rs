@@ -1774,6 +1774,23 @@ fn flsh_beep_mcp_calls_with_summarized_arguments_format_as_beep_calls() {
     );
 }
 
+#[test]
+fn antigravity_window_keeps_native_invocation_ids_beside_beep_children() {
+    let mut live = live();
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call", "toolCallId": "call-native",
+        "name": "invoke_subagent", "title": "Run invoke_subagent",
+        "status": "completed", "kind": "execute"
+    })));
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call", "toolCallId": "call-linked",
+        "title": "mcp__beep__start_agent: title", "status": "completed"
+    })));
+    assert_eq!(live.agy_calls(0, 2), [(0, "call-native".into())]);
+    assert!(live.agy_calls(1, 1).is_empty());
+    assert!(live.transcript(2).0[1].text.starts_with("Beep: Start"));
+}
+
 /// The next finished turn, taken as a stream does: read, then sent.
 async fn next_turn(
     turns: &crate::agents::alerts::Follow<'_, beep_proto::node::usage::TurnUsage>,

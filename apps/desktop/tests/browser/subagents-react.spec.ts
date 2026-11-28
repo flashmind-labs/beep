@@ -46,6 +46,31 @@ test("transcript groups child agents and keeps their actions", async ({ page }) 
   await expect(group.locator('[data-kid="second@build-box"]')).toContainText("Inspect second");
 });
 
+test("Antigravity shows native and Beep children and opens the native transcript", async ({ page }) => {
+  const parent = { kind: "agent" as const, machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "agy", title: "Parent session", cwd: "/srv/project", status: "idle" as const, doing: null, started_at: 1, last_activity: 1, external: false, question: null };
+  const child = { ...parent, id: "subagent:agy:native-child", title: "Review fixtures", status: "working", external: true };
+  const view = { plan: [], earlier: 0, error: null, queued: 0, queued_messages: [], turns: 1, usage: null };
+  await openDesktop(page, false, { agent_views: {
+    [parent.id]: { ...view, session: parent, entries: [
+      { kind: "user", text: "Check the tests and the docs" },
+      { kind: "tool", text: "Review fixtures [in_progress]\n[steps] 1\n[agent] self\n[session] subagent:agy:native-child" },
+      { kind: "tool", text: "Check the docs [completed]\n[steps] 0\n[child] linked-child@build-box working key-1" },
+    ] },
+    [child.id]: { ...view, session: child, entries: [{ kind: "agent", text: "I found the fixture." }] },
+  } });
+
+  await page.evaluate(agent => window.__navigation.open({ agent }), parent);
+  await expect(page.locator(".dsubgrp").getByRole("button", { name: /Review fixtures/ })).toContainText("working");
+  await page.getByRole("tab", { name: /Subagents/ }).click();
+  const pane = page.locator(".agpview.subs");
+  await expect(pane).toMatchAriaSnapshot(`
+    - button /Review fixtures.*working/
+    - button /Check the docs.*working/
+  `);
+  await pane.getByRole("button", { name: /Review fixtures/ }).click();
+  await expect(page.getByText("I found the fixture.")).toBeVisible();
+});
+
 test("a child started after the list was pushed is waited for through pushes that do not list it", async ({ page }) => {
   await openDesktop(page);
   await page.evaluate(() => {

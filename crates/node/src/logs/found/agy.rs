@@ -6,11 +6,15 @@
 //! the folder. Each step of a conversation is a row of `steps` (`transcript`).
 
 use super::codex_run;
-use super::common::{Agent, Memos, Seen, Summaries, newest_files, open_database, prompt_title};
+use super::common::{
+    Agent, AgySpawn, AgyStatus, AgyTranscript, Memos, Seen, Summaries, newest_files, open_database,
+    prompt_title, unix_secs,
+};
 use crate::calls::Tool as BeepTool;
+use crate::logs::subagent::{Conversation, Run, RunStep};
 use crate::logs::window::{COMPACTED_ENTRY, titled_call};
 use crate::tags;
-use crate::text::cut;
+use crate::text::{cut, valid_id};
 use beep_proto::SessionId;
 use beep_proto::node::agent::{Entry, EntryKind};
 use prost::Message;
@@ -33,6 +37,13 @@ const FIRST_PROMPTS: &str =
 const CHILDREN: &str = "SELECT conversation_id FROM conversation_summaries
      WHERE parent_conversation_id != ''
      UNION SELECT conversation_id FROM conversation_parents";
+const CHILD_STATES: &str = "SELECT conversation_id, status, COALESCE(killed, 0)
+     FROM conversation_summaries WHERE conversation_id IN (
+         SELECT conversation_id FROM conversation_summaries WHERE parent_conversation_id != ''
+         UNION SELECT conversation_id FROM conversation_parents
+     )";
+
+pub(crate) const SPAWN_TOOL: &str = "invoke_subagent";
 
 /// Where Antigravity keeps its conversations: `~/.gemini/antigravity-cli`,
 /// which nothing but the home moves. It may not exist yet.
@@ -51,22 +62,14 @@ pub(crate) fn is_conversation(path: &Path) -> bool {
 
 /// The conversations in `root` that the user started, newest first.
 pub(crate) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
-    let summaries = summaries_at(root)
-        .and_then(|path| {
-            memos
-                .agy
-                .read_database(&path, || read_summaries(&path).map(Arc::new))
-                .inspect_err(|e| log::debug!("agy summaries not read; error={e}"))
-                .ok()
-        })
-        .unwrap_or_default();
+    let summaries = summaries(root, memos);
 
     newest_files(root, 0, &is_conversation)
         .into_iter()
         .filter_map(|(path, at)| {
             let mut seen = memos
                 .heads
-                .read_database(&path, || head(&path))
+                .read_database(&path, || head(&path, false))
                 .inspect_err(|e| {
                     log::debug!(
                         "agy conversation not read; path={} error={e}",
@@ -100,10 +103,92 @@ pub(crate) fn database(root: &Path, id: &SessionId) -> PathBuf {
 
 /// The longest entry kept.
 const MAX_ENTRY: usize = 4 * 1024;
+const MAX_CARD_STEPS: usize = 40;
+const MAX_CARD_STEP: usize = 120;
 
-/// The entries of the conversation at `database`: prompts, replies,
-/// thinking, calls (marked when they failed), errors and compactions.
-pub(crate) fn transcript(database: &Path) -> rusqlite::Result<Vec<Entry>> {
+impl AgyTranscript {
+    pub(super) fn spawns(&self) -> impl Iterator<Item = (usize, &str)> {
+        self.spawns
+            .iter()
+            .map(|(id, spawn)| (spawn.entry, id.as_str()))
+    }
+
+    pub(super) fn child_cards<'a>(
+        &self,
+        parent: &Path,
+        memos: &Memos,
+        len: usize,
+        calls: impl Iterator<Item = (usize, &'a str)>,
+    ) -> Vec<(usize, String)> {
+        let Some(root) = parent.parent() else {
+            return Vec::new();
+        };
+        let mut matched = calls
+            .filter_map(|(index, id)| Some((index, self.spawns.get(id)?)))
+            .filter(|(index, _)| *index < len)
+            .peekable();
+        if matched.peek().is_none() {
+            return Vec::new();
+        }
+
+        let summaries = summaries(root, memos);
+        matched
+            .map(|(index, spawn)| {
+                let mut run = Run {
+                    name: spawn.name.clone(),
+                    task: spawn.task.clone(),
+                    ..Run::default()
+                };
+                let mut status = spawn.status;
+                if let Some(child) = &spawn.child {
+                    status = summaries
+                        .child_states
+                        .get(child)
+                        .copied()
+                        .unwrap_or(AgyStatus::InProgress);
+                    run.working = status == AgyStatus::InProgress;
+
+                    let path = database(root, child);
+                    if let Ok(log) = transcript(&path, memos) {
+                        let mut steps = log
+                            .entries
+                            .iter()
+                            .filter(|entry| entry.kind == EntryKind::Tool);
+                        run.count = steps.clone().count();
+                        run.steps = steps
+                            .by_ref()
+                            .skip(run.count.saturating_sub(MAX_CARD_STEPS))
+                            .map(|entry| RunStep {
+                                title: cut(&entry.text, MAX_CARD_STEP),
+                                done: true,
+                            })
+                            .collect();
+                        run.result = log
+                            .entries
+                            .iter()
+                            .rev()
+                            .find(|entry| entry.kind == EntryKind::Agent)
+                            .map(|entry| entry.text.clone());
+                        if summaries.children.contains(child) {
+                            run.session =
+                                Some(Conversation::Agy(child.as_ref()).to_string().into());
+                        }
+                    }
+                }
+                (index, run.entry_with_status(status.as_ref()).text)
+            })
+            .collect()
+    }
+}
+
+pub(super) fn transcript(database: &Path, memos: &Memos) -> rusqlite::Result<Arc<AgyTranscript>> {
+    memos
+        .agy_logs
+        .read_database(database, || read_transcript(database).map(Arc::new))
+}
+
+/// Read the conversation and link invocation results to their initiating calls.
+fn read_transcript(database: &Path) -> rusqlite::Result<AgyTranscript> {
     let conn = open_database(database)?;
     let mut statement = conn.prepare(STEPS)?;
     let rows = statement.query_map([], |row| {
@@ -113,7 +198,8 @@ pub(crate) fn transcript(database: &Path) -> rusqlite::Result<Vec<Entry>> {
             row.get::<_, Option<Vec<u8>>>(2)?,
         ))
     })?;
-    let mut entries = Vec::new();
+    let mut log = AgyTranscript::default();
+    let entries = &mut log.entries;
     let mut calls: HashMap<String, usize> = HashMap::new();
 
     for row in rows {
@@ -143,16 +229,58 @@ pub(crate) fn transcript(database: &Path) -> rusqlite::Result<Vec<Entry>> {
                     };
                     if !call.id.is_empty() {
                         calls.insert(call.id.clone(), entries.len());
+                        if call.name == SPAWN_TOOL {
+                            let args: serde_json::Value =
+                                serde_json::from_str(&call.args).unwrap_or_default();
+                            let first_line = |key: &str| {
+                                args[key]
+                                    .as_str()
+                                    .and_then(|text| text.lines().next())
+                                    .and_then(prompt_title)
+                            };
+                            log.spawns.insert(
+                                call.id.clone(),
+                                AgySpawn {
+                                    entry: entries.len(),
+                                    child: None,
+                                    status: AgyStatus::InProgress,
+                                    name: first_line("TypeName"),
+                                    task: first_line("Role").or_else(|| first_line("Prompt")),
+                                },
+                            );
+                        }
                     }
                     entries.push(made);
                 }
             }
-            CALL if status == FAILED => {
-                let call = CallStep::decode(data).ok().and_then(|step| step.meta?.call);
-                let at = call.and_then(|call| calls.get(&call.id).copied());
+            CALL => {
+                let Some(step) = CallStep::decode(data).ok() else {
+                    continue;
+                };
+                let Some(call) = step.meta.and_then(|meta| meta.call) else {
+                    continue;
+                };
 
-                if let Some(call) = at.and_then(|at| entries.get_mut(at)) {
-                    call.text.push_str(" (failed)");
+                if let Some(spawn) = log.spawns.get_mut(&call.id) {
+                    if let Some(child) = InvocationStep::decode(data)
+                        .ok()
+                        .and_then(|step| step.output)
+                        .and_then(InvocationResult::child)
+                    {
+                        spawn.child = Some(child);
+                    } else if spawn.child.is_none() {
+                        spawn.status = match status {
+                            FAILED | CANCELLED => AgyStatus::Failed,
+                            SUCCEEDED => AgyStatus::Completed,
+                            _ => AgyStatus::InProgress,
+                        };
+                    }
+                }
+
+                if status == FAILED
+                    && let Some(entry) = calls.get(&call.id).and_then(|at| entries.get_mut(*at))
+                {
+                    entry.text.push_str(" (failed)");
                 }
             }
             ERROR => {
@@ -169,7 +297,7 @@ pub(crate) fn transcript(database: &Path) -> rusqlite::Result<Vec<Entry>> {
         }
     }
 
-    Ok(entries)
+    Ok(log)
 }
 
 fn entry(kind: EntryKind, text: &str) -> Option<Entry> {
@@ -178,8 +306,54 @@ fn entry(kind: EntryKind, text: &str) -> Option<Entry> {
 }
 
 /// The summaries database beside the conversations folder `root`.
-fn summaries_at(root: &Path) -> Option<PathBuf> {
-    Some(root.parent()?.join("conversation_summaries.db")).filter(|path| path.is_file())
+pub(super) fn summaries_at(root: &Path) -> Option<PathBuf> {
+    Some(root.parent()?.join("conversation_summaries.db"))
+}
+
+fn summaries(root: &Path, memos: &Memos) -> Arc<Summaries> {
+    summaries_at(root)
+        .filter(|path| path.is_file())
+        .and_then(|path| {
+            memos
+                .agy
+                .read_database(&path, || read_summaries(&path).map(Arc::new))
+                .inspect_err(|e| log::debug!("agy summaries not read; error={e}"))
+                .ok()
+        })
+        .unwrap_or_default()
+}
+
+pub(super) fn native(database: &Path, id: &SessionId, memos: &Memos) -> Option<Seen> {
+    let summary = summaries(database.parent()?, memos);
+    let raw_id = SessionId::from(database.file_stem()?.to_str()?);
+    if !summary.children.contains(&raw_id) {
+        return None;
+    }
+
+    let mut seen = memos
+        .agy_child_heads
+        .read_database(database, || head(database, true))
+        .ok()??;
+    seen.id = id.clone();
+    seen.title = summary
+        .titles
+        .get(&raw_id)
+        .cloned()
+        .or_else(|| Some("Antigravity subagent".into()));
+    seen.file = Some(database.to_owned());
+    seen.last_activity = database
+        .metadata()
+        .and_then(|meta| meta.modified())
+        .map_or(seen.started_at, unix_secs);
+    Some(seen)
+}
+
+pub(super) fn child_state(database: &Path, memos: &Memos) -> Option<AgyStatus> {
+    let id = SessionId::from(database.file_stem()?.to_str()?);
+    summaries(database.parent()?, memos)
+        .child_states
+        .get(&id)
+        .copied()
 }
 
 fn read_summaries(path: &Path) -> rusqlite::Result<Summaries> {
@@ -208,16 +382,36 @@ fn read_summaries(path: &Path) -> rusqlite::Result<Summaries> {
         summaries.children.insert(Into::<SessionId>::into(id?));
     }
 
+    // Older databases can still supply titles and child identities.
+    if let Ok(mut statement) = conn.prepare(CHILD_STATES) {
+        let rows = statement.query_map([], |row| {
+            let id: String = row.get(0)?;
+            let status: Option<String> = row.get(1)?;
+            let killed: bool = row.get(2)?;
+            let state = if killed {
+                AgyStatus::Failed
+            } else if status.as_deref() == Some("CASCADE_RUN_STATUS_RUNNING") {
+                AgyStatus::InProgress
+            } else {
+                AgyStatus::Completed
+            };
+            Ok((SessionId::from(id), state))
+        })?;
+
+        for row in rows {
+            let (id, state) = row?;
+            summaries.child_states.insert(id, state);
+        }
+    }
+
     Ok(summaries)
 }
 
 /// The conversation at `database`: its id, folder and start; `None` for
 /// one with no folder or no step yet.
-fn head(database: &Path) -> rusqlite::Result<Option<Seen>> {
+fn head(database: &Path, allow_empty: bool) -> rusqlite::Result<Option<Seen>> {
     let conn = open_database(database)?;
-    let has_steps: bool = conn.query_row(HAS_STEPS, [], |row| row.get(0))?;
-
-    if !has_steps {
+    if !allow_empty && !conn.query_row(HAS_STEPS, [], |row| row.get::<_, bool>(0))? {
         return Ok(None);
     }
 
@@ -270,6 +464,8 @@ const COMPACTED: i64 = 23;
 const CALL: i64 = 132;
 /// `steps.status` of a call that failed.
 const FAILED: i64 = 7;
+const CANCELLED: i64 = 6;
+const SUCCEEDED: i64 = 3;
 
 // A row's `step_payload`, read as its `step_type` has it, so a field
 // another type holds differently does not lose the step.
@@ -290,6 +486,49 @@ pub(crate) struct ReplyStep {
 pub(crate) struct CallStep {
     #[prost(message, optional, tag = "5")]
     pub(crate) meta: Option<StepMeta>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct InvocationStep {
+    #[prost(message, optional, tag = "140")]
+    output: Option<InvocationResult>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct InvocationResult {
+    #[prost(message, optional, tag = "2")]
+    response: Option<InvocationResponse>,
+}
+
+impl InvocationResult {
+    fn child(self) -> Option<SessionId> {
+        let id = self.response?.result?.invocation?.reference?.id;
+        valid_id(&id).then(|| SessionId::from(id))
+    }
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct InvocationResponse {
+    #[prost(message, optional, tag = "3")]
+    result: Option<InvocationPayload>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct InvocationPayload {
+    #[prost(message, optional, tag = "9")]
+    invocation: Option<Invocation>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct Invocation {
+    #[prost(message, optional, tag = "5")]
+    reference: Option<ConversationReference>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct ConversationReference {
+    #[prost(string, tag = "1")]
+    id: String,
 }
 
 #[derive(Clone, PartialEq, Message)]

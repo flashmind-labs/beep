@@ -105,6 +105,8 @@ pub(crate) struct Memos {
     pub(super) databases: Memo<Arc<Vec<Seen>>>,
     /// Antigravity's titles and subagents.
     pub(super) agy: Memo<Arc<Summaries>>,
+    pub(super) agy_logs: Memo<Arc<AgyTranscript>>,
+    pub(super) agy_child_heads: Memo<Option<Seen>>,
     /// The entries of the few Codex or pi session files read last.
     pub(super) transcripts: Memo<Arc<Vec<beep_proto::node::agent::Entry>>>,
 }
@@ -123,6 +125,8 @@ impl Default for Memos {
             names: Memo::new(4),
             databases: Memo::new(1_000),
             agy: Memo::new(4),
+            agy_logs: Memo::new(TRANSCRIPTS_KEPT),
+            agy_child_heads: Memo::new(MAX_FILES),
             transcripts: Memo::new(TRANSCRIPTS_KEPT),
         }
     }
@@ -293,4 +297,30 @@ pub(crate) struct Summaries {
     pub(super) titles: HashMap<SessionId, String>,
     /// Conversations a session started, as subagents.
     pub(super) children: HashSet<SessionId>,
+    pub(super) child_states: HashMap<SessionId, AgyStatus>,
+}
+
+#[derive(Debug, Default)]
+pub(super) struct AgyTranscript {
+    pub(super) entries: Vec<beep_proto::node::agent::Entry>,
+    pub(super) spawns: HashMap<String, AgySpawn>,
+}
+
+/// One invocation's place in the parent transcript and its recorded outcome.
+#[derive(Debug)]
+pub(super) struct AgySpawn {
+    pub(super) entry: usize,
+    pub(super) child: Option<SessionId>,
+    pub(super) status: AgyStatus,
+    pub(super) name: Option<String>,
+    pub(super) task: Option<String>,
+}
+
+/// Antigravity reports launch and child status separately.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::AsRefStr)]
+#[strum(serialize_all = "snake_case")]
+pub(super) enum AgyStatus {
+    InProgress,
+    Completed,
+    Failed,
 }

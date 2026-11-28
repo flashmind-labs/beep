@@ -164,15 +164,20 @@ async fn follow(
     } else {
         let presence_path = agents.listings.external().presence_path();
         let presence_changed = stale.clone();
-        let watcher = crate::events::paths::Paths::new("agent-presence", move |roots| {
-            if presence_path
-                .as_ref()
-                .is_some_and(|path| roots.contains(path))
-            {
-                presence_changed.store(true, Ordering::Release);
-            }
-            let _ = dirty.try_send(());
-        })?;
+        let agy = request.agent == "agy";
+        let watcher =
+            crate::events::paths::Paths::with_paths("agent-presence", move |roots, _, changed| {
+                if agy && changed.is_some_and(|paths| !observers::agy_changed(&roots, &paths)) {
+                    return;
+                }
+                if presence_path
+                    .as_ref()
+                    .is_some_and(|path| roots.contains(path))
+                {
+                    presence_changed.store(true, Ordering::Release);
+                }
+                let _ = dirty.try_send(());
+            })?;
         watcher.replace(paths).await?;
         Some(watcher)
     };
@@ -995,6 +1000,10 @@ async fn paths(
     request: &FollowSession,
     followed: Option<&Followed>,
 ) -> Result<Vec<PathBuf>> {
+    if request.agent == "agy" {
+        return Ok(agents.listings.stores().agy_follow_paths());
+    }
+
     if agents.sessions.get(&request.session).is_some() {
         return Ok(if request.agent == "codex" {
             agents.listings.follow_roots(Agent::Codex)

@@ -112,6 +112,18 @@ fn relevant_path(agent: Agent, root: &Path, path: &Path) -> bool {
     }
 }
 
+/// A reader can create and remove empty WAL files without changing a conversation.
+pub(super) fn agy_changed(roots: &[PathBuf], paths: &[PathBuf]) -> bool {
+    paths.iter().any(|path| {
+        if path.to_str().is_some_and(|name| name.ends_with(".db-wal")) && !non_empty_wal(path) {
+            return false;
+        }
+        roots
+            .iter()
+            .any(|root| relevant_path(Agent::Agy, root, path))
+    })
+}
+
 #[derive(PartialEq, Eq)]
 pub(super) enum Observation {
     Process(u32),
