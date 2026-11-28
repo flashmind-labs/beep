@@ -11,7 +11,10 @@ use beep_proto::node::events::{self, Topic};
 use iroh::EndpointId;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
-    sync::{Arc, Mutex, PoisonError},
+    sync::{
+        Arc, Mutex, PoisonError,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tokio::sync::watch;
@@ -461,7 +464,7 @@ pub(crate) struct WindowOutbox {
     /// Whether a window wants the forge items, for `projects::git_items` to follow.
     pub(crate) forge: watch::Sender<bool>,
     pub(crate) controller: EndpointId,
-    pub(crate) revision: Mutex<u64>,
+    pub(crate) revision: AtomicU64,
 }
 
 impl WindowOutbox {
@@ -473,7 +476,7 @@ impl WindowOutbox {
             refresh: watch::channel(()).0,
             forge: watch::channel(false).0,
             controller,
-            revision: Mutex::new(0),
+            revision: AtomicU64::new(0),
         }
     }
 
@@ -1012,14 +1015,7 @@ impl WindowOutbox {
 
         let (_, topic, _) = key;
 
-        let revision = {
-            let mut revision = self.revision.lock().unwrap_or_else(PoisonError::into_inner);
-            let Some(next) = revision.checked_add(1) else {
-                return;
-            };
-            *revision = next;
-            next
-        };
+        let revision = self.revision.fetch_add(1, Ordering::Relaxed) + 1;
         self.dispatch(Update {
             machine_id: machine.to_string(),
             revision,
