@@ -80,56 +80,56 @@ fn reads_a_conversations_steps_as_its_transcript() {
         name: "run_command".into(),
         args: r#"{"CommandLine":"cargo test\n--all","toolSummary":"Run tests"}"#.into(),
     };
-    let steps = [
+    let steps: [(i64, i64, Vec<u8>); 6] = [
         (
             14,
             3,
-            Step {
+            UserStep {
                 user: Some(UserInput {
                     text: "Fix the build".into(),
                 }),
-                ..Default::default()
-            },
+            }
+            .encode_to_vec(),
         ),
-        (101, 3, Step::default()),
+        (101, 3, Vec::new()),
         (
             15,
             3,
-            Step {
+            ReplyStep {
                 reply: Some(Reply {
                     text: "Running the tests.".into(),
                     thinking: "Tests first.".into(),
                     calls: vec![call.clone()],
                 }),
-                ..Default::default()
-            },
+            }
+            .encode_to_vec(),
         ),
         (
             132,
             7,
-            Step {
+            CallStep {
                 meta: Some(StepMeta { call: Some(call) }),
-                ..Default::default()
-            },
+            }
+            .encode_to_vec(),
         ),
         (
             17,
             3,
-            Step {
+            ErrorStep {
                 error: Some(StepError {
                     detail: Some(ErrorDetail {
                         text: "API error".into(),
                     }),
                 }),
-                ..Default::default()
-            },
+            }
+            .encode_to_vec(),
         ),
-        (23, 3, Step::default()),
+        (23, 3, Vec::new()),
     ];
-    for (idx, (kind, status, step)) in (0_i64..).zip(steps) {
+    for (idx, (kind, status, payload)) in (0_i64..).zip(steps) {
         conn.execute(
             "INSERT INTO steps VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![idx, kind, status, step.encode_to_vec()],
+            rusqlite::params![idx, kind, status, payload],
         )
         .expect("a step");
     }

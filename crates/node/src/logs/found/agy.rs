@@ -22,7 +22,8 @@ use std::{
 };
 
 const TRAJECTORY: &str = "SELECT data FROM trajectory_metadata_blob LIMIT 1";
-const STEPS: &str = "SELECT step_type, status, step_payload FROM steps ORDER BY idx";
+const STEPS: &str = "SELECT step_type, status, step_payload FROM steps
+     WHERE step_type IN (14, 15, 17, 23, 132) ORDER BY idx";
 const HAS_STEPS: &str = "SELECT EXISTS (SELECT 1 FROM steps)";
 const TITLES: &str = "SELECT conversation_id, title FROM conversation_summaries WHERE title != ''";
 /// A conversation's first stretch of what the user said, for one with no title.
@@ -107,8 +108,8 @@ pub(crate) fn transcript(database: &Path) -> rusqlite::Result<Vec<Entry>> {
     let mut statement = conn.prepare(STEPS)?;
     let rows = statement.query_map([], |row| {
         Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, i64>(1)?,
+            row.get::<_, Option<i64>>(0)?,
+            row.get::<_, Option<i64>>(1)?,
             row.get::<_, Option<Vec<u8>>>(2)?,
         ))
     })?;
@@ -116,48 +117,52 @@ pub(crate) fn transcript(database: &Path) -> rusqlite::Result<Vec<Entry>> {
     let mut calls: HashMap<String, usize> = HashMap::new();
 
     for row in rows {
-        let (kind, status, payload) = row?;
-        let Some(step) = payload.and_then(|data| Step::decode(data.as_slice()).ok()) else {
+        let (Some(kind), Some(status), Some(data)) = row? else {
             continue;
         };
+        let data = data.as_slice();
 
         match kind {
             USER => {
-                let text = step
-                    .user
+                let text = UserStep::decode(data).ok().and_then(|step| step.user);
+                let text = text
                     .map(|user| tags::untagged(&user.text))
                     .unwrap_or_default();
                 entries.extend(entry(EntryKind::User, &text));
             }
             REPLY => {
-                let Some(reply) = step.reply else {
+                let Some(reply) = ReplyStep::decode(data).ok().and_then(|step| step.reply) else {
                     continue;
                 };
                 entries.extend(entry(EntryKind::Thought, &reply.thinking));
                 entries.extend(entry(EntryKind::Agent, &reply.text));
 
                 for call in &reply.calls {
-                    calls.insert(call.id.clone(), entries.len());
-                    entries.extend(entry(EntryKind::Tool, &call.title()));
+                    let Some(made) = entry(EntryKind::Tool, &call.title()) else {
+                        continue;
+                    };
+                    if !call.id.is_empty() {
+                        calls.insert(call.id.clone(), entries.len());
+                    }
+                    entries.push(made);
                 }
             }
             CALL if status == FAILED => {
-                let id = step
-                    .meta
-                    .and_then(|meta| meta.call)
-                    .map(|call| call.id)
-                    .unwrap_or_default();
+                let call = CallStep::decode(data).ok().and_then(|step| step.meta?.call);
+                let at = call.and_then(|call| calls.get(&call.id).copied());
 
-                if let Some(call) = calls.get(&id).and_then(|&at| entries.get_mut(at)) {
+                if let Some(call) = at.and_then(|at| entries.get_mut(at)) {
                     call.text.push_str(" (failed)");
                 }
             }
             ERROR => {
-                let text = step
-                    .error
-                    .and_then(|error| error.detail)
-                    .map(|detail| detail.text);
-                entries.extend(entry(EntryKind::Other, &text.unwrap_or_default()));
+                let error = ErrorStep::decode(data)
+                    .ok()
+                    .and_then(|step| step.error?.detail);
+                entries.extend(entry(
+                    EntryKind::Other,
+                    &error.map(|detail| detail.text).unwrap_or_default(),
+                ));
             }
             COMPACTED => entries.extend(entry(EntryKind::Compacted, COMPACTED_ENTRY)),
             _ => {}
@@ -266,15 +271,29 @@ const CALL: i64 = 132;
 /// `steps.status` of a call that failed.
 const FAILED: i64 = 7;
 
-/// A row's `step_payload`.
+// A row's `step_payload`, read as its `step_type` has it, so a field
+// another type holds differently does not lose the step.
+
 #[derive(Clone, PartialEq, Message)]
-pub(crate) struct Step {
-    #[prost(message, optional, tag = "5")]
-    pub(crate) meta: Option<StepMeta>,
+pub(crate) struct UserStep {
     #[prost(message, optional, tag = "19")]
     pub(crate) user: Option<UserInput>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub(crate) struct ReplyStep {
     #[prost(message, optional, tag = "20")]
     pub(crate) reply: Option<Reply>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub(crate) struct CallStep {
+    #[prost(message, optional, tag = "5")]
+    pub(crate) meta: Option<StepMeta>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub(crate) struct ErrorStep {
     #[prost(message, optional, tag = "24")]
     pub(crate) error: Option<StepError>,
 }

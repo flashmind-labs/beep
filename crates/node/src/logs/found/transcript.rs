@@ -18,7 +18,7 @@ use std::{
     collections::HashMap,
     fs::File,
     io::{self, BufRead, BufReader, Read},
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
@@ -44,8 +44,13 @@ impl Stores {
             return Ok(None);
         };
         let mut entries = match (seen.agent, &seen.file, &self.agy) {
-            (Agent::Agy, _, Some(root)) => {
-                let database = agy::database(root, id);
+            (Agent::Agy, _, root) => {
+                let Some(database) = self.agy_database(root.as_deref(), id) else {
+                    bail!(
+                        "Antigravity conversation {} is not on this machine",
+                        id.as_ref()
+                    );
+                };
                 self.memos
                     .transcripts
                     .read_database(&database, || agy::transcript(&database).map(Arc::new))?
@@ -83,6 +88,25 @@ impl Stores {
             entries: entries[range].to_vec(),
             pictures: Vec::new(),
         }))
+    }
+}
+
+impl Stores {
+    /// The database of Antigravity conversation `id`: in `root`, else in a
+    /// WSL distribution's store.
+    fn agy_database(&self, root: Option<&Path>, id: &SessionId) -> Option<PathBuf> {
+        let wsl = if self.in_wsl {
+            Vec::new()
+        } else {
+            super::wsl_stores()
+        };
+        root.map(|root| agy::database(root, id))
+            .into_iter()
+            .chain(
+                wsl.into_iter()
+                    .filter_map(|(_, stores)| Some(agy::database(stores.agy.as_deref()?, id))),
+            )
+            .find(|database| database.is_file())
     }
 }
 
