@@ -307,17 +307,6 @@ impl Desk {
         direct.read(machine, client).await
     }
 
-    pub(crate) fn name_of(&self, machine: EndpointId) -> String {
-        self.mesh
-            .code_hosts()
-            .into_iter()
-            .find(|status| status.device.id == machine)
-            .map_or_else(
-                || machine.fmt_short().to_string(),
-                |status| status.device.name,
-            )
-    }
-
     /// Asks each of `machines` once, a few at a time, for all its projects.
     async fn statuses(
         &self,
@@ -361,7 +350,7 @@ impl Desk {
         let mut sync = MachineSync {
             git_only: false,
             machine_id: machine.to_string(),
-            machine_name: self.name_of(machine),
+            machine_name: self.mesh.name_of(machine),
             folder: folder.to_owned(),
             status,
             files: 0,

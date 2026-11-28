@@ -69,15 +69,7 @@ pub async fn open(
     }
 }
 
-/// The node's interactive terminals.
-pub async fn list_ptys(client: &PeerClient) -> Result<Vec<Task>, MeshError> {
-    match request(client, &Request::List {}).await? {
-        Reply::Terminals { terminals } => Ok(terminals),
-        other => Err(unexpected(&other)),
-    }
-}
-
-/// Reads the node directly before deciding whether a terminal still exists.
+/// The node's interactive terminals, read directly before deciding whether one still exists.
 pub async fn list_ptys_fresh(client: &PeerClient) -> Result<Vec<Task>, MeshError> {
     match request_fresh(client, &Request::List {}).await? {
         Reply::Terminals { terminals } => Ok(terminals),

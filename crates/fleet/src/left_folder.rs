@@ -28,7 +28,7 @@ impl Desk {
         folder: &str,
     ) -> String {
         let shown = plain_path(folder).into_owned();
-        let name = self.name_of(machine);
+        let name = self.mesh.name_of(machine);
         let kept = |why: &str| format!("{shown} on {name} stays: {why}");
         let Some(seen) = self.seen_one(machine).await else {
             return kept("the machine is not in the mesh.");

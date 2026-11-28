@@ -291,7 +291,7 @@ impl Desk {
             return Err(FleetError::refused(format!(
                 "{} is not on {}.",
                 stored.name,
-                self.name_of(id)
+                self.mesh.name_of(id)
             )));
         };
         let folder = place.folder.clone();

@@ -176,13 +176,6 @@ async fn a_third_device_joins_through_one_member_and_reaches_the_other() {
     assert_eq!(key, project("p"));
 }
 
-fn name_of(mesh: &Mesh, id: EndpointId) -> Option<String> {
-    mesh.devices()
-        .into_iter()
-        .find(|d| d.device.id == id)
-        .map(|d| d.device.name)
-}
-
 #[tokio::test]
 async fn a_rename_shows_on_every_member_and_clearing_it_restores_the_name() {
     let a = create("a").await;
@@ -192,17 +185,11 @@ async fn a_rename_shows_on_every_member_and_clearing_it_restores_the_name() {
         .rename(id, Some("build-box".into()))
         .await
         .expect("renamed");
-    assert_eq!(name_of(&a.mesh, id).as_deref(), Some("build-box"));
-    until(&node.mesh, |m| {
-        name_of(m, id).as_deref() == Some("build-box")
-    })
-    .await;
+    assert_eq!(a.mesh.name_of(id), "build-box");
+    until(&node.mesh, |m| m.name_of(id) == "build-box").await;
 
     a.mesh.rename(id, None).await.expect("cleared");
-    until(&node.mesh, |m| {
-        name_of(m, id).as_deref() == Some("host-123")
-    })
-    .await;
+    until(&node.mesh, |m| m.name_of(id) == "host-123").await;
 
     // A removed machine leaves no name behind.
     let box_ = join_temporary(&a, "box").await;
@@ -218,6 +205,10 @@ async fn a_rename_shows_on_every_member_and_clearing_it_restores_the_name() {
         .expect("renamed");
     a.mesh.remove(id).await.expect("removed");
     assert_eq!(a.mesh.get(&Key::MachineName(id.to_string())), None);
+
+    // An unknown id shows as its short id.
+    let stranger = SecretKey::generate().public();
+    assert_eq!(a.mesh.name_of(stranger), stranger.fmt_short().to_string());
 }
 
 async fn join_temporary(from: &Dev, name: &str) -> Dev {
@@ -236,10 +227,10 @@ async fn a_temporary_ticket_marks_the_device_on_every_member() {
     let b = join(&a, DeviceKind::Desktop, "b").await;
     let box_ = join_temporary(&a, "box").await;
     let node = join(&a, DeviceKind::Node, "node").await;
-    assert!(a.mesh.is_temporary(box_.id()));
-    assert!(!a.mesh.is_temporary(node.id()));
-    until(&b.mesh, |m| m.is_temporary(box_.id())).await;
-    until(&box_.mesh, |m| m.is_temporary(box_.id())).await;
+    assert!(a.mesh.temporaries().contains(&box_.id()));
+    assert!(!a.mesh.temporaries().contains(&node.id()));
+    until(&b.mesh, |m| m.temporaries().contains(&box_.id())).await;
+    until(&box_.mesh, |m| m.temporaries().contains(&box_.id())).await;
     assert_eq!(
         b.mesh.temporaries().into_iter().collect::<Vec<_>>(),
         [box_.id()]
@@ -260,11 +251,11 @@ async fn a_desktop_removes_only_a_temporary_device() {
     // Gone, and its mark with it.
     assert!(a.mesh.remove_temporary(box_.id()).await.expect("removed"));
     assert!(a.mesh.is_removed(box_.id()));
-    assert!(!a.mesh.is_temporary(box_.id()));
+    assert!(!a.mesh.temporaries().contains(&box_.id()));
     // Asked again, it is done already.
     assert!(!a.mesh.remove_temporary(box_.id()).await.expect("done"));
     // A node cannot remove anyone.
-    until(&node.mesh, |m| m.is_temporary(other.id())).await;
+    until(&node.mesh, |m| m.temporaries().contains(&other.id())).await;
     assert!(node.mesh.remove_temporary(other.id()).await.is_err());
 }
 
@@ -273,7 +264,7 @@ async fn two_desktops_removing_one_temporary_device_both_succeed() {
     let a = create("a").await;
     let b = join(&a, DeviceKind::Desktop, "b").await;
     let box_ = join_temporary(&a, "box").await;
-    until(&b.mesh, |m| m.is_temporary(box_.id())).await;
+    until(&b.mesh, |m| m.temporaries().contains(&box_.id())).await;
     let (on_a, on_b) = tokio::join!(
         a.mesh.remove_temporary(box_.id()),
         b.mesh.remove_temporary(box_.id())
@@ -282,7 +273,7 @@ async fn two_desktops_removing_one_temporary_device_both_succeed() {
 
     for mesh in [&a.mesh, &b.mesh] {
         until(mesh, |m| {
-            m.is_removed(box_.id()) && !m.is_temporary(box_.id())
+            m.is_removed(box_.id()) && !m.temporaries().contains(&box_.id())
         })
         .await;
         assert!(

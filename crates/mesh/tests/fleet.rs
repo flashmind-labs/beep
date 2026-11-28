@@ -377,7 +377,9 @@ async fn a_terminal_opens_and_echoes_with_no_server() {
         pty: true,
         command: &task.command,
     };
-    let listed = terminals::list_ptys(&node.client).await.expect("it lists");
+    let listed = terminals::list_ptys_fresh(&node.client)
+        .await
+        .expect("it lists");
     assert_eq!(
         terminals::state_of(&kept, &listed),
         beep_proto::TerminalState::Running {}

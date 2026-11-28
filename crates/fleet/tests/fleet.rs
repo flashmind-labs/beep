@@ -3111,7 +3111,7 @@ async fn a_temporary_device_offline_for_a_day_is_removed_and_a_normal_one_stays(
         .expect("device joins");
     let gone = key.public();
     let normal = join(&desk, DeviceKind::Node, "normal").await;
-    until(&other_desk.mesh, |m| m.is_temporary(gone)).await;
+    until(&other_desk.mesh, |m| m.temporaries().contains(&gone)).await;
     // Both are off now: the container never served, the normal node stops.
     drop(container);
     let normal_id = normal.id;
@@ -3148,7 +3148,7 @@ async fn a_temporary_device_offline_for_a_day_is_removed_and_a_normal_one_stays(
         .await
         .expect("swept");
     until(&other_desk.mesh, |m| {
-        m.is_removed(gone) && !m.is_temporary(gone)
+        m.is_removed(gone) && !m.temporaries().contains(&gone)
     })
     .await;
     assert!(

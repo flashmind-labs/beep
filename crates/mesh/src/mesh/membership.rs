@@ -1,8 +1,8 @@
 //! Membership, invitations and device inventory.
 
 use super::{DeviceStatus, Mesh};
-use crate::store::TicketPurpose;
-use crate::{DeviceKind, Invitation, JoinTicket, Key, MeshError};
+use crate::store::{TicketPurpose, View};
+use crate::{Device, DeviceKind, Invitation, JoinTicket, Key, MeshError};
 use iroh::EndpointId;
 use std::collections::BTreeSet;
 use std::time::Duration;
@@ -92,14 +92,6 @@ impl Mesh {
             .collect()
     }
 
-    /// Whether `id` joined with a temporary ticket and was not removed since.
-    pub fn is_temporary(&self, id: EndpointId) -> bool {
-        self.inner
-            .view()
-            .values
-            .contains_key(&Key::Temporary(id.to_string()))
-    }
-
     /// The temporary devices.
     pub fn temporaries(&self) -> BTreeSet<EndpointId> {
         self.inner
@@ -162,6 +154,20 @@ impl Mesh {
         self.inner.is_member(id)
     }
 
+    /// What the mesh calls `id`, or its short id.
+    pub fn name_of(&self, id: EndpointId) -> String {
+        let view = self.inner.view();
+
+        view.devices
+            .members()
+            .into_iter()
+            .find(|device| device.id == id)
+            .map_or_else(
+                || id.fmt_short().to_string(),
+                |device| shown_name(&view, &device),
+            )
+    }
+
     /// The members, each under the name the user gave it, if any.
     pub fn devices(&self) -> Vec<DeviceStatus> {
         let view = self.inner.view();
@@ -172,14 +178,7 @@ impl Mesh {
             .members()
             .into_iter()
             .map(|mut device| {
-                if let Some(name) = view
-                    .values
-                    .get(&Key::MachineName(device.id.to_string()))
-                    .and_then(|bytes| std::str::from_utf8(bytes).ok())
-                    && !name.trim().is_empty()
-                {
-                    device.name = name.to_owned();
-                }
+                device.name = shown_name(&view, &device);
 
                 let me = device.id == self.inner.me();
                 let online = me
@@ -201,4 +200,13 @@ impl Mesh {
             })
             .collect()
     }
+}
+
+/// The name the user gave `device`, or the one it joined with.
+fn shown_name(view: &View, device: &Device) -> String {
+    view.values
+        .get(&Key::MachineName(device.id.to_string()))
+        .and_then(|bytes| std::str::from_utf8(bytes).ok())
+        .filter(|name| !name.trim().is_empty())
+        .map_or_else(|| device.name.clone(), str::to_owned)
 }

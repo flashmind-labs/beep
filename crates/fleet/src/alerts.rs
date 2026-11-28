@@ -178,17 +178,6 @@ async fn machine(machines: Arc<Machines>, mesh: Mesh, id: EndpointId, out: mpsc:
     );
 }
 
-/// What the mesh calls `machine`, or its short id.
-fn name_of(mesh: &Mesh, machine: EndpointId) -> String {
-    mesh.machines()
-        .into_iter()
-        .find(|status| status.device.id == machine)
-        .map_or_else(
-            || machine.fmt_short().to_string(),
-            |status| status.device.name,
-        )
-}
-
 /// The name of the project whose checkout on `machine` holds `cwd`, such as `org/web`, the
 /// deepest when checkouts nest.
 fn project_at(mesh: &Mesh, machine: EndpointId, cwd: &str) -> Option<String> {
@@ -231,7 +220,7 @@ async fn follow_one(
                     log::debug!(
                         "following {} from {}: {error}",
                         what.as_ref(),
-                        name_of(mesh, id)
+                        mesh.name_of(id)
                     );
                     logged = Some(error);
                 }
@@ -321,7 +310,7 @@ async fn stream(
         *replied = true;
         let heard = match reply {
             SessionsReply::Alert { mut alert } => {
-                let key = alert.key(&id.to_string(), &name_of(mesh, id));
+                let key = alert.key(&id.to_string(), &mesh.name_of(id));
                 // The title the user gave the session, over the one its agent keeps.
                 if let Some(title) =
                     session_titles::get(mesh, &key.machine_id, &key.agent, &key.session)

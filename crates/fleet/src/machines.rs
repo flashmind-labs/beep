@@ -154,16 +154,10 @@ impl Machines {
 
     /// The name of `machine` in the mesh, or its short id.
     pub fn name_of(&self, machine: EndpointId) -> String {
-        self.mesh_now()
-            .and_then(|mesh| {
-                mesh.machines()
-                    .into_iter()
-                    .find(|status| status.device.id == machine)
-            })
-            .map_or_else(
-                || machine.fmt_short().to_string(),
-                |status| status.device.name,
-            )
+        self.mesh_now().map_or_else(
+            || machine.fmt_short().to_string(),
+            |mesh| mesh.name_of(machine),
+        )
     }
 
     /// What `machine` last said about itself, kept from before: its probe is slow, and an
