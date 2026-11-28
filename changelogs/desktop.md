@@ -7,6 +7,28 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.46] - 2026-11-28
+
+### Added
+
+- Desktop: the usage popup can narrow spend to one harness or one project, showing that harness's models and projects or that project's harnesses and models.
+
+### Changed
+
+- Desktop: Continue with in a session's right-click menu now asks for the harness, model and thinking level right in the menu, then opens the continued session.
+- Desktop: agent chat uses the full pane width, and tables are centered at their natural width.
+
+### Fixed
+
+- macOS: agents on this Mac can start and follow children on other machines, and hear when a child on this Mac finishes instead of waiting 45 seconds.
+- Long agent questions are no longer cut off; click one to show all of it.
+- macOS, Windows, Linux: The model picker and the new agent form's menus open in full again instead of being cut off by the chat or project pane.
+- Linux, macOS and Windows: a project opened through a symlinked folder now lists its worktree sessions, and Git sync no longer stashes under a session running in one.
+
+### Performance
+
+- Reduce background CPU and RPC traffic on desktop by redrawing only newly subscribed views, routing mesh updates by key, and caching Syncthing folder checks and harness probes.
+
 ## [0.10.45] - 2026-11-27
 
 ### Added

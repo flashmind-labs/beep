@@ -2,6 +2,23 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.33] - 2026-11-28
+
+### Added
+
+- Antigravity chats found on a machine now open with their prompts, replies, thinking and tool calls instead of an error.
+
+### Fixed
+
+- An agent that starts a child on a Mac now hears it finish instead of waiting 45 seconds.
+- Agents on a Mac can start and follow children on other machines.
+- Long agent questions are no longer cut off; click one to show all of it.
+- Linux, macOS and Windows: a project opened through a symlinked folder now lists its worktree sessions, and Git sync no longer stashes under a session running in one.
+
+### Performance
+
+- Back off failed file-sync scans instead of retrying every 5 seconds and cache agent harness probes on nodes when refresh is not requested.
+
 ## [0.8.32] - 2026-11-27
 
 ### Added
