@@ -4,7 +4,7 @@ use beep_server::{
     config::Config,
     reports::{self, Reports},
 };
-use std::{env, fs, net::SocketAddr};
+use std::{env, fs, net::SocketAddr, sync::Arc};
 
 /// `beep-server [config]` receives problem reports.
 #[tokio::main]
@@ -24,7 +24,7 @@ async fn main() -> Result<()> {
     // The peer's address, which the reports route reads.
     axum::serve(
         listener,
-        reports::routes(reports).into_make_service_with_connect_info::<SocketAddr>(),
+        reports::routes(Arc::new(reports)).into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(stop_signal())
     .await?;

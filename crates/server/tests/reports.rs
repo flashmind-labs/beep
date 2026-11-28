@@ -3,6 +3,7 @@
 use std::fs::{read, read_to_string};
 use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use beep_proto::ApiError;
@@ -54,7 +55,7 @@ async fn serve_with(config: &ReportsConfig) -> Url {
     let addr = listener
         .local_addr()
         .expect("a bound listener has an address");
-    let app = routes(reports).into_make_service_with_connect_info::<SocketAddr>();
+    let app = routes(Arc::new(reports)).into_make_service_with_connect_info::<SocketAddr>();
     tokio::spawn(async move { axum::serve(listener, app).await });
     Url::parse(&format!("http://{addr}")).expect("a local address is a URL")
 }
@@ -323,17 +324,6 @@ async fn a_report_the_store_fails_to_keep_does_not_use_up_the_day() {
     send(&url, report(key.public(), None, "second try"), &key)
         .await
         .expect("the failed one was given back");
-}
-
-#[test]
-fn reports_outside_a_runtime_is_an_error() {
-    assert!(
-        Reports::new(
-            &ReportsConfig::default(),
-            beep_proto::https::client().build().expect("a client")
-        )
-        .is_err()
-    );
 }
 
 #[tokio::test]

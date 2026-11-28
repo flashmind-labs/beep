@@ -67,12 +67,7 @@ const CLOUDFLARE_V6: [(Ipv6Addr, u8); 7] = [
 ];
 
 /// What the route needs: the store, the block lists and the day's counts.
-#[derive(Clone)]
 pub struct Reports {
-    inner: Arc<Inner>,
-}
-
-struct Inner {
     store: Option<ReportStore>,
     blocked_keys: HashSet<EndpointId>,
     blocked_ips: HashSet<IpAddr>,
@@ -80,21 +75,17 @@ struct Inner {
 }
 
 impl Reports {
-    /// Starts the task that counts each key's reports; fails outside a
-    /// tokio runtime.
     pub fn new(config: &ReportsConfig, http: Client) -> Result<Self> {
         Ok(Self {
-            inner: Arc::new(Inner {
-                store: ReportStore::from_config(config, http)?,
-                blocked_keys: config.blocked_keys.iter().copied().collect(),
-                blocked_ips: config.blocked_ips.iter().copied().collect(),
-                limit: KeyLimit::spawn(config.per_key_per_day)?,
-            }),
+            store: ReportStore::from_config(config, http)?,
+            blocked_keys: config.blocked_keys.iter().copied().collect(),
+            blocked_ips: config.blocked_ips.iter().copied().collect(),
+            limit: KeyLimit::new(config.per_key_per_day),
         })
     }
 }
 
-pub fn routes(reports: Reports) -> Router {
+pub fn routes(reports: Arc<Reports>) -> Router {
     Router::new()
         .route(PATH, post(receive))
         // One byte over, so `check` is the one that refuses a body too large.
@@ -123,14 +114,14 @@ async fn one_of_few(
 }
 
 async fn receive(
-    State(reports): State<Reports>,
+    State(reports): State<Arc<Reports>>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     body: Result<Bytes, BytesRejection>,
 ) -> Response {
     let peer = peer.map(|Extension(ConnectInfo(addr))| addr.ip());
 
-    match take(&reports.inner, peer, &headers, body).await {
+    match take(&reports, peer, &headers, body).await {
         Ok(Ok(receipt)) => reply(StatusCode::OK, &receipt),
         Ok(Err(refused)) => reply(
             refused.status(),
@@ -146,7 +137,7 @@ async fn receive(
 /// Checks the report and stores it. The outer error is the store failing,
 /// which gives the report back to the day's count.
 async fn take(
-    reports: &Inner,
+    reports: &Reports,
     peer: Option<IpAddr>,
     headers: &HeaderMap,
     body: Result<Bytes, BytesRejection>,
@@ -178,7 +169,7 @@ async fn take(
 
     let day = day(now_ms);
 
-    if !reports.limit.take(manifest.sender, day).await? {
+    if !reports.limit.take(manifest.sender, day) {
         return Ok(Err(Refused::OverLimit));
     }
 
@@ -187,7 +178,7 @@ async fn take(
             reference: format!("R-{}", id.to_uppercase()),
         })),
         Err(e) => {
-            reports.limit.give_back(manifest.sender, day).await?;
+            reports.limit.give_back(manifest.sender, day);
             Err(e)
         }
     }
