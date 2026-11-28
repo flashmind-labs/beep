@@ -545,6 +545,7 @@ const out = await new ELK().layout({
     "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
     "elk.layered.cycleBreaking.strategy": "GREEDY",
     "elk.layered.thoroughness": "40", "elk.spacing.componentComponent": "60",
+    ...(g.options || {}),
   },
   children: g.nodes, edges: g.edges,
 });
@@ -572,21 +573,69 @@ NODE_COLOR = {"actor": "#4fc38a", "store": "#5aa2ef", "lock": "#e0a93a", "module
 GROUP_TINT = ["#1a1f1c", "#1b1d22", "#211c1b", "#1d1b22", "#1f1e19", "#1a2022"]
 
 
+def pack_components(laid, edges):
+    """Moves each connected part of a laid out graph into shelves of rows, so a graph of many small
+    parts is a block that fits a screen and not one long strip. Edge routes move with their part."""
+    nodes = {c["id"]: c for c in laid["children"]}
+    parent = {i: i for i in nodes}
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for e in edges:
+        parent[find(e["from"])] = find(e["to"])
+    parts = {}
+    for i in nodes:
+        parts.setdefault(find(i), []).append(i)
+    box = {}
+    for root, ids in parts.items():
+        box[root] = (min(nodes[i]["x"] for i in ids), min(nodes[i]["y"] for i in ids),
+                     max(nodes[i]["x"] + nodes[i]["width"] for i in ids), max(nodes[i]["y"] + nodes[i]["height"] for i in ids))
+    gap = 40
+    area = sum((b[2] - b[0] + gap) * (b[3] - b[1] + gap) for b in box.values())
+    target = max(max(b[2] - b[0] for b in box.values()), (area ** 0.5) * 1.8)
+    shift, x, y, row = {}, 0.0, 0.0, 0.0
+    for root in sorted(parts, key=lambda r: -(box[r][3] - box[r][1])):
+        x0, y0, x1, y1 = box[root]
+        if x > 0 and x + (x1 - x0) > target:
+            x, y, row = 0.0, y + row + gap, 0.0
+        shift[root] = (x - x0, y - y0)
+        x, row = x + (x1 - x0) + gap, max(row, y1 - y0)
+    for root, ids in parts.items():
+        for i in ids:
+            nodes[i]["x"] += shift[root][0]
+            nodes[i]["y"] += shift[root][1]
+    for le, e in zip(laid["edges"], edges):
+        dx, dy = shift[find(e["from"])]
+        for sec in le.get("sections", []):
+            for q in [sec["startPoint"], sec["endPoint"], *sec.get("bendPoints", [])]:
+                q["x"] += dx
+                q["y"] += dy
+    laid["width"] = max(c["x"] + c["width"] for c in nodes.values())
+    laid["height"] = max(c["y"] + c["height"] for c in nodes.values())
+
+
 def draw_graph(graph, out: Path, title=None):
     nodes = graph["nodes"]
     ids = {n["id"] for n in nodes}
     edges = [e for e in graph["edges"] if e["from"] in ids and e["to"] in ids and e["from"] != e["to"]]
     cyc_kinds = set(graph.get("cycle_kinds") or [k for k in KIND_COLOR if k != "owns"])
     comp = components({(e["from"], e["to"]) for e in edges if e.get("kind", "import") in cyc_kinds})
+    comp = {k: v for k, v in comp.items()} if "none" not in cyc_kinds else {}
     cyc = lambda a, b: a in comp and len(comp[a]) > 1 and comp[a] is comp.get(b)
     width = 210
     lines = lambda s, n: max(1, -(-len(s.replace("`", "")) // n))
     heights = {n["id"]: 16 + 16 * lines(n.get("name", n["id"]), 26) + (13 * min(4, lines(n["note"], 33)) if n.get("note") else 0) + 18 for n in nodes}
     script, lib = elk()
-    request = dict(nodes=[dict(id=n["id"], width=width, height=heights[n["id"]]) for n in nodes],
+    request = dict(options=graph.get("layout") or {}, nodes=[dict(id=n["id"], width=width, height=heights[n["id"]]) for n in nodes],
                    edges=[dict(id=f"e{i}", sources=[e["from"]], targets=[e["to"]]) for i, e in enumerate(edges)])
     laid = json.loads(subprocess.run(["node", str(script), str(lib)], input=json.dumps(request), text=True,
                                      capture_output=True, check=True).stdout)
+    if graph.get("pack"):
+        pack_components(laid, edges)
     pos = {c["id"]: c for c in laid["children"]}
     pad = 20
     gw, gh = laid["width"] + 2 * pad, laid["height"] + 2 * pad
@@ -623,6 +672,7 @@ def draw_graph(graph, out: Path, title=None):
     legend = "".join(f'<span><i class="ln" style="border-color:{KIND_COLOR[k]};border-top-style:{"dashed" if k == "ping" else "dotted" if k == "owns" else "solid"}"></i>{k}: {KIND_TEXT[k]} ({sum(1 for e in edges if e.get("kind", "import") == k)})</span>' for k in kinds)
     legend += "".join(f'<span><i class="sw" style="background:{c}"></i>{k}</span>' for k, c in NODE_COLOR.items() if any(n.get("kind") == k for n in nodes))
     in_cyc = sum(1 for n in nodes if n["id"] in comp and len(comp[n["id"]]) > 1)
+    pages_html = ('<p class="pg">' + " · ".join(f'<a href="{esc(p["href"])}">{esc(p["name"])}</a>' for p in graph["pages"]) + "</p>") if graph.get("pages") else ""
     lists_html = "".join(f'<section class="ls"><h2>{esc(b["title"])} ({len(b["rows"])})</h2>'
                          + ("<ul>" + "".join(f"<li>{tx(r)}</li>" for r in b["rows"]) + "</ul>" if b["rows"] else "<p>None.</p>") + "</section>"
                          for b in graph.get("lists", []))
@@ -640,12 +690,12 @@ p{{max-width:900px;color:#b8bcc4;margin:8px 0}}
 .n i{{display:block;font:9px ui-monospace,monospace;font-style:normal;text-transform:uppercase;letter-spacing:.06em;color:#8a8f98;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .n b{{display:block;font-size:12.5px;color:#fff;overflow-wrap:anywhere}}.n span{{display:block;font-size:11px;color:#8a8f98;line-height:1.3}}
 .n code{{font:10.5px ui-monospace,monospace;color:#c9cdd4}}.n.cyc{{outline:1.5px solid #ff4d6d;outline-offset:2px}}
-.ls{{margin:18px 22px;max-width:1100px}}.ls h2{{font-size:14px;margin:0 0 6px}}.ls ul{{margin:0;padding-left:18px;color:#b8bcc4}}.ls li{{margin:3px 0;overflow-wrap:anywhere}}
+.pg a{{color:#8ab4ff}}.pg{{font:12px ui-monospace,monospace}}.ls{{margin:18px 22px;max-width:1100px}}.ls h2{{font-size:14px;margin:0 0 6px}}.ls ul{{margin:0;padding-left:18px;color:#b8bcc4}}.ls li{{margin:3px 0;overflow-wrap:anywhere}}
 .wrap.focus .n{{opacity:.25}}.wrap.focus .n.on{{opacity:1}}.wrap.focus .e{{opacity:.06}}.wrap.focus .e.on{{opacity:1;stroke-width:2.4}}
 </style></head><body><header><h1>{esc(title)}</h1>
 <div class="meta">{len(nodes)} nodes · {len(edges)} edges · {in_cyc} in cycles</div>
 <p>A node sits above the ones it depends on or acts on, so a chain stacks in one column. An edge that has to run upward closes a cycle and glows red; nodes in a cycle have a red outline; a red dashed edge is a suggested cut. Hover a node to see only its edges, hover an edge for what it carries.</p>
-<div class="lg">{legend}</div></header>
+{pages_html}<div class="lg">{legend}</div></header>
 <button id="fit">Actual size</button><div class="wrap" style="width:{gw:.0f}px;height:{gh:.0f}px"><svg width="{gw:.0f}" height="{gh:.0f}"><defs>{markers}</defs>{"".join(svg)}</svg>{"".join(boxes)}</div>
 {lists_html}<script>
 const wrap=document.querySelector('.wrap'),E=[...document.querySelectorAll('.e')],fitB=document.getElementById('fit');let fit=true;
@@ -664,12 +714,21 @@ def draw(args):
 
 # ---------- structs ----------
 
-STRUCT_BLIND = [
+RUST_BLIND = [
     "Callbacks and `Box<dyn Fn>` slots that call back up: not seen, look for them by hand.",
     "Trait objects (`Arc<dyn Trait>`): the field names a trait, so no edge to the implementors.",
-    "Channels that carry a reply up (oneshot, request/reply pairs): drawn as no edge at all.",
-    "Calls through a local that is not a plain alias of a field or parameter, and `Type::function(..)` paths.",
+    "Channels that carry a reply up (oneshot, request/reply pairs): no edge at all.",
+    "Free fns have only outgoing edges: nothing draws who calls them, so they never close a cycle. One node stands for the fns of a file.",
+    "Calls through a local that is not a plain alias or guard of a field or parameter (`let g = self.f.lock()`, `if let Some(b) = &self.b`), through closures and iterator chains, and `Type::function(..)` paths.",
+    "Type aliases with generics (`type R<T> = ..`), and aliases whose name two modules share.",
     "Structs in another crate than the scanned tree, and structs the code never shares (not long-lived).",
+    "Writers of a field are found only in the struct's own impl: a writer elsewhere shows as unknown.",
+]
+TS_BLIND = [
+    "Callbacks and props handed between modules that call back up.",
+    "Only `*-state.ts` and `create*Store` modules are nodes: views (`.tsx` components) that read a store through a hook are not drawn.",
+    "Calls through re-exports, dynamic `import()` of a computed path, and methods on a value read out of `getState()`.",
+    "Duplicated state is not computed for the frontend.",
 ]
 LONG_FIELD = re.compile(r"\b(?:Arc|Weak|Mutex|RwLock|AsyncMutex|Sender|UnboundedSender|Receiver|UnboundedReceiver|JoinSet|JoinHandle|"
                         r"AbortOnDropHandle|Notify|Hub|Semaphore|OnceCell|OnceLock|Atomic\w+|DashMap)\b")
@@ -895,13 +954,60 @@ def pick(pool, name: str, path: str, here: str):
     return max(cands, key=lambda c: closeness(path, here, c.split("::")[0], segs))
 
 
+CHAIN_ADAPT = r"(?:\s*\.\s*(?:lock|read|write|borrow|borrow_mut|clone|as_ref|as_deref|as_mut|unwrap|get)\s*\(\s*\))*(?:\s*\.\s*await)?\s*\??"
+ALIAS_LET = (r"let\s+(?:mut\s+)?(\w+)\s*(?::[^=;]+)?=\s*(?:Arc::clone\(\s*&?(\w+)\s*\.\s*(\w+)\s*\)|(?:\w+::)*lock\(\s*&(?:mut\s+)?(\w+)\s*\.\s*(\w+)\s*\)"
+             r"|&?(?:mut\s+)?(\w+)\s*\.\s*(\w+))" + CHAIN_ADAPT + r"\s*(?:;|else\b)")
+ALIAS_SOME = r"let\s+Some\(\s*(?:ref\s+)?(?:mut\s+)?(\w+)\s*\)\s*=\s*&?(?:mut\s+)?(\w+)\s*\.\s*(\w+)(?:\s*\.\s*(?:as_ref|as_deref|as_mut|clone)\s*\(\s*\))?\s*(?=\{|;|else\b|\))"
+CALL2 = r"\b(\w+)\s*\.\s*(\w+)\s*(?:::<[^>]*>)?\s*\("
+CALL3 = r"\b(\w+)\s*\.\s*(\w+)\s*\.\s*(\w+)\s*(?:::<[^>]*>)?\s*\("
+CALL_GUARD = (r"\b(\w+)\s*\.\s*(\w+)\s*\.\s*(?:lock|read|write|borrow|borrow_mut)\s*\(\s*\)(?:\s*\.\s*await|\s*\.\s*unwrap\s*\(\s*\)|\s*\?)*"
+              r"\s*\.\s*(\w+)\s*(?:::<[^>]*>)?\s*\(")
+CALL_LOCK = r"(?:\w+::)*lock\(\s*&(?:mut\s+)?(\w+)\s*\.\s*(\w+)\s*\)(?:\s*\.\s*await)?\s*\.\s*(\w+)\s*(?:::<[^>]*>)?\s*\("
+
+
+def field_key(name: str):
+    """Tuple fields are written `self.0` and stored as `_0`."""
+    return f"_{name}" if name.isdigit() else name
+
+
+def field_access(fname: str):
+    n = fname[1:] if re.fullmatch(r"_\d+", fname) else fname
+    return rf"(?:\bself\s*\.\s*{n}\b|(?:\w+::)*lock\(\s*&(?:mut\s+)?self\s*\.\s*{n}\s*\))"
+
+
+def writes_field(body: str, access: str):
+    """Whether the method assigns the field, calls a mutating op on it, or does so through a guard local."""
+    if re.search(rf"{access}\s*[-+|&]?=(?!=)|{access}[^;{{}}]*?\.\s*(?:{WRITE_OPS})\s*\(|\*\s*{access}[^;{{}}=]*?(?<![=!<>])=(?!=)", body):
+        return True
+    for m in re.finditer(rf"let\s+(?:mut\s+)?(\w+)\s*(?::[^=;]+)?=[^;]*?{access}[^;]*;", body):
+        g = m.group(1)
+        if re.search(rf"\b{g}\s*\.\s*(?:{WRITE_OPS})\s*\(|\*\s*{g}\s*[-+|&]?=(?!=)|\b{g}\s*\.\s*\w+\s*[-+|&]?=(?!=)", body[m.end():]):
+            return True
+    return False
+
+
 def build_rust(sources: dict, tree: str = ""):
     """The struct graph of the Rust sources {repo-relative path: text}, and the facts the analysis reads."""
     files = {rel: Source(rel, text, tree) for rel, text in sources.items()}
+    found_aliases = {}
+    for s in files.values():
+        for m in re.finditer(r"\btype\s+([A-Z]\w*)\s*=\s*([^;]+);", s.code):
+            found_aliases.setdefault(m.group(1), []).append(re.sub(r"\s+", " ", m.group(2)).strip())
+    parsed = {rel: parse_structs(s.code) for rel, s in files.items()}
+    taken = {name for items in parsed.values() for name, *_ in items}
+    for s in files.values():
+        taken |= set(re.findall(r"\b(?:enum|union|trait)\s+(\w+)", s.code))
+    aliases = {k: v[0] for k, v in found_aliases.items() if len(v) == 1 and k not in taken and "<" not in v[0][:1]}
+
+    def unalias(ty):
+        for _ in range(3):
+            ty = re.sub(r"\b[A-Z]\w*\b", lambda m: aliases.get(m.group(0), m.group(0)), ty)
+        return ty
+
     structs = {}  # id -> dict
     for rel, s in files.items():
-        for name, at, fields, borrows in parse_structs(s.code):
-            structs[f"{rel}::{name}"] = dict(name=name, rel=rel, line=s.line(at), fields=[(n, t, s.line(a)) for n, t, a in fields], group=s.group, borrows=borrows)
+        for name, at, fields, borrows in parsed[rel]:
+            structs[f"{rel}::{name}"] = dict(name=name, rel=rel, line=s.line(at), fields=[(n, unalias(t), s.line(a)) for n, t, a in fields], group=s.group, borrows=borrows)
     every = {}  # every type name: structs, and enums and aliases that no node can be
     for sid, st in structs.items():
         every.setdefault(st["name"], []).append(sid)
@@ -955,9 +1061,8 @@ def build_rust(sources: dict, tree: str = ""):
     for rel, s in files.items():
         for name, params, ret, ba, bb, at in parse_fns(s.code, 0, len(s.code)):
             if not any(a <= at < b for a, b in spans[rel]):
-                free.append((f"{rel}::fn {name}", None, rel, params, ba, bb, name))
+                free.append((f"{rel}::fns", None, rel, params, ba, bb, name))
 
-    ids = {}
     out_nodes = {}
     for sid in sorted(nodes):
         st = structs[sid]
@@ -965,14 +1070,7 @@ def build_rust(sources: dict, tree: str = ""):
         kind = ("actor" if ACTOR_FIELD.search(types) or sid in spawners else "lock" if LOCK_FIELD.search(types)
                 else "store" if st["fields"] else "stateless")
         out_nodes[sid] = dict(id=sid, name=st["name"], group=st["group"], kind=kind, note=f"{st['rel']}:{st['line']}")
-    names = {}
-    for n in out_nodes.values():
-        names[n["name"]] = names.get(n["name"], 0) + 1
-    for sid, n in out_nodes.items():
-        if names[n["name"]] > 1:
-            mod = Path(structs[sid]["rel"]).with_suffix("")
-            n["name"] = f"{(mod.parent if mod.name in ('mod', 'lib', 'main') else mod).name}::{n['name']}"
-    edges = {}
+    edges, serving = {}, {}
 
     def add(a, b, kind, label, weak=False):
         if a == b:
@@ -1009,84 +1107,136 @@ def build_rust(sources: dict, tree: str = ""):
         for _, p in split_top(params):
             m = re.match(r"\s*(?:mut\s+)?(\w+)\s*:\s*(.+)", p, re.S)
             if m:
-                t = [x for x in (node_for(path, rel) for path, _ in type_refs(m.group(2))) if x]
+                t = [x for x in (node_for(path, rel) for path, _ in type_refs(unalias(m.group(2)))) if x]
                 if t:
                     bind[m.group(1)] = t
         if sid in nodes:
             bind["self"] = [sid]
-        for m in re.finditer(r"let\s+(?:mut\s+)?(\w+)\s*=\s*(?:Arc::clone\(\s*&?(\w+)\.(\w+)\s*\)|&?(\w+)\.(\w+)(?:\.clone\(\))?)\s*;", body):
-            owner, field = (m.group(2), m.group(3)) if m.group(2) else (m.group(4), m.group(5))
+        aliases_here = []
+        for m in re.finditer(ALIAS_LET, body):
+            aliases_here.append((m.start(), m.group(1), next((m.group(k), m.group(k + 1)) for k in (2, 4, 6) if m.group(k))))
+        for m in re.finditer(ALIAS_SOME, body):
+            aliases_here.append((m.start(), m.group(1), (m.group(2), m.group(3))))
+        for _, local, (owner, field) in sorted(aliases_here):
             for t in bind.get(owner, [])[:1]:
-                got = field_nodes.get(t, {}).get(field)
+                got = field_nodes.get(t, {}).get(field_key(field))
                 if got:
-                    bind[m.group(1)] = got
+                    bind[local] = got
         if not bind:
             continue
-        origin = src if src in out_nodes else src
         found = []
-        for m in re.finditer(r"\b(\w+)\.(\w+)\s*(?:::<[^>]*>)?\s*\(", body):
+        for m in re.finditer(CALL2, body):
             for t in bind.get(m.group(1), []):
                 k = classify(t, m.group(2))
                 if k and m.group(1) != "self":
                     found.append((t, k, f"{m.group(1)}.{m.group(2)}", m.start()))
-        for m in re.finditer(r"\b(\w+)\.(\w+)\.(\w+)\s*(?:::<[^>]*>)?\s*\(", body):
-            for owner in bind.get(m.group(1), []):
-                for t in field_nodes.get(owner, {}).get(m.group(2), []):
-                    k = classify(t, m.group(3))
-                    if k:
-                        found.append((t, k, f"{m.group(2)}.{m.group(3)}", m.start()))
+        for pattern, shape in ((CALL3, (1, 2, 3)), (CALL_GUARD, (1, 2, 3)), (CALL_LOCK, (1, 2, 3))):
+            for m in re.finditer(pattern, body):
+                owner, field, method = (m.group(i) for i in shape)
+                for owner_node in bind.get(owner, []):
+                    for t in field_nodes.get(owner_node, {}).get(field_key(field), []):
+                        k = classify(t, method)
+                        if k:
+                            found.append((t, k, f"{field}.{method}", m.start()))
         for t, k, what, at in found:
-            if origin not in out_nodes:
-                out_nodes[origin] = dict(id=origin, name=f"fn {fname}", group=s.group, kind="stateless", note=f"{rel}:{s.line(ba)}")
-            if origin != t:
-                edges.setdefault((origin, t, k), dict(**{"from": origin, "to": t}, kind=k, label=f"{what} ({rel}:{s.line(ba + at)})", weak=False, count=0))["count"] += 1
+            if src not in out_nodes:
+                mod = Path(rel).with_suffix("")
+                out_nodes[src] = dict(id=src, name=f"fns in {(mod.parent if mod.name in ('mod', 'lib', 'main') else mod).name}", group=s.group, kind="stateless", note=rel)
+            if src.endswith("::fns"):
+                serving.setdefault(src, set()).add(fname)
+            if src != t:
+                edges.setdefault((src, t, k), dict(**{"from": src, "to": t}, kind=k, label=f"{what} ({rel}:{s.line(ba + at)})", weak=False, count=0))["count"] += 1
 
-    # writers of each non-Arc field
+    for sid, fns in serving.items():
+        out_nodes[sid]["note"] += f": {len(fns)} fn{'s' if len(fns) > 1 else ''} that take a node ({', '.join(sorted(fns)[:4])}{', ...' if len(fns) > 4 else ''})"
+    names = {}
+    for n in out_nodes.values():
+        names[n["name"]] = names.get(n["name"], 0) + 1
+    for sid, n in out_nodes.items():
+        if names[n["name"]] > 1:
+            mod = Path(sid.split("::")[0]).with_suffix("")
+            n["name"] = f"{(mod.parent if mod.name in ('mod', 'lib', 'main') else mod).name}::{n['name']}"
+
+    # writers of each field
     writers = {}
     for sid, st in structs.items():
         if sid not in nodes:
             continue
         for fname, ty, line in st["fields"]:
+            access = field_access(fname)
             names = []
             for src, owner, rel, params, ba, bb, mname in scopes:
-                if owner != sid:
-                    continue
-                body = files[rel].code[ba:bb]
-                if re.search(rf"\bself\.{fname}\s*(?:[-+|&]?=(?!=)|\.(?:lock\(\)|write\(\)|borrow_mut\(\))?[^;{{}}]*?\.(?:{WRITE_OPS})\s*\()", body) \
-                        or re.search(rf"\bself\.{fname}\.(?:{WRITE_OPS})\s*\(", body):
+                if owner == sid and writes_field(files[rel].code[ba:bb], access):
                     names.append(mname)
             writers[(sid, fname)] = sorted(set(names))
     return dict(nodes=out_nodes, edges=list(edges.values()), structs=structs, node_ids=nodes, writers=writers, every=every)
 
 
+HANDLE_TYPES = {"Dir", "Group", "Mesh", "Endpoint", "AppHandle", "CancellationToken", "Uuid", "WebviewWindow", "Window", "Runtime"}
+HANDLE_FIELD = re.compile(r"\b(?:Arc|Weak|Sender|UnboundedSender|Receiver|Notify|Hub|JoinSet|JoinHandle|AbortOnDropHandle|CancellationToken|Semaphore)\b")
+
+
 def duplicated_state(info):
-    """Rows of (type, names, [(node name, file:line, writers)]) for fields of one type in two nodes."""
+    """Rows of (type, field, [(node name, file:line, writers)]) for state of one type held by two nodes.
+
+    Types compare by the module that defines them, so two private `Turn`s do not match; handles
+    (types made of Arc, channels, tokens, or named in HANDLE_TYPES) are shared, not copied."""
+    structs, nodes, every = info["structs"], info["node_ids"], info["every"]
+
+    def handle_like(sid):
+        st = structs.get(sid)
+        return bool(st and st["fields"] and all(HANDLE_FIELD.search(t) for _, t, _ in st["fields"]))
+
     by_type, by_key = {}, {}
-    nodes = info["node_ids"]
-    shared_names = {info["structs"][n]["name"] for n in nodes}
     for sid in sorted(nodes):
-        st = info["structs"][sid]
+        st = structs[sid]
         for fname, ty, line in st["fields"]:
-            if re.search(r"\b(?:Arc|Weak)\b", ty):
+            if HANDLE_FIELD.search(ty):
                 continue
-            idents = {p.split("::")[-1] for p, _ in type_refs(ty) if p[:1].isupper()} - PLAIN_TYPES
-            idents = {i for i in idents if not i.startswith("Atomic")}
-            if not idents or idents <= shared_names or all(re.search(r"(?:Id|Name|Kid|Key)$", i) for i in idents) and "Map<" not in ty:
+            payload, norm = set(), ty
+            for m in sorted({m.group(0) for m in re.finditer(r"(?:\w+::)*[A-Z]\w*", ty)}, key=len, reverse=True):
+                last = m.split("::")[-1]
+                if last in PLAIN_TYPES or last.startswith("Atomic"):
+                    continue
+                if last in HANDLE_TYPES:
+                    payload = None
+                    break
+                found = pick(every, last, m, st["rel"])
+                if found:
+                    norm = norm.replace(m, found)
+                    if found not in nodes and not handle_like(found) and not re.search(r"(?:Id|Name|Kid|Key)$", last):
+                        payload.add(found)
+            if payload is None:
                 continue
-            norm = re.sub(r"\s+", "", ty)
-            row = (st["name"], f"{st['rel']}:{line}", info["writers"].get((sid, fname), []), fname, sid)
-            by_type.setdefault((norm, fname), []).append(row)
-            if re.search(r"Map<\w*Id,", norm):
-                by_key.setdefault(norm, []).append(row)
+            keyed = bool(re.search(r"Map<\w*Id,", re.sub(r"\s+", "", ty)))
+            if not payload and not keyed:
+                continue
+            row = (st["name"], f"{st['rel']}:{line}", info["writers"].get((sid, fname), []), fname, sid, ty)
+            by_type.setdefault((re.sub(r"\s+", "", norm), fname), []).append(row)
+            if keyed:
+                by_key.setdefault(re.sub(r"\s+", "", norm), []).append(row)
     rows = []
     for (norm, fname), group in by_type.items():
         if len({r[4] for r in group}) > 1:
-            rows.append((norm, fname, [r[:3] for r in group]))
+            rows.append((re.sub(r"\s+", "", group[0][5]), fname, [r[:3] for r in group]))
     seen = {r[0] for r in rows}
     for norm, group in by_key.items():
-        if norm not in seen and len({r[4] for r in group}) > 1 and len({r[3] for r in group}) > 1:
-            rows.append((norm, "/".join(sorted({r[3] for r in group})), [r[:3] for r in group]))
+        if len({r[4] for r in group}) > 1 and len({r[3] for r in group}) > 1 and re.sub(r"\s+", "", group[0][5]) not in seen:
+            rows.append((re.sub(r"\s+", "", group[0][5]), "/".join(sorted({r[3] for r in group})), [r[:3] for r in group]))
     return sorted(rows, key=lambda r: -len(r[2]))
+
+
+def merge_infos(infos):
+    out = dict(nodes={}, edges=[], structs={}, node_ids=set(), writers={}, every={})
+    for info in infos:
+        out["nodes"].update(info["nodes"])
+        out["edges"] += info["edges"]
+        out["structs"].update(info["structs"])
+        out["node_ids"] |= info["node_ids"]
+        out["writers"].update(info["writers"])
+        for name, ids in info["every"].items():
+            out["every"].setdefault(name, []).extend(i for i in ids if i not in out["every"].get(name, []))
+    return out
 
 
 # TypeScript stores
@@ -1144,17 +1294,17 @@ def build_ts(sources: dict):
                 local[m.group(2).strip(" ,")] = "default"
             if m.group(4):
                 local[m.group(4)] = "*"
-            for name, original in local.items():
+            for name, srcal in local.items():
                 n = re.escape(name)
                 if native:
-                    if "ui/tauri.ts" in target and original == "invoke":
+                    if "ui/tauri.ts" in target and srcal == "invoke":
                         for c in re.finditer(rf"\b{n}\s*[<(]", text):
                             bare = re.search(r"(?:^|[;{}])\s*(?:await\s+|void\s+)?$", text[max(0, c.start() - 40):c.start()])
                             add(rel, "native", "order" if bare else "ask", "invoke", rel, c.start())
-                    elif original in NATIVE_PUSH:
+                    elif srcal in NATIVE_PUSH:
                         c = re.search(rf"\b{n}\s*[<(]", text)
                         if c:
-                            add("native", rel, "push", original, rel, c.start())
+                            add("native", rel, "push", srcal, rel, c.start())
                     continue
                 for c in re.finditer(rf"\b{n}\.getState\s*\(", text):
                     add(rel, target, "ask", f"{name}.getState", rel, c.start())
@@ -1162,15 +1312,15 @@ def build_ts(sources: dict):
                     add(rel, target, "order", f"{name}.setState", rel, c.start())
                 for c in re.finditer(rf"\b{n}\.subscribe\s*\(|\buse\w*\(\s*{n}\b", text):
                     add(target, rel, "push", f"{name}.subscribe", rel, c.start())
-                if original.startswith("use") and re.match(r"use[A-Z]", original):
+                if srcal.startswith("use") and re.match(r"use[A-Z]", srcal):
                     for c in re.finditer(rf"\b{n}\s*\(", text):
                         add(target, rel, "push", f"{name}()", rel, c.start())
-                elif original not in ("*", "default") or True:
+                else:
                     for c in re.finditer(rf"(?<![.\w]){n}\s*(?:<[^<>()]*>)?\(", text):
                         pre = text[max(0, c.start() - 40):c.start()]
                         bare = re.search(r"(?:^|[;{}])\s*(?:await\s+|void\s+)?$", pre)
                         add(rel, target, "order" if bare else "ask", f"{name}()", rel, c.start())
-                    if original == "*":
+                    if srcal == "*":
                         for c in re.finditer(rf"\b{n}\.(\w+)\s*\(", text):
                             add(rel, target, "ask", f"{name}.{c.group(1)}", rel, c.start())
     if any("native" in (a, b) for a, b, _ in edges):
@@ -1205,7 +1355,8 @@ def analyse(nodes: dict, edges: list, info=None):
     return dict(cycle_groups=cycle_groups, upward=upward, duplicated=duplicated_state(info) if info else [])
 
 
-def struct_lists(nodes, edges, result):
+def struct_lists(nodes, edges, result, rust: bool, ts: bool):
+    """The lists under a page: only what the scanned languages compute."""
     name = lambda i: nodes[i]["name"] if i in nodes else i
     lab = {(e["from"], e["to"], e["kind"]): e["label"] for e in edges}
     cyc = []
@@ -1217,12 +1368,81 @@ def struct_lists(nodes, edges, result):
     native = [name(e["to"]) for e in result["upward"] if e["from"] == "native"]
     if native:
         up.append(f"`native` pushes events to {len(native)} stores that also invoke it (the expected loop): " + ", ".join(f"`{n}`" for n in native))
-    dup = [f"`{norm}` as `{fname}`: " + "; ".join(f"`{n}` {loc}" + (f" (writes: {', '.join(w[:3])})" if w else " (no writer in its impl)") for n, loc, w in rows)
-           for norm, fname, rows in result["duplicated"]]
-    return [dict(title="Cycle groups on owns, ask and order, with the fewest cuts", rows=cyc),
-            dict(title="Upward pushes (a push that closes a cycle: allowed, listed)", rows=up),
-            dict(title="Duplicated state (same type and name, or same id-keyed map, in two or more nodes)", rows=dup),
-            dict(title="Blind spots", rows=STRUCT_BLIND)]
+    lists = [dict(title="Cycle groups on owns, ask and order, with the fewest cuts", rows=cyc),
+             dict(title="Upward pushes (a push that closes a cycle: allowed, listed)", rows=up)]
+    if rust:
+        dup = [f"`{norm}` as `{fname}`: " + "; ".join(f"`{n}` {loc}" + (f" (writes: {', '.join(w[:3])})" if w else " (writer unknown)") for n, loc, w in rows)
+               for norm, fname, rows in result["duplicated"]]
+        lists.append(dict(title="Duplicated state (same type from the same module, same name or same id-keyed map, in two or more nodes)", rows=dup))
+    lists.append(dict(title="Blind spots", rows=(RUST_BLIND if rust else []) + (TS_BLIND if ts else [])))
+    return lists
+
+
+PAGE_NODES = 90
+SMALL_AREA = 8
+NEIGHBORS = 14
+
+
+def node_area(node, prefixes, depth):
+    """The folder a node lives in, `depth` levels below its tree, or its file when it sits higher."""
+    path = node["id"].split("::")[0]
+    if node["id"] == "native":
+        return "native"
+    for prefix in prefixes:
+        if prefix and path.startswith(prefix + "/"):
+            path = path[len(prefix) + 1:]
+            break
+    parts = Path(path).parts
+    dirs = parts[:-1]
+    return "/".join(dirs[:depth]) if dirs else Path(path).stem
+
+
+def draw_pages(graph, out: Path, tree_prefixes, depth):
+    """One page when the graph fits a screen. Else an overview of the areas (with the lists) and one page per area
+    that shows its nodes and the nodes they touch; an area too big for a page is split a folder deeper."""
+    nodes = {n["id"]: n for n in graph["nodes"]}
+    if len(nodes) <= PAGE_NODES:
+        draw_graph(graph, out)
+        return
+    area = {i: node_area(n, tree_prefixes, depth) for i, n in nodes.items()}
+    for _ in range(3):
+        size = {}
+        for a in area.values():
+            size[a] = size.get(a, 0) + 1
+        big = {a for a, c in size.items() if c > PAGE_NODES}
+        if not big:
+            break
+        area = {i: (node_area(nodes[i], tree_prefixes, depth + 1 + _) if a in big else a) for i, a in area.items()}
+    size = {}
+    for a in area.values():
+        size[a] = size.get(a, 0) + 1
+    area = {i: (a if size[a] >= SMALL_AREA else "small areas") for i, a in area.items()}
+    slug = lambda a: re.sub(r"[^\w]+", "-", a).strip("-")
+    areas = sorted(set(area.values()))
+    pages = {a: f"{out.stem}-{slug(a)}.html" for a in areas}
+    for a in areas:
+        keep = {i for i in nodes if area[i] == a}
+        touching = {}
+        for e in graph["edges"]:
+            if e["from"] in nodes and e["to"] in nodes and (e["from"] in keep) != (e["to"] in keep):
+                other = e["to"] if e["from"] in keep else e["from"]
+                touching[other] = touching.get(other, 0) + 1
+        near = sorted(touching, key=lambda i: -touching[i])[:NEIGHBORS]
+        include = keep | set(near)
+        sub = dict(graph, title=f"{graph['title']}: {a}", nodes=[nodes[i] for i in nodes if i in include],
+                   edges=[e for e in graph["edges"] if (e["from"] in keep or e["to"] in keep) and e["from"] in include and e["to"] in include],
+                   lists=[], pages=[dict(name="all areas", href=out.name)] + ([dict(name=f"{len(touching) - len(near)} more nodes outside touch this area and are not drawn", href=out.name)] if len(touching) > len(near) else []))
+        draw_graph(sub, out.with_name(pages[a]))
+    count, links = {}, {}
+    for e in graph["edges"]:
+        if e["from"] in area and e["to"] in area and area[e["from"]] != area[e["to"]]:
+            key = (area[e["from"]], area[e["to"]], e["kind"])
+            count[key] = count.get(key, 0) + 1
+    over = dict(graph, nodes=[dict(id=a, name=a, group=a.split("/")[0], kind="module", note=f"{sum(1 for v in area.values() if v == a)} nodes") for a in areas],
+                edges=[{"from": a, "to": b, "kind": k, "label": f"{c} edges between the nodes", "weak": False, "count": c} for (a, b, k), c in count.items()],
+                cycle_kinds=["none"], pages=[dict(name=f"{a} ({sum(1 for v in area.values() if v == a)} nodes)", href=pages[a]) for a in areas],
+                title=graph["title"] + ": areas")
+    draw_graph(over, out)
 
 
 def struct_files(repo: Path, tree: Path, lang: str):
@@ -1238,23 +1458,26 @@ def struct_files(repo: Path, tree: Path, lang: str):
 
 def structs(args):
     root = Path(args.root).resolve()
-    graph_nodes, graph_edges, info, lists_src = {}, [], None, []
+    graph_nodes, graph_edges, infos, langs = {}, [], [], set()
     trees = selected(root, args.tree)
     title = "Struct graph of " + ", ".join(t.relative_to(root).as_posix() or "." for _, t in trees)
     for lang, tree in trees:
         src = {rel: f.read_text(errors="replace") for rel, f in struct_files(root, tree, lang)}
         if lang == "rust":
             res = build_rust(src, tree.relative_to(root).as_posix())
-            info = res
+            infos.append(res)
         elif lang == "ts":
             res = build_ts(src)
         else:
             continue
+        langs.add(lang)
         graph_nodes.update(res["nodes"])
         graph_edges += res["edges"]
+    info = merge_infos(infos) if infos else None
     result = analyse(graph_nodes, graph_edges, info)
-    lists = struct_lists(graph_nodes, graph_edges, result)
-    graph = dict(title=title, nodes=list(graph_nodes.values()), edges=graph_edges, cycle_kinds=["owns", "ask", "order"], lists=lists)
+    lists = struct_lists(graph_nodes, graph_edges, result, "rust" in langs, "ts" in langs)
+    graph = dict(title=title, nodes=list(graph_nodes.values()), edges=graph_edges, cycle_kinds=["owns", "ask", "order"], lists=lists,
+                 pack=True)
     kinds = {}
     for e in graph_edges:
         kinds[e["kind"]] = kinds.get(e["kind"], 0) + 1
@@ -1267,7 +1490,7 @@ def structs(args):
     if args.json:
         Path(args.json).write_text(json.dumps(graph, indent=1) + "\n")
     if args.draw:
-        draw_graph(graph, Path(args.draw))
+        draw_pages(graph, Path(args.draw), tree_prefixes=[t.relative_to(root).as_posix() for _, t in trees], depth=2 if "ts" in langs else 1)
     return 0
 
 

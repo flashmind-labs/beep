@@ -71,7 +71,7 @@ class WithoutCfgTest(unittest.TestCase):
 
 RUST = {
     "src/a.rs": '''
-pub struct Hub { tx: tokio::sync::watch::Sender<u8> }
+pub struct Hub { tx: tokio::sync::watch::Sender<u8>, low: Arc<Low> }
 impl Hub { pub fn publish(&self, v: u8) { let _ = self.tx.send(v); } }
 
 pub struct Top { low: Arc<Low>, hub: Hub, weak: Weak<Side>, plain: Vec<u8> }
@@ -89,6 +89,7 @@ impl Low {
     pub fn read(&self) -> usize { 0 }
     pub fn stop(&self) -> Result<()> { Ok(()) }
     pub fn add(&self, r: Row) { self.items.lock().insert(r.id, r); }
+    pub fn tell(&self, hub: &Hub) { hub.publish(2); }
 }
 
 pub struct Side { low: Arc<Low>, top: Arc<Top> }
@@ -116,8 +117,8 @@ class RustStructs(unittest.TestCase):
 
     def test_nodes_are_long_lived_structs_without_tests_or_borrowers(self):
         names = set(self.by_name)
-        self.assertTrue({"Hub", "Top", "Low", "Side", "Copy1", "fn serve"} <= names)
-        self.assertFalse({"Borrowed", "OnlyInTests", "fn unrelated"} & names)
+        self.assertTrue({"Hub", "Top", "Low", "Side", "Copy1", "fns in a"} <= names)
+        self.assertFalse({"Borrowed", "OnlyInTests", "fns in unrelated"} & names)
 
     def test_field_edges_and_weak(self):
         self.assertIn(("Top", "Low", "owns"), self.kinds)
@@ -133,8 +134,8 @@ class RustStructs(unittest.TestCase):
         self.assertIn("go", self.kinds[("Side", "Top", "order")]["label"])
 
     def test_free_fn_serves_param_and_its_fields(self):
-        self.assertIn(("fn serve", "Top", "order"), self.kinds)
-        self.assertIn(("fn serve", "Low", "ask"), self.kinds)
+        self.assertIn(("fns in a", "Top", "order"), self.kinds)
+        self.assertIn(("fns in a", "Low", "ask"), self.kinds)
 
     def test_kinds(self):
         n = self.info["nodes"]
@@ -147,6 +148,7 @@ class RustStructs(unittest.TestCase):
         group = result["cycle_groups"][0]
         self.assertEqual({self.info["nodes"][m]["name"] for m in group["members"]}, {"Top", "Side"})
         self.assertEqual(len(group["cuts"]), 1)
+        self.assertEqual([(self.info["nodes"][e["from"]]["name"], self.info["nodes"][e["to"]]["name"]) for e in result["upward"]], [("Low", "Hub")])
 
     def test_push_that_closes_a_cycle_is_upward_not_a_cycle(self):
         src = {"x.rs": "pub struct A { b: Arc<B> }\nimpl A { fn go(&self) { self.b.run(); } }\n"
@@ -167,6 +169,81 @@ class RustStructs(unittest.TestCase):
         self.assertEqual(name, "items")
         self.assertEqual({w[0] for w in who}, {"Low", "Copy1"})
         self.assertEqual({tuple(w[2]) for w in who}, {("add",), ("put",)})
+
+
+WRITERS = {
+    "w.rs": '''
+pub struct S { map: Mutex<HashMap<SessionId, Item>>, tracked: Mutex<HashMap<SessionId, Item>>, other: Arc<S2> }
+pub struct S2(Mutex<Vec<Item>>);
+impl S {
+    fn add(&self) { crate::lock(&self.map).insert(1, Item); }
+    fn track(&self) { let mut g = self.tracked.lock(); g.insert(1, Item); }
+    fn peek(&self) -> usize { self.tracked.lock().len() }
+}
+impl S2 {
+    fn zero(&self) { self.0.lock().push(Item); }
+    fn read(&self) -> usize { self.0.lock().len() }
+}
+''',
+}
+
+
+class WriterDetection(unittest.TestCase):
+    def test_lock_helper_guard_local_and_tuple_field(self):
+        info = depgraph.build_rust(WRITERS)
+        w = {(k[0].split("::")[-1], k[1]): v for k, v in info["writers"].items()}
+        self.assertEqual(w[("S", "map")], ["add"])
+        self.assertEqual(w[("S", "tracked")], ["track"])
+        self.assertEqual(w[("S2", "_0")], ["zero"])
+
+
+REACH = {
+    "r.rs": '''
+type Shared = Arc<Low>;
+pub struct Low { m: Mutex<u8> }
+impl Low { pub fn read(&self) -> u8 { 0 } pub fn stop(&self) {} }
+pub struct A { low: Shared, locked: Mutex<Low>, maybe: Option<Arc<Low>> }
+impl A {
+    fn split(&self) {
+        self
+            .low
+            .read();
+    }
+    fn guard(&self) { self.locked.lock().read(); }
+    fn guard_local(&self) { let g = self.locked.lock(); g.stop(); }
+    fn helper(&self) { crate::lock(&self.locked).stop(); }
+    fn some(&self) { if let Some(b) = &self.maybe { b.read(); } }
+}
+''',
+}
+
+
+class ReachShapes(unittest.TestCase):
+    def test_edges_through_splits_guards_options_and_aliases(self):
+        info = depgraph.build_rust(REACH)
+        got = {(info["nodes"][e["from"]]["name"], info["nodes"][e["to"]]["name"], e["kind"]): e for e in info["edges"]}
+        self.assertIn(("A", "Low", "owns"), got)
+        self.assertIn(("A", "Low", "ask"), got)
+        self.assertIn(("A", "Low", "order"), got)
+        self.assertEqual(got[("A", "Low", "ask")]["count"], 3)
+        self.assertEqual(got[("A", "Low", "order")]["count"], 2)
+
+
+CLASH = {
+    "a.rs": "struct Turn { n: u8 }\nstruct Item { n: u8 }\npub struct X { turn: Option<Turn>, item: Item, tx: Sender<u8> }\n",
+    "b.rs": "struct Turn { m: u16 }\nstruct Item { n: u8 }\npub struct Y { turn: Option<Turn>, item: Item, tx: Sender<u8> }\n",
+    "c.rs": "pub struct Z { item: Item, tx: Sender<u8> }\nstruct Item { n: u8 }\npub struct W { item: Item, tx: Sender<u8> }\n",
+}
+
+
+class DuplicatedState(unittest.TestCase):
+    def test_private_types_with_one_name_do_not_match_but_one_type_does(self):
+        rows = depgraph.duplicated_state(depgraph.build_rust(CLASH))
+        self.assertEqual([(r[1], sorted(n for n, _, _ in r[2])) for r in rows], [("item", ["W", "Z"])])
+
+    def test_handle_types_are_not_state(self):
+        src = {"h.rs": "pub struct P { mesh: Mesh, tx: Sender<u8> }\npub struct Q { mesh: Mesh, tx: Sender<u8> }\n"}
+        self.assertEqual(depgraph.duplicated_state(depgraph.build_rust(src)), [])
 
 
 TS = {
