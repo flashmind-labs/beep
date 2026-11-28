@@ -2,7 +2,7 @@
 //! an OpenRC service that restarts it, or a SysV init script that does not.
 //! Both write their output to `LOG`.
 
-use super::types::{Launch, Manager, Restart};
+use super::types::{Launch, Manager, Restart, run};
 use anyhow::{Context, Result, bail};
 use std::{
     fs,
@@ -267,10 +267,6 @@ fn words(line: &str) -> Vec<String> {
 
     words.extend(word);
     words
-}
-
-fn run(program: &str, args: &[&str]) -> Result<()> {
-    super::types::run(program, args)
 }
 
 /// Runs `program`, saying only whether it worked.
