@@ -8,7 +8,7 @@ use super::{
     online, store,
 };
 use crate::{
-    agents::{conversation, project_folder, sessions::Sessions, skill_disk},
+    agents::{conversation, moving::project_folder, sessions::Sessions, skill_disk},
     events::{Change, Hub},
     files::syncthing::expand,
 };

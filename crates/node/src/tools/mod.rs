@@ -8,9 +8,9 @@ use crate::{
     agents::{
         Answered, Asking,
         mcp_launch::{Launch, SOCKET_ENV, TOKEN_ENV},
-        socket,
     },
     run::local_socket::{self, Listener},
+    socket,
 };
 use anyhow::{Context, Result, bail};
 use beep_proto::SessionId;

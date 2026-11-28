@@ -2,7 +2,7 @@
 //! `read_codex`, `read_agy`), from the agent's own CLI as signed in here.
 //! None sends a model request, and the node never reads their token files.
 
-use super::unix_now;
+use crate::logs::unix_now;
 use crate::process::{
     GroupLeader, STOP_GRACE,
     line_reader::{Line, LineReader},

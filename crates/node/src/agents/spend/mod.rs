@@ -27,12 +27,7 @@ use crate::logs::spend::{
     scan,
 };
 
-use crate::{
-    agents::{limits::SPEND_GAP, unix_now},
-    events::Change,
-    lock,
-    logs::found::Agent,
-};
+use crate::{agents::limits::SPEND_GAP, events::Change, lock, logs::found::Agent, logs::unix_now};
 
 /// How far back the logs are read: a month and a bit.
 const WINDOW_SECS: u64 = 35 * 24 * 3600;

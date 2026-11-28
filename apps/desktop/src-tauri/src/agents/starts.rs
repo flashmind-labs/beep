@@ -24,7 +24,7 @@ use crate::{
     },
 };
 use beep_mesh::RETRY;
-use beep_node::agents::tags::title;
+use beep_node::tags::title;
 use beep_proto::SessionId;
 use beep_proto::{
     AccountName, AgentEntry, AgentEntryKind, AgentSessionView, AgentStatus, AgentSteer, ApiError,

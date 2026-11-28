@@ -12,9 +12,9 @@ use super::{
     running::Starter,
     session::Command,
     sessions::{Sessions, find_session},
-    unix_now,
 };
 use crate::known::known;
+use crate::logs::unix_now;
 use beep_proto::ModelId;
 use beep_proto::SessionId;
 use beep_proto::node::agent::{ReviewOrder, ReviewRun, Status, StopReason, SubmittedReview};

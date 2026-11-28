@@ -23,7 +23,7 @@ use crate::{
     markdown,
     projects::known,
 };
-use beep_node::agents::tags::own_words;
+use beep_node::tags::own_words;
 use beep_proto::SessionId;
 use beep_proto::node::mesh_state::SessionMove;
 use beep_proto::{

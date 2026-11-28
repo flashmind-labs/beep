@@ -9,12 +9,12 @@ use super::{
 use crate::agents::{
     acp::wire_name,
     images::Images,
-    unix_now,
     usage::{UsageHub, claude_rate_limit, flsh_credits},
 };
 use crate::calls::Tool as BeepTool;
 use crate::logs::picture::Picture;
 use crate::logs::subagent::Run;
+use crate::logs::unix_now;
 use crate::logs::window::window;
 use agent_client_protocol::v1::schema::{RequestPermissionRequest, SessionUpdate, ToolCallId};
 use beep_proto::{

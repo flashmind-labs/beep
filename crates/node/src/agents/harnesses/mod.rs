@@ -8,8 +8,8 @@ use super::{
     AgentKind, flsh_config,
     kinds::{direct, in_wsl},
     models::{flsh_dir_of, pi_dir_of},
-    unix_now,
 };
+use crate::logs::unix_now;
 use crate::{
     AsyncMutex,
     known::{Adapter, KNOWN},

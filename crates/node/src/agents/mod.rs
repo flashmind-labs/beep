@@ -2,7 +2,6 @@
 //! over ACP (`Agents`) and the streams the caller follows them on; sessions
 //! started outside Beep (`claude`, `found`).
 
-pub use crate::tags;
 mod work_diff;
 
 pub use work_diff::parse_git_patch;
@@ -132,8 +131,6 @@ mod session_stream;
 #[cfg(feature = "host")]
 pub(crate) mod sessions;
 #[cfg(feature = "host")]
-pub(crate) use crate::socket;
-#[cfg(feature = "host")]
 pub(crate) mod spend;
 #[cfg(feature = "host")]
 pub(crate) mod start;
@@ -169,8 +166,6 @@ pub use moving::SessionsAlpn;
 #[cfg(feature = "host")]
 pub(crate) use moving::follow as follow_moves;
 #[cfg(feature = "host")]
-pub(crate) use moving::project_folder;
-#[cfg(feature = "host")]
 pub use reopen::Reopen;
 #[cfg(feature = "host")]
 pub(crate) use reopen::{OpenSession, SavedSession};
@@ -199,9 +194,6 @@ pub(crate) use processes::watch_ports;
 pub(crate) use session::Begin;
 #[cfg(feature = "host")]
 pub(crate) use session::Session;
-
-#[cfg(feature = "host")]
-pub(crate) use crate::logs::unix_now;
 
 #[cfg(feature = "host")]
 /// The agents this node offers and the sessions it runs. Sessions belong

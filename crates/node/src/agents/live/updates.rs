@@ -169,7 +169,7 @@ impl Live {
     /// session dates a step when it begins to run and when it stops.
     pub(super) fn set_plan<'a>(&mut self, steps: impl Iterator<Item = (&'a str, PlanStatus)>) {
         let before = std::mem::take(&mut self.info.state.plan);
-        let now = (self.info.state.status != Status::Starting).then(crate::agents::unix_now);
+        let now = (self.info.state.status != Status::Starting).then(crate::logs::unix_now);
 
         self.info.state.plan = steps
             .take(MAX_PLAN)
