@@ -2,6 +2,7 @@
 //! `Nemotron 3.5`), downloaded on demand as quantized GGUF files and streamed
 //! through `transcribe-cpp`.
 
+use crate::beep::epoch_ms;
 use crate::store::lock;
 use crate::{
     beep,
@@ -20,7 +21,7 @@ use std::{
         Arc, Mutex, Once,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime},
 };
 use tauri::{AppHandle, Manager as _, State, ipc::Channel};
 use tokio::{io::AsyncWriteExt as _, sync::mpsc};
@@ -639,12 +640,7 @@ fn file_stamp(file: &Path, sha256: &str) -> std::io::Result<String> {
 }
 
 fn stamp_from_meta(file: &Path, meta: &fs::Metadata, sha256: &str) -> std::io::Result<String> {
-    let mtime = meta
-        .modified()
-        .unwrap_or(SystemTime::UNIX_EPOCH)
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    let mtime = epoch_ms(meta.modified().unwrap_or(SystemTime::UNIX_EPOCH)) / 1000;
     Ok(format!(
         "{}:{}:{}:{}",
         file.to_string_lossy(),

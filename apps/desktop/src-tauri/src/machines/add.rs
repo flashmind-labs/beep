@@ -4,6 +4,7 @@
 //! the sheet learns which machine joined with it from the push.
 //! Only a desktop mints tickets.
 
+use crate::beep::epoch_ms;
 use crate::store::lock;
 use crate::{
     beep::identity::computer_name,
@@ -20,7 +21,7 @@ use qrcode::{EcLevel, QrCode, render::svg::Color};
 use serde::Serialize;
 use std::{
     sync::{Arc, Mutex},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime},
 };
 use tauri::{AppHandle, Manager, State};
 
@@ -43,11 +44,7 @@ impl Tickets {
 
     /// The tickets that have not expired.
     fn live(&self) -> Vec<String> {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |since| {
-                u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
-            });
+        let now = epoch_ms(SystemTime::now());
         let mut held = lock(&self.0);
         held.retain(|(_, expires_at)| *expires_at > now);
         held.iter().map(|(token, _)| token.clone()).collect()

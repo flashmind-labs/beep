@@ -4,6 +4,7 @@
 //! conversation drops the files only it opened; files not opened for `KEEP`
 //! go, and the store stays under `MAX_BYTES`.
 
+use crate::beep::epoch_ms;
 use crate::store::lock;
 use crate::{chat::files::GONE, error::DesktopError, fleet::Fleet};
 use anyhow::{Context, Result};
@@ -25,7 +26,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::Mutex,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime},
 };
 use tokio::{
     io::{AsyncReadExt, AsyncSeekExt},
@@ -400,9 +401,7 @@ fn remove_copies(dir: &Path, gone: &[String]) {
 }
 
 fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_secs())
+    epoch_ms(SystemTime::now()) / 1000
 }
 
 #[cfg(test)]

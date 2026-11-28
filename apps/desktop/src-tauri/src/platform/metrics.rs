@@ -1,5 +1,6 @@
 //! Bounded timings from the webviews, without page arguments or user data.
 
+use crate::beep::epoch_ms;
 use crate::store::lock;
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 use serde::Deserialize;
@@ -7,7 +8,7 @@ use std::{
     io::{self, Write},
     path::Path,
     sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
+    time::SystemTime,
 };
 use std::{
     sync::{
@@ -354,10 +355,7 @@ impl PhoneMetrics {
 
 fn write_snapshot(handle: &PrometheusHandle, file: &Mutex<RollingFileAppender>) -> io::Result<()> {
     handle.run_upkeep();
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    let timestamp = epoch_ms(SystemTime::now()) / 1000;
     let snapshot = format!(
         "# snapshot unix_seconds={timestamp}\n{}\n# end snapshot\n",
         handle.render()
