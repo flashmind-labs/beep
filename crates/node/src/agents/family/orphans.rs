@@ -7,7 +7,6 @@
 
 use super::links::Parent;
 use crate::agents::session::{NODE_STOPPED, ended_for_good};
-use crate::agents::sessions;
 use crate::agents::{Session, family::Family, live::Live};
 use crate::machine::elect::online;
 use crate::membership::Membership;
@@ -266,7 +265,7 @@ pub(super) async fn feed(
                 let Some(mesh) = watched::read(&meshes, Clone::clone) else {
                     return Some(Parent::Silent);
                 };
-                let name = sessions::name_of(&session);
+                let name = session.link_name();
 
                 Some(super::peer::ask_parent(&mesh, peer, &link.session, &name, &session.id).await)
             };
@@ -417,14 +416,9 @@ async fn ask_every(
         let Some(session) = session.upgrade() else {
             return;
         };
-        let answer = super::peer::ask_parent(
-            mesh,
-            peer,
-            &link.session,
-            &sessions::name_of(&session),
-            &session.id,
-        )
-        .await;
+        let answer =
+            super::peer::ask_parent(mesh, peer, &link.session, &session.link_name(), &session.id)
+                .await;
 
         if tx.send(answer).await.is_err() {
             return;

@@ -63,7 +63,7 @@ impl Family {
     pub(super) fn who_of(&self, session: &Session) -> Who {
         Who {
             machine: self.links.me(),
-            session: sessions::name_of(session),
+            session: session.link_name(),
         }
     }
 
@@ -159,8 +159,8 @@ impl Family {
             .sessions
             .peers(None)
             .into_iter()
-            .find(|session| session.id == *id || sessions::name_of(session) == *id)
-            .filter(|session| sessions::name_of(session) != *from)
+            .find(|session| session.id == *id || session.link_name() == *id)
+            .filter(|session| session.link_name() != *from)
             .ok_or_else(|| format!("No agent {id} runs there. Use list_agents to find one."))?;
 
         session.take_peer_message()?;
@@ -195,16 +195,6 @@ impl Family {
             .map(|parent| parent.live.clone())
     }
 
-    /// Stops everything `session` started, here and on other machines, to
-    /// go with the parent's own Stop all. They stop at once,
-    /// side by side, so one machine that does not answer holds up none of
-    /// the others; what already ended is left alone.
-    /// Holds a wait of `parent` on its child `child`; the wait ends when
-    /// the result drops.
-    pub(crate) fn hold_wait(&self, parent: &SessionId, child: &str) -> Waiting {
-        self.links.waits.hold(parent, child)
-    }
-
     /// Stops the turn of `child` on behalf of a parent on another machine,
     /// and with `stop_all` its queued messages too; then its family.
     pub(crate) async fn stop_turn(&self, child: &Arc<Session>, stop_all: bool) {
@@ -218,6 +208,10 @@ impl Family {
         self.cancel_family(child).await;
     }
 
+    /// Stops everything `session` started, here and on other machines, to
+    /// go with the parent's own Stop all. They stop at once,
+    /// side by side, so one machine that does not answer holds up none of
+    /// the others; what already ended is left alone.
     pub(crate) async fn cancel_family(&self, session: &Arc<Session>) {
         let mut local: Vec<Arc<Session>> = Vec::new();
         let mut remote: Vec<(SessionId, RemoteKid)> = Vec::new();

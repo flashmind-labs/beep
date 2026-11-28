@@ -188,12 +188,6 @@ impl Catalog {
         offers
     }
 
-    /// The agent `protocol` names, when this node has it.
-    pub fn kind(&self, protocol: &str) -> Option<AgentKind> {
-        let name = agent::agent_of(protocol)?;
-        self.named(name)
-    }
-
     /// The agent called `name`, when this node has it.
     pub(crate) fn named(&self, name: &str) -> Option<AgentKind> {
         self.kinds().iter().find(|kind| kind.name == name).cloned()

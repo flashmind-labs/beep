@@ -354,5 +354,5 @@ async fn sessions_answer_the_reads_without_an_agents() {
     assert!(sessions.get(&SessionId::from("nobody")).is_none());
     assert!(sessions.runs(&id));
     assert!(!sessions.runs(&SessionId::from("nobody")));
-    assert_eq!(super::name_of(&session), session.id);
+    assert_eq!(session.link_name(), session.id);
 }

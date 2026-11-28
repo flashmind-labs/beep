@@ -445,12 +445,6 @@ pub(super) fn new_id() -> SessionId {
     SessionId::new(format!("{:06x}", random & 0xff_ffff))
 }
 
-/// The id a session goes by in links: the agent's own when it has one,
-/// which outlives a restart.
-pub(crate) fn name_of(session: &Session) -> SessionId {
-    session.link_name()
-}
-
 /// The session `id` names in `sessions`, by its key or the agent's id.
 pub(super) fn find_session(sessions: &Map, id: &SessionId) -> Option<Arc<Session>> {
     if let Some(found) = sessions.get(id) {

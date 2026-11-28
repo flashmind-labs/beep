@@ -24,7 +24,7 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use beep_mesh::{JOIN_ALPN, PEER_ALPN};
 use beep_proto::logging::RequestTrace;
-use beep_proto::node::{LinkRx, LinkTx, Opened, version};
+use beep_proto::node::{LinkRx, LinkTx, Opened, agent, version};
 use beep_proto::watched;
 use futures::future::BoxFuture;
 use iroh::{Endpoint, endpoint::presets};
@@ -535,7 +535,9 @@ fn route(protocol: &SessionProtocol, offers: &Offers) -> Option<Route> {
         _ => {}
     }
 
-    if let Some(kind) = offers.agents.catalog.kind(protocol.as_ref()) {
+    if let Some(kind) =
+        agent::agent_of(protocol.as_ref()).and_then(|name| offers.agents.catalog.named(name))
+    {
         return Some(Route::Agent(kind));
     }
 

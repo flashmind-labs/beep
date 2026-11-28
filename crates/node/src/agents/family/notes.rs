@@ -20,7 +20,6 @@ use super::links::{ChildNote, NoteState, Waits};
 use super::peer::NoteFailed;
 use crate::agents::child_view::{ChildView, full_id};
 use crate::agents::live::Mark;
-use crate::agents::sessions;
 use crate::agents::{Session, family::Family, live::Live, session::Command};
 use crate::membership::Membership;
 use beep_proto::SessionId;
@@ -149,7 +148,7 @@ impl Family {
         self.sessions
             .peers(None)
             .into_iter()
-            .find(|session| session.id == *id || sessions::name_of(session) == *id)
+            .find(|session| session.id == *id || session.link_name() == *id)
     }
 }
 
@@ -379,7 +378,7 @@ async fn deliver(
         return Ok(());
     }
 
-    if waits.wake(&sessions::name_of(parent), id) || note.state == NoteState::Settled {
+    if waits.wake(&parent.link_name(), id) || note.state == NoteState::Settled {
         return Ok(());
     }
 

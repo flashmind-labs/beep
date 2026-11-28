@@ -14,7 +14,6 @@ use crate::agents::family::Family;
 use crate::agents::machine_list::Machine;
 use crate::agents::reply::{fail, json_of, ok, parse};
 use crate::agents::running::child_folder;
-use crate::agents::sessions;
 use crate::agents::{
     Agents, Session,
     family::{ChildNote, ChildStart, RemoteKid, WAIT_LIMIT, Waiting, Who},
@@ -543,8 +542,9 @@ impl Calls<'_> {
         // What this wait answers goes in no note.
         let waiting = self
             .agents
-            .family
-            .hold_wait(&self.reach.who.session, &view.id);
+            .links
+            .waits
+            .hold(&self.reach.who.session, &view.id);
         let (live, remote) = match self.reach.find(&view.id) {
             Ok(Found::Here(child)) => (Some(child.live.clone()), false),
             Ok(Found::There(_)) => (None, true),
@@ -661,7 +661,7 @@ async fn serve_peer(agents: &Agents, peer: EndpointId, request: &Request) -> Res
     let child_view = |child: &Session| {
         json_of(&ChildView {
             notes_settles,
-            ..ChildView::of(&child.info(), &sessions::name_of(child))
+            ..ChildView::of(&child.info(), &child.link_name())
         })
     };
 

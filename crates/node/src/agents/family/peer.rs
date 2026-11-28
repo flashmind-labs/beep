@@ -4,7 +4,7 @@
 //! state without making a transcript read wait for it.
 
 use super::links::{ChildNote, Links, NO_AGENT, Parent, RemoteKid, Views};
-use crate::agents::sessions::{self, Sessions};
+use crate::agents::sessions::Sessions;
 use crate::agents::{
     child_view::ChildView,
     machine_list::{Machine, machine_name},
@@ -396,7 +396,7 @@ pub(crate) fn listed_here(
         .iter()
         .map(|session| {
             let info = session.info();
-            let mut view = ChildView::of(&info, &sessions::name_of(session));
+            let mut view = ChildView::of(&info, &session.link_name());
             view.project = mesh
                 .as_ref()
                 .and_then(|mesh| crate::agents::projects::of_folder(mesh, &info.cwd, mesh.me()));

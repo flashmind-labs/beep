@@ -116,23 +116,6 @@ impl Reach {
         }
     }
 
-    /// The folders the node's sessions work in, once each.
-    fn session_folders(&self) -> Vec<PathBuf> {
-        let mut folders = self.session_cwds();
-        folders.sort();
-        folders.dedup();
-        folders
-    }
-
-    /// The folder of each session this node runs.
-    fn session_cwds(&self) -> Vec<PathBuf> {
-        self.sessions
-            .read()
-            .values()
-            .map(|session| PathBuf::from(session.info().cwd))
-            .collect()
-    }
-
     /// The folders of the sessions started outside Beep that run now.
     pub(super) fn live_presence_folders(&self) -> Vec<PathBuf> {
         self.occupancy
@@ -148,7 +131,7 @@ impl Reach {
     /// those of sessions started outside Beep only with `sighted`.
     fn reached(&self, sighted: Vec<PathBuf>) -> Reached {
         let mut work: Vec<PathBuf> = self.folders.clone();
-        let mut sessions = self.session_cwds();
+        let mut sessions = self.sessions.folders().into_iter().collect::<Vec<_>>();
         sessions.extend(sighted);
         sessions.extend(self.live_presence_folders());
         work.extend(sessions.iter().cloned());
@@ -220,7 +203,7 @@ impl Reach {
         // like the folder, never written. Git is asked now, so a path the
         // desktop merely names does not count.
         if access != Access::Write {
-            let folders = self.session_folders();
+            let folders = self.sessions.folders().into_iter().collect::<Vec<_>>();
             let asked_real = real.clone();
             let listed = spawn_blocking(move || worktrees::listed_in(&folders, &asked_real));
 

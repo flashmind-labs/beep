@@ -8,7 +8,6 @@ use super::{
     live::Mark,
     machine_list::{Machine, find_named, machine_name},
 };
-use crate::agents::sessions;
 use crate::calls::command_name;
 use beep_mesh::Mesh;
 use beep_proto::SessionId;
@@ -101,7 +100,7 @@ impl Reach<'_> {
     /// `child` as it stands on this machine, which the caller has now seen.
     pub(crate) fn view_here(&self, child: &Session) -> ChildView {
         self.shown([child]);
-        ChildView::of(&child.info(), &sessions::name_of(child)).named(&self.my_name())
+        ChildView::of(&child.info(), &child.link_name()).named(&self.my_name())
     }
     /// Notes that the caller was shown `children` as they stand, so its next
     /// turn is not told of them again.

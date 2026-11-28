@@ -10,7 +10,6 @@ use super::{Node, desktop, server::ASK_LIMIT};
 use crate::agents::child_view::full_id;
 use crate::agents::machine_list::{find, machine_name};
 use crate::agents::reply::{fail, json_of, ok, parse};
-use crate::agents::sessions;
 use crate::peer_stream::over_the_mesh;
 use crate::{
     agents::{Agents, Answered, Asking},
@@ -262,10 +261,7 @@ fn outgoing(
         .sessions
         .get(&request.session)
         .ok_or("This session no longer runs.")?;
-    let card = full_id(
-        sessions::name_of(&session).as_ref(),
-        &machine_name(Some(mesh)),
-    );
+    let card = full_id(session.link_name().as_ref(), &machine_name(Some(mesh)));
     let own = link.home(|home| home.mesh);
     let (login, to) = link.with(|teams| {
         let record = teams

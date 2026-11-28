@@ -118,10 +118,7 @@ impl Landing {
         .expect("the first turn ends")
         .expect("the session lives");
 
-        (
-            format!("{}@build-box", crate::agents::sessions::name_of(&session)),
-            live,
-        )
+        (format!("{}@build-box", session.link_name()), live)
     }
 }
 

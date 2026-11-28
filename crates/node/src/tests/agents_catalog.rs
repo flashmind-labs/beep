@@ -64,9 +64,8 @@ fn the_agents_a_catalog_holds_are_found_by_name_and_protocol() {
     );
     assert!(agents.catalog.named("pi").is_none());
     assert_eq!(
-        agents
-            .catalog
-            .kind(&agent::protocol("claude"))
+        agent::agent_of(&agent::protocol("claude"))
+            .and_then(|name| agents.catalog.named(name))
             .map(|kind| kind.name),
         Some("claude".to_owned())
     );

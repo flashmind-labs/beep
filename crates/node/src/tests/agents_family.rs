@@ -150,7 +150,7 @@ async fn a_child_is_a_session_linked_to_its_parent() {
     let child = child_of(&rig.agents, &parent, "kid", "work", rig.dir.path()).await;
     let info = child.info();
     let link = info.parent.expect("the child names its parent");
-    assert_eq!(link.session, sessions::name_of(&parent));
+    assert_eq!(link.session, parent.link_name());
     assert_eq!(link.root, link.session);
     assert_eq!(link.depth, 1);
     assert_eq!(info.agent, "kid");
@@ -187,7 +187,7 @@ async fn a_chain_may_go_three_deep_and_no_deeper() {
     let refused = rig.agents.family.link_for(&third, &who).unwrap_err();
     assert!(refused.contains("3 levels deep"), "{refused}");
     // Every child of the chain still counts towards the root.
-    let root_id = sessions::name_of(&parent);
+    let root_id = parent.link_name();
     assert_eq!(rig.agents.sessions.live_descendants(None, &root_id), 3);
     rig.agents.shutdown().await;
 }
@@ -334,7 +334,7 @@ async fn an_agent_reaches_only_its_own_children() {
     let mine = root(&rig.agents, &rig.top, rig.dir.path()).await;
     let theirs = root(&rig.agents, &rig.top, rig.dir.path()).await;
     let child = child_of(&rig.agents, &mine, "kid", "work", rig.dir.path()).await;
-    let id = sessions::name_of(&child);
+    let id = child.link_name();
     let me = rig.agents.family.who_of(&mine);
     let other = rig.agents.family.who_of(&theirs);
     assert!(rig.agents.sessions.child_of(&me, &id).is_ok());
@@ -360,7 +360,7 @@ async fn an_agent_reaches_only_its_own_children() {
     assert!(
         rig.agents
             .sessions
-            .child_of(&me, &sessions::name_of(&mine))
+            .child_of(&me, &mine.link_name())
             .is_err()
     );
     let child_who = Who {
@@ -370,7 +370,7 @@ async fn an_agent_reaches_only_its_own_children() {
     assert!(
         rig.agents
             .sessions
-            .child_of(&child_who, &sessions::name_of(&mine))
+            .child_of(&child_who, &mine.link_name())
             .is_err()
     );
     rig.agents.shutdown().await;
@@ -396,7 +396,7 @@ async fn a_parent_is_told_once_each_time_its_child_finishes() {
     let child = child_of(&rig.agents, &parent, "kid", "work", rig.dir.path()).await;
     // The idle parent takes the note as a prompt, which runs a turn.
     until(&parent, |live| live.info.turns == 2).await;
-    let id = sessions::name_of(&child);
+    let id = child.link_name();
     let told = format!("[child {id} finished]");
     let notes = |log: &str| log.matches("<beep-child ").count();
     let log = rig.read("top.log");
@@ -445,7 +445,7 @@ async fn a_users_stop_of_a_thread_waits_for_the_main_chats_next_turn() {
         .await
         .expect("the parent takes the user's message");
     until(&parent, |live| live.info.turns == 2).await;
-    let id = sessions::name_of(&child);
+    let id = child.link_name();
     let log = rig.read("top.log");
     assert!(!log.contains("was stopped by the user"), "{log}");
     assert!(log.contains(&format!("{id}, stopped")), "{log}");
@@ -471,7 +471,7 @@ async fn a_users_message_to_the_main_chat_says_what_its_threads_came_to() {
         .await
         .expect("the parent takes the user's message");
     until(&parent, |live| live.info.turns == 3).await;
-    let id = sessions::name_of(&child);
+    let id = child.link_name();
     let log = rig.read("top.log");
     assert_eq!(log.matches("<beep-child ").count(), 1, "{log}");
     assert_eq!(log.matches(CHANGES).count(), 1, "{log}");
@@ -509,7 +509,7 @@ async fn a_users_message_to_a_thread_says_what_its_siblings_and_main_came_to() {
         .await
         .expect("the thread takes the user's message");
     until(&first, |live| live.info.turns == 2).await;
-    let (own, other) = (sessions::name_of(&first), sessions::name_of(&second));
+    let (own, other) = (first.link_name(), second.link_name());
     let log = rig.read("kid.log");
     assert_eq!(log.matches(CHANGES).count(), 1, "{log}");
     assert!(log.contains("- parent session: It is done."), "{log}");
@@ -765,7 +765,7 @@ async fn a_users_steer_into_a_working_thread_still_tells_the_main_chat() {
         .await
         .expect("the child takes a prompt");
     until(&parent, |live| live.info.turns >= 2).await;
-    let id = sessions::name_of(&child);
+    let id = child.link_name();
     let log = rig.read("top.log");
     assert!(log.contains(&format!("[child {id} finished]")), "{log}");
     rig.agents.shutdown().await;
@@ -909,7 +909,7 @@ async fn stopping_a_parent_stops_its_children_s_turns() {
     assert!(!watched::read(&child.live, |live| live.stopped_by_user));
     assert!(!watched::read(&grandchild.live, |live| live.stopped_by_user));
     // Stop only ends turns: the sessions stay.
-    assert!(rig.agents.sessions.runs(&sessions::name_of(&child)));
+    assert!(rig.agents.sessions.runs(&child.link_name()));
     rig.agents.shutdown().await;
 }
 
@@ -1002,7 +1002,7 @@ async fn a_reopened_background_child_follows_its_parent_and_reaches_the_deleter(
 async fn a_resumed_parent_counts_its_remote_children_through_the_family() {
     let rig = Rig::new();
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
-    let name = sessions::name_of(&parent);
+    let name = parent.link_name();
     let machine = iroh::SecretKey::generate().public();
     let mut kid = RemoteKid::expected(&name, machine, "box");
     kid.id = SessionId::from("k1");
@@ -1128,7 +1128,7 @@ async fn a_thread_started_as_a_persona_hears_its_instructions_and_keeps_its_name
     });
     after.catalog.settings_arrived();
     after.starter.reopen(noted).await;
-    let id = sessions::name_of(&child);
+    let id = child.link_name();
     let resumed = after.sessions.get(&id).expect("the thread is back");
     assert_eq!(resumed.info().persona, Some(persona));
     after.shutdown().await;
@@ -1288,7 +1288,7 @@ async fn a_resumed_child_with_nothing_to_do_reads_idle() {
     after.starter.reopen(noted).await;
     let resumed = after
         .sessions
-        .get(&sessions::name_of(&child))
+        .get(&child.link_name())
         .expect("the child is back");
     until(&resumed, |live| live.status() == Status::Idle).await;
     // Its turn count started over, which no longer says it never ran.
@@ -1679,7 +1679,7 @@ async fn a_child_closes_once_its_parent_has_been_gone_or_silent_for_long_enough(
 async fn a_parents_node_says_which_remote_children_it_keeps() {
     let rig = Rig::new();
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
-    let name = sessions::name_of(&parent);
+    let name = parent.link_name();
     let (there, other) = (SecretKeyFor::id(), SecretKeyFor::id());
     let mut kid = RemoteKid::expected(&name, there, "box");
     kid.id = "k1".into();
@@ -1750,7 +1750,7 @@ async fn a_parents_node_says_which_remote_children_it_keeps() {
 async fn a_settle_note_wakes_a_wait_and_goes_in_no_prompt() {
     let rig = Rig::new();
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
-    let name = sessions::name_of(&parent);
+    let name = parent.link_name();
     let there = SecretKeyFor::id();
     let mut kid = RemoteKid::expected(&name, there, "box");
     kid.id = "k1".into();
@@ -1788,7 +1788,7 @@ async fn a_settle_note_wakes_a_wait_and_goes_in_no_prompt() {
 async fn a_start_with_no_answer_holds_its_place_until_it_expires_and_a_refusal_frees_it() {
     let rig = Rig::new();
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
-    let name = sessions::name_of(&parent);
+    let name = parent.link_name();
     let who = rig.agents.family.who_of(&parent);
     let there = SecretKeyFor::id();
 
@@ -1857,7 +1857,7 @@ async fn sessions_are_listed_while_the_open_note_waits_on_the_children() {
     use std::{sync::mpsc, time::Instant};
     let rig = Rig::new();
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
-    let name = sessions::name_of(&parent);
+    let name = parent.link_name();
     let mut kid = RemoteKid::expected(&name, SecretKeyFor::id(), "box");
     kid.id = "k1".into();
     rig.agents.links.adopt_remote(&parent, kid.clone());
@@ -1938,12 +1938,9 @@ async fn a_far_parent_s_stop_all_stops_its_child_here() {
             .expect("the child starts");
         until(&child, |live| live.status() == Status::Working).await;
 
-        let reply = crate::tools::children::answer_peer(
-            &rig.agents,
-            far,
-            stop(sessions::name_of(&child), args),
-        )
-        .await;
+        let reply =
+            crate::tools::children::answer_peer(&rig.agents, far, stop(child.link_name(), args))
+                .await;
         assert!(
             matches!(&reply, Reply::Done { failed: false, .. }),
             "{reply:?}"
@@ -1989,7 +1986,7 @@ async fn a_node_with_no_mesh_does_not_say_it_notes_every_settle() {
         ToolRequest {
             session: "p1".into(),
             tool: Tool::AgentStatus,
-            args: serde_json::json!({ "id": sessions::name_of(&child) }).to_string(),
+            args: serde_json::json!({ "id": child.link_name() }).to_string(),
             approved: Default::default(),
         },
     )
@@ -2015,7 +2012,7 @@ async fn another_machine_s_agent_lists_and_messages_any_agent_until_the_user_spe
 
     let rig = Rig::new();
     let session = root(&rig.agents, &rig.top, rig.dir.path()).await;
-    let id = sessions::name_of(&session);
+    let id = session.link_name();
     let far = SecretKeyFor::id();
     let call = |tool: Tool, args: serde_json::Value| {
         crate::tools::children::answer_peer(
@@ -2131,7 +2128,7 @@ async fn a_teammate_reaches_no_session_the_user_stopped() {
         .await
         .expect("the session takes the stop");
     until(&session, |live| live.status() == Status::Idle).await;
-    let id = sessions::name_of(&session);
+    let id = session.link_name();
     let card = format!("{id}@build-box");
 
     for delivery in [Delivery::Ask, Delivery::Reply] {
@@ -2177,7 +2174,7 @@ async fn a_teammate_reaches_only_a_team_session_through_its_gateway() {
 
     let rig = Rig::new();
     let session = root(&rig.agents, &rig.top, rig.dir.path()).await;
-    let card = format!("{}@build-box", sessions::name_of(&session));
+    let card = format!("{}@build-box", session.link_name());
     let endpoint = iroh::Endpoint::builder(iroh::endpoint::presets::Minimal)
         .bind()
         .await
@@ -2420,7 +2417,7 @@ fn links_are_built_from_a_membership_and_name_the_kids_a_restart_keeps() {
 async fn links_adopt_and_end_remote_kids_without_an_agents() {
     let rig = Rig::new();
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
-    let name = sessions::name_of(&parent);
+    let name = parent.link_name();
     let there = SecretKeyFor::id();
     let mut kid = RemoteKid::expected(&name, there, "box");
     kid.id = "k1".into();

@@ -1,5 +1,4 @@
 use super::*;
-use crate::agents::sessions;
 use crate::agents::{Agents, Parts};
 use crate::{
     agents::{AgentKind, Session, family::RemoteKid, live::Live},
@@ -366,7 +365,7 @@ async fn a_child_on_another_machine_is_noted_and_comes_back_after_a_crash() {
         .expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
-    let name = sessions::name_of(&session);
+    let name = session.link_name();
     let mut kid = RemoteKid::expected(&name, iroh::SecretKey::generate().public(), "box");
     kid.id = "k1".into();
     // Adopting changes the note with no session opening or closing.
@@ -392,10 +391,7 @@ async fn a_child_on_another_machine_is_noted_and_comes_back_after_a_crash() {
         .sessions
         .get(&name)
         .expect("resumed under the agent's id");
-    assert_eq!(
-        after.links.remote_kids(&sessions::name_of(&resumed)),
-        vec![kid]
-    );
+    assert_eq!(after.links.remote_kids(&resumed.link_name()), vec![kid]);
     before.shutdown().await;
     after.shutdown().await;
 }

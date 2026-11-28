@@ -1,6 +1,5 @@
 use super::*;
 use crate::agents::AgentKind;
-use crate::agents::sessions;
 use crate::agents::{Agents, Parts};
 use beep_proto::node::agent::{CodeFinding, CodeVerdict, FindingSeverity};
 use beep_proto::watched;
@@ -165,7 +164,7 @@ async fn a_submitted_review_stays_with_the_parent_and_the_reviewer_goes() {
         .expect("the review starts");
     let reviewer = rig.agents.sessions.get(&run.id).expect("the reviewer runs");
     let link = reviewer.info().parent.expect("the reviewer is a child");
-    assert_eq!(link.session, sessions::name_of(&parent));
+    assert_eq!(link.session, parent.link_name());
     assert!(rig.agents.reviews.is_reviewer(&run.id));
     assert!(!rig.agents.reviews.is_reviewer(&parent.id));
     let listed: Vec<SessionId> = rig
@@ -222,7 +221,7 @@ async fn a_submitted_review_stays_with_the_parent_and_the_reviewer_goes() {
         std::slice::from_ref(&done)
     );
     assert_eq!(
-        rig.agents.reviews.reviews_of(&sessions::name_of(&parent)),
+        rig.agents.reviews.reviews_of(&parent.link_name()),
         std::slice::from_ref(&done)
     );
     let who = rig.agents.family.who_of(&parent);
