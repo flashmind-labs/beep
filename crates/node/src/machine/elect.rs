@@ -3,9 +3,9 @@
 
 use crate::{
     peer_stream::over_the_mesh,
-    peer_stream::{PeerWatch, Refused},
+    peer_stream::{PeerWatch, REDIAL, Refused},
 };
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 use beep_mesh::Mesh;
 use beep_proto::{
     SessionId,
@@ -14,22 +14,22 @@ use beep_proto::{
         tools::{ForgeReach, HostReach, Reply, Request, Tool},
     },
 };
-use futures::future::join_all;
 use iroh::EndpointId;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    future::Future,
     sync::{Arc, Mutex},
     time::Duration,
 };
 use tokio::{
+    select,
     sync::watch,
     time::{sleep, timeout},
 };
 use tokio_util::task::AbortOnDropHandle;
 
-/// How long a follow waits before it follows a machine that dropped again.
-const REDIAL: Duration = Duration::from_secs(5);
+/// How often a machine from before 0.8.28, which does not push its reach, is
+/// asked for it, and how often a quiet project's runs are listed.
+pub(crate) const QUIET: Duration = Duration::from_secs(10 * 60);
 
 /// How long another machine has to say how it reaches the hosts.
 const ASK_LIMIT: Duration = Duration::from_secs(10);
@@ -84,37 +84,6 @@ pub(crate) fn online(mesh: &Mesh) -> BTreeSet<EndpointId> {
         .collect()
 }
 
-/// What each of `asks` says of its reach, all awaited at once; one that
-/// fails or does not answer in time is left out. `what` names the asker in
-/// the log.
-pub(crate) async fn gather<A>(
-    what: &str,
-    asks: impl IntoIterator<Item = (EndpointId, A)>,
-) -> BTreeMap<EndpointId, ForgeReach>
-where
-    A: Future<Output = Result<ForgeReach>>,
-{
-    let answers = join_all(asks.into_iter().map(|(peer, asked)| async move {
-        let said = match timeout(ASK_LIMIT, asked).await {
-            Ok(said) => said,
-            Err(_) => Err(anyhow!("it did not answer in time")),
-        };
-        (peer, said)
-    }))
-    .await;
-
-    answers
-        .into_iter()
-        .filter_map(|(peer, said)| match said {
-            Ok(reach) => Some((peer, reach)),
-            Err(e) => {
-                log::debug!("{what}: {peer} says nothing of its reach: {e:#}");
-                None
-            }
-        })
-        .collect()
-}
-
 /// How `peer` reaches the hosts; an error when it cannot say, as a node from
 /// before the CI watch.
 pub(crate) async fn ask_reach(mesh: &Mesh, peer: EndpointId) -> Result<ForgeReach> {
@@ -136,8 +105,10 @@ pub(crate) async fn ask_reach(mesh: &Mesh, peer: EndpointId) -> Result<ForgeReac
 }
 
 /// How the other machines reach the hosts, as each pushes it over
-/// `forge-reach`. A machine that does not push, as one from before it, is
-/// asked instead. Cheap to clone: the CI watcher and the team gateway share one.
+/// `forge-reach`; a machine that does not push, as one from before 0.8.28, is
+/// asked every `QUIET`. It is the one owner of what they said: the CI watcher
+/// and the team gateway track the machines they need and elect on `view`.
+/// Cheap to clone: they share one.
 ///
 /// The follow tasks hold `Hear`, never `Reaches`: they own the follow handles,
 /// so dropping the last `Reaches` aborts them and lets go of the mesh.
@@ -152,14 +123,17 @@ pub(crate) struct Reaches {
 struct Hear {
     mesh: Mesh,
     said: Arc<Mutex<BTreeMap<EndpointId, Said>>>,
-    /// Rings when a machine pushed a reach that differs from the last.
+    /// Rises when what a machine said changes.
     changed: watch::Sender<()>,
 }
 
+#[derive(Clone, PartialEq)]
 enum Said {
+    /// Followed; nothing heard yet, and no answer to an ask yet.
+    Pending,
     Reach(ForgeReach),
-    /// The machine does not push: ask it.
-    Refused,
+    /// Asked (an old node, or one whose follow failed) and no answer in time.
+    Silent,
 }
 
 impl Reaches {
@@ -174,75 +148,86 @@ impl Reaches {
         }
     }
 
-    /// Rises when a machine pushes a reach that differs from the last.
+    /// Rises when what a machine said changes.
     pub(crate) fn changes(&self) -> watch::Receiver<()> {
         self.hear.changed.subscribe()
     }
 
-    /// How `peer` reaches the hosts: what it pushed last; asked once while it
-    /// has not said, and each time while it does not push.
-    pub(crate) fn ask(
-        &self,
-        peer: EndpointId,
-    ) -> impl Future<Output = Result<ForgeReach>> + Send + 'static {
-        let reaches = self.clone();
-
-        async move {
-            reaches.follow(peer);
-
-            let pushed = match crate::lock(&reaches.hear.said).get(&peer) {
-                Some(Said::Reach(reach)) => Some(reach.clone()),
-                _ => None,
-            };
-
-            match pushed {
-                Some(reach) => Ok(reach),
-                None => ask_reach(&reaches.hear.mesh, peer).await,
-            }
-        }
-    }
-
-    /// Whether `peer` has pushed its reach and so keeps pushing changes.
-    pub(crate) fn pushes(&self, peer: EndpointId) -> bool {
-        matches!(
-            crate::lock(&self.hear.said).get(&peer),
-            Some(Said::Reach(_))
-        )
-    }
-
-    /// Starts following `peer`, unless it is followed already.
-    fn follow(&self, peer: EndpointId) {
+    /// Follows every machine of `peers` not followed yet. Idempotent.
+    pub(crate) fn track(&self, peers: impl IntoIterator<Item = EndpointId>) {
         let mut follows = crate::lock(&self.follows);
 
-        if follows
-            .get(&peer)
-            .is_some_and(|follow| !follow.is_finished())
-        {
-            return;
-        }
+        for peer in peers {
+            crate::lock(&self.hear.said)
+                .entry(peer)
+                .or_insert(Said::Pending);
 
-        let hear = self.hear.clone();
-        hear.forget(peer);
-        follows.insert(
-            peer,
-            AbortOnDropHandle::new(tokio::spawn(async move { hear.hear(peer).await })),
-        );
+            if follows
+                .get(&peer)
+                .is_some_and(|follow| !follow.is_finished())
+            {
+                continue;
+            }
+
+            let hear = self.hear.clone();
+            follows.insert(
+                peer,
+                AbortOnDropHandle::new(tokio::spawn(async move { hear.hear(peer).await })),
+            );
+        }
+    }
+
+    /// Whether every machine of `wanted` has said something, a reach or
+    /// silence after an ask: what an election waits for.
+    pub(crate) fn settled(&self, wanted: &BTreeSet<EndpointId>) -> bool {
+        let said = crate::lock(&self.hear.said);
+
+        wanted
+            .iter()
+            .all(|peer| matches!(said.get(peer), Some(Said::Reach(_) | Said::Silent)))
+    }
+
+    /// What the machines said, for one election: a value, taken now.
+    pub(crate) fn view(&self) -> BTreeMap<EndpointId, ForgeReach> {
+        crate::lock(&self.hear.said)
+            .iter()
+            .filter_map(|(peer, said)| match said {
+                Said::Reach(reach) => Some((*peer, reach.clone())),
+                Said::Pending | Said::Silent => None,
+            })
+            .collect()
     }
 }
 
 impl Hear {
-    /// Takes what `peer` pushes until it drops, then dials again while it is online.
+    /// Takes what `peer` pushes until it drops, then dials again while it is
+    /// online. Until it pushes, it is asked once; one that cannot push is
+    /// asked again every `QUIET`.
     async fn hear(&self, peer: EndpointId) {
         loop {
-            let ended = self.listen(peer).await;
-            let refused = matches!(&ended, Err(e) if e.downcast_ref::<Refused>().is_some());
+            let mut pushed = false;
+            let ended = {
+                let listening = self.listen(peer, &mut pushed);
+                let asking = self.ask_first(peer);
+                tokio::pin!(listening, asking);
+                let mut asked = false;
 
-            if refused {
-                crate::lock(&self.said).insert(peer, Said::Refused);
+                loop {
+                    select! {
+                        ended = &mut listening => break ended,
+                        () = &mut asking, if !asked => asked = true,
+                    }
+                }
+            };
+
+            if matches!(&ended, Err(e) if e.downcast_ref::<Refused>().is_some()) {
+                self.ask_again(peer).await;
                 return;
             }
 
-            self.forget(peer);
+            if pushed {
+                self.forget(peer);
+            }
 
             if let Err(e) = ended {
                 log::debug!("the reach of {peer} is not followed: {e:#}");
@@ -251,38 +236,99 @@ impl Hear {
             sleep(REDIAL).await;
 
             if !online(&self.mesh).contains(&peer) {
+                crate::lock(&self.said).remove(&peer);
                 return;
             }
         }
     }
 
-    /// Drops what `peer` said, and rings when it had pushed a reach: it no
-    /// longer pushes, so the watcher has to ask it again.
-    fn forget(&self, peer: EndpointId) {
-        let was = crate::lock(&self.said).remove(&peer);
+    /// Asks `peer` once when nothing was heard of it yet: a push that comes
+    /// meanwhile wins, and an ask that fails or runs out of time says nothing.
+    async fn ask_first(&self, peer: EndpointId) {
+        if !self.is_pending(peer) {
+            return;
+        }
 
-        if matches!(was, Some(Said::Reach(_))) {
+        let said = self.ask(peer).await;
+
+        if self.is_pending(peer) {
+            self.put(peer, said);
+        }
+    }
+
+    /// Asks `peer`, a node before 0.8.28 that does not push, every `QUIET`
+    /// while it is online.
+    async fn ask_again(&self, peer: EndpointId) {
+        let mut heard = !self.is_pending(peer);
+
+        loop {
+            if !heard {
+                let said = self.ask(peer).await;
+                self.put(peer, said);
+            }
+
+            heard = false;
+            sleep(QUIET).await;
+
+            if !online(&self.mesh).contains(&peer) {
+                crate::lock(&self.said).remove(&peer);
+                return;
+            }
+        }
+    }
+
+    /// What `peer` says of its reach within `ASK_LIMIT`.
+    async fn ask(&self, peer: EndpointId) -> Said {
+        match timeout(ASK_LIMIT, ask_reach(&self.mesh, peer)).await {
+            Ok(Ok(reach)) => Said::Reach(reach),
+            Ok(Err(e)) => {
+                log::debug!("{peer} says nothing of its reach: {e:#}");
+                Said::Silent
+            }
+            Err(_) => {
+                log::debug!("{peer} did not say how it reaches the hosts in time");
+                Said::Silent
+            }
+        }
+    }
+
+    fn is_pending(&self, peer: EndpointId) -> bool {
+        matches!(
+            crate::lock(&self.said).get(&peer),
+            None | Some(Said::Pending)
+        )
+    }
+
+    /// Keeps what `peer` said, and rings when that differs from the last.
+    fn put(&self, peer: EndpointId, said: Said) {
+        let changed = crate::lock(&self.said).insert(peer, said.clone()) != Some(said);
+
+        if changed {
             self.changed.send_replace(());
         }
     }
 
-    async fn listen(&self, peer: EndpointId) -> Result<()> {
+    /// Takes back a reach `peer` pushed, and rings: it no longer pushes, so
+    /// it is asked again.
+    fn forget(&self, peer: EndpointId) {
+        let pushed = matches!(crate::lock(&self.said).get(&peer), Some(Said::Reach(_)));
+
+        if pushed {
+            self.put(peer, Said::Pending);
+        }
+    }
+
+    /// Takes what `peer` pushes until the stream ends; `pushed` says whether
+    /// it delivered one.
+    async fn listen(&self, peer: EndpointId, pushed: &mut bool) -> Result<()> {
         let mut watch = PeerWatch::open(&self.mesh, peer, Topic::new(FORGE_REACH_TOPIC)).await?;
 
         loop {
             let Value::ForgeReach(reach) = watch.next().await? else {
                 continue;
             };
-            let changed = {
-                let mut said = crate::lock(&self.said);
-                let same = matches!(said.get(&peer), Some(Said::Reach(was)) if *was == reach);
-                said.insert(peer, Said::Reach(reach));
-                !same
-            };
-
-            if changed {
-                self.changed.send_replace(());
-            }
+            *pushed = true;
+            self.put(peer, Said::Reach(reach));
         }
     }
 }

@@ -2,7 +2,7 @@
 //! `agents` list to the acting machine: a follow per machine, so the cards are
 //! made again when a session changes and not on a timer.
 
-use crate::peer_stream::{PeerWatch, Refused};
+use crate::peer_stream::{PeerWatch, REDIAL, Refused};
 use anyhow::Result;
 use beep_mesh::Mesh;
 use beep_proto::node::{
@@ -10,11 +10,7 @@ use beep_proto::node::{
     events::{Topic, Value},
 };
 use iroh::EndpointId;
-use std::time::Duration;
 use tokio::{sync::mpsc, time::sleep};
-
-/// How long a follow waits before it follows a machine that dropped again.
-const REDIAL: Duration = Duration::from_secs(5);
 
 /// What a follow heard of one machine.
 pub(super) struct Sighted {

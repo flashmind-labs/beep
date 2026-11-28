@@ -27,6 +27,9 @@ const OPEN_LIMIT: Duration = Duration::from_secs(15);
 /// sends one every `HEARTBEAT`.
 const IDLE: Duration = Duration::from_secs(35);
 
+/// How long a follow waits before it follows a machine that dropped again.
+pub(crate) const REDIAL: Duration = Duration::from_secs(5);
+
 /// The machine turned a stream away, which trying again does not change.
 #[derive(Debug, thiserror::Error)]
 #[error("the machine refused the call: {0}")]

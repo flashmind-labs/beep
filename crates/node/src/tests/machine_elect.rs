@@ -1,4 +1,4 @@
-use super::{Reaches, Said, elect, ranked};
+use super::{ASK_LIMIT, QUIET, Reaches, Said, elect, ranked};
 use beep_mesh::Mesh;
 use beep_proto::node::tools::{ForgeReach, HostReach};
 use iroh::{Endpoint, endpoint::presets};
@@ -112,7 +112,7 @@ async fn dropping_the_reaches_ends_the_follows_and_lets_go_of_the_mesh() {
         .unwrap();
     let reaches = Reaches::new(mesh.clone());
     let other = reaches.clone();
-    other.follow(SecretKey::generate().public());
+    other.track([SecretKey::generate().public()]);
     drop(other);
     drop(reaches);
 
@@ -140,11 +140,102 @@ async fn a_machine_that_stops_pushing_rings_the_watcher() {
     reaches.hear.forget(peer);
     assert!(!changes.has_changed().unwrap());
 
-    crate::lock(&reaches.hear.said).insert(peer, Said::Reach(ForgeReach::default()));
-    assert!(reaches.pushes(peer));
+    reaches.hear.put(peer, Said::Reach(ForgeReach::default()));
+    assert!(reaches.view().contains_key(&peer));
+    changes.mark_unchanged();
     reaches.hear.forget(peer);
-    assert!(!reaches.pushes(peer));
+    assert!(crate::lock(&reaches.hear.said)[&peer] == Said::Pending);
     assert!(changes.has_changed().unwrap());
+
+    drop(reaches);
+    mesh.close().await.unwrap();
+}
+
+/// An election waits for a machine to say something, and takes what it said.
+#[tokio::test]
+async fn tracking_a_peer_is_pending_until_it_says_or_stays_silent() {
+    let dir = tempfile::tempdir().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal).bind().await.unwrap();
+    let mesh = Mesh::create(&dir.path().join("mesh"), endpoint, "build-box")
+        .await
+        .unwrap();
+    let reaches = Reaches::new(mesh.clone());
+    let peer = SecretKey::generate().public();
+    let wanted: BTreeSet<EndpointId> = [peer].into();
+    let mut changes = reaches.changes();
+
+    reaches.track([peer]);
+    assert!(!reaches.settled(&wanted));
+    assert!(reaches.view().is_empty());
+    changes.mark_unchanged();
+
+    reaches.hear.put(peer, Said::Reach(ForgeReach::default()));
+    assert!(changes.has_changed().unwrap());
+    assert!(reaches.settled(&wanted));
+    assert!(reaches.view().contains_key(&peer));
+
+    drop(reaches);
+    tokio::time::timeout(Duration::from_secs(10), mesh.released())
+        .await
+        .expect("a follow still holds the mesh");
+    mesh.close().await.unwrap();
+}
+
+/// A machine that did not answer in time is no candidate, but it does not
+/// hold the election up.
+#[tokio::test]
+async fn a_silent_peer_settles_the_election_without_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal).bind().await.unwrap();
+    let mesh = Mesh::create(&dir.path().join("mesh"), endpoint, "build-box")
+        .await
+        .unwrap();
+    let reaches = Reaches::new(mesh.clone());
+    let peer = SecretKey::generate().public();
+    let wanted: BTreeSet<EndpointId> = [peer].into();
+    let mut changes = reaches.changes();
+
+    reaches.track([peer]);
+    assert!(!reaches.settled(&wanted));
+    changes.mark_unchanged();
+
+    reaches.hear.put(peer, Said::Silent);
+    assert!(changes.has_changed().unwrap());
+    assert!(reaches.settled(&wanted));
+    assert!(reaches.view().is_empty());
+
+    drop(reaches);
+    tokio::time::timeout(Duration::from_secs(10), mesh.released())
+        .await
+        .expect("a follow still holds the mesh");
+    mesh.close().await.unwrap();
+}
+
+/// A node before 0.8.28 does not push, so it is asked on a cadence of its own,
+/// once per `QUIET`, until it goes offline.
+#[tokio::test(start_paused = true)]
+async fn an_old_node_is_asked_again_every_quiet() {
+    let dir = tempfile::tempdir().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal).bind().await.unwrap();
+    let mesh = Mesh::create(&dir.path().join("mesh"), endpoint, "build-box")
+        .await
+        .unwrap();
+    let reaches = Reaches::new(mesh.clone());
+    let peer = SecretKey::generate().public();
+    let hear = reaches.hear.clone();
+    hear.put(peer, Said::Pending);
+    let handle = tokio::spawn(async move { hear.ask_again(peer).await });
+
+    // No answer within `ASK_LIMIT`: silent, and the loop waits.
+    tokio::time::sleep(ASK_LIMIT + Duration::from_secs(1)).await;
+    assert!(crate::lock(&reaches.hear.said)[&peer] == Said::Silent);
+    tokio::time::sleep(QUIET - ASK_LIMIT * 2).await;
+    assert!(!handle.is_finished());
+
+    // After `QUIET` it looks again and, the machine being offline, lets go.
+    tokio::time::sleep(ASK_LIMIT * 2 + QUIET).await;
+    handle.await.unwrap();
+    assert!(!crate::lock(&reaches.hear.said).contains_key(&peer));
 
     drop(reaches);
     mesh.close().await.unwrap();

@@ -203,7 +203,7 @@ crates/node/src/watchdog.rs | start | interval#1 | pace | runtime beat the watch
 crates/node/src/upkeep/ci/github.rs | wait | sleep#1 | deadline | stops waiting on a gh run watch after 30 min
 crates/node/src/upkeep/ci/watcher.rs | run | interval#1 | outside | lists busy projects' forge runs every 60 s
 crates/node/src/upkeep/ci/watcher.rs | run | interval_at#1 | outside | checks GitHub projects every 45 s
-crates/node/src/upkeep/ci/watcher.rs | run | sleep_until#1 | compat | asks machines every 10 min when idle, only nodes before 0.8.28 that do not push their reach; ends with them
+crates/node/src/machine/elect.rs | ask_again | sleep#1 | compat | asks a node before 0.8.28 for its reach every 10 min; it does not push it; ends with those nodes
 crates/node/src/machine/elect.rs | hear | sleep#1 | retry | follows a dropped machine again after 5 s
 crates/node/src/machine/env/latest.rs | probe_while_followed | sleep_until#1 | outside | probes the machine again every REPROBE while followed, since its tools change outside Beep
 crates/node/src/machine/provision/mod.rs | check_loop | interval#1 | outside | hourly probe of tool releases and installs
@@ -224,8 +224,7 @@ crates/node/src/run/tasks.rs | follow | sleep_until#1 | deadline | ends a backgr
 crates/node/src/run/terminal/host.rs | listening | sleep#1 | outside | checks every 25 ms whether the terminal host listens
 crates/node/src/run/terminal/pty.rs | reap | sleep#1 | outside | fallback check for child exit every 25 ms
 crates/node/src/run/terminal/terminals.rs | run | sleep_until#1 | deadline | drops an ended terminal when its keep time ends
-crates/node/src/team/gateway.rs | drive | sleep_until#1 | compat | asks machines before 0.8.28 for their reach every 10 min; newer ones push it
-crates/node/src/team/gateway.rs | drive | sleep_until#2 | debounce | makes cards after changes settle, and every 60 s for the forge
+crates/node/src/team/gateway.rs | drive | sleep_until#1 | debounce | makes cards after changes settle, and every 60 s for the forge
 crates/node/src/team/link.rs | tell | sleep#1 | retry | waits RESEND, then sends a removal again to the members it did not reach
 crates/node/src/team/link/board_io.rs | follow | sleep#1 | retry | dials a teammate's board again after 60 s
 crates/node/src/team/link/home_io.rs | follow | sleep#1 | deadline | drops an invite or card when it expires
