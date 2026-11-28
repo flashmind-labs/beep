@@ -10,7 +10,7 @@ use beep_proto::node::{
     LinkRx, LinkTx,
     desktop::{PROTOCOL, Reply, Request},
 };
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use tokio::task::spawn_blocking;
 
 /// Serves `desktop/1` for the node link.
