@@ -18,9 +18,7 @@ use crate::{
     watchdog::{self, Step},
 };
 use anyhow::{Context, Result, bail};
-use beep_mesh::{
-    DeviceKind, DeviceStatus, Invitation, JoinProtocol, Mesh, MeshProtocol, PeerStream,
-};
+use beep_mesh::{DeviceKind, Invitation, JoinProtocol, Mesh, MeshProtocol, PeerStream};
 use beep_proto::node::{EnvReport, LinkRx, LinkTx, status::Report};
 use beep_proto::watched;
 #[cfg(feature = "cli")]
@@ -239,15 +237,11 @@ impl Peers {
             .find(|status| status.device.id == peer)?
             .device
             .kind;
-        Some(match kind {
-            DeviceKind::Desktop => Who::Everything(peer),
-            DeviceKind::Node => Who::Node {
-                peer,
-                desktop_here: devices.iter().any(|status| {
-                    status.device.id == active.me() && status.device.kind == DeviceKind::Desktop
-                }),
-            },
-        })
+        let desktop_here = devices.iter().any(|status| {
+            status.device.id == active.me() && status.device.kind == DeviceKind::Desktop
+        });
+
+        Some(Who::of(kind, peer, desktop_here))
     }
 
     /// The `beep-team/1` handler.
@@ -326,19 +320,9 @@ impl Peers {
             .context("could not delete the mesh")
     }
 
-    /// Whether this device is a desktop in the current device list.
-    pub fn is_desktop(&self) -> bool {
-        self.inner.own.is_desktop(&self.inner.node())
-    }
-
     /// Whether this device is in a mesh it was not removed from.
     pub fn is_member(&self) -> bool {
         self.active().is_some_and(|mesh| mesh.is_member(mesh.me()))
-    }
-
-    /// The mesh's devices, empty before the node joined.
-    pub fn devices(&self) -> Vec<DeviceStatus> {
-        self.inner.own.devices(&self.inner.node())
     }
 
     fn active(&self) -> Option<Mesh> {
@@ -576,7 +560,7 @@ async fn answer(stream: Stream, peers: &Peers) -> Result<()> {
     } else if request == DEVICES {
         let mut out = String::new();
 
-        for status in peers.devices() {
+        for status in peers.inner.own.devices(&peers.inner.node()) {
             let device = status.device;
             let online = if status.online { "online" } else { "offline" };
             writeln!(

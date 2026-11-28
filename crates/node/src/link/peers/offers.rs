@@ -17,6 +17,7 @@ use crate::{
     tools::{Node, ProjectTools},
 };
 use anyhow::{Context, Result};
+use beep_mesh::DeviceKind;
 use beep_proto::node::{LinkRx, Open, agent, desktop, mcp_servers, setup, sign_in, tool_update};
 use iroh::{Endpoint, EndpointId};
 use std::{
@@ -300,6 +301,15 @@ pub(crate) enum Who {
 }
 
 impl Who {
+    /// Who a device of `kind` is. `desktop_here` says whether this device is
+    /// a desktop, which only a node caller carries.
+    pub(crate) fn of(kind: DeviceKind, peer: EndpointId, desktop_here: bool) -> Self {
+        match kind {
+            DeviceKind::Desktop => Self::Everything(peer),
+            DeviceKind::Node => Self::Node { peer, desktop_here },
+        }
+    }
+
     /// The key of the caller.
     pub(crate) fn id(self) -> EndpointId {
         match self {

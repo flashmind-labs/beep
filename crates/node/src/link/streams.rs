@@ -89,10 +89,7 @@ async fn serve_peer_stream(node: Weak<Inner>, stream: PeerStream) {
     let Some(inner) = node.upgrade() else {
         return;
     };
-    let desktop_here = Peers {
-        inner: inner.clone(),
-    }
-    .is_desktop();
+    let desktop_here = inner.own.is_desktop(&inner.node());
     // Held to the end of the function: the link counts the stream open
     // while it is served.
     let PeerStream {
@@ -102,10 +99,7 @@ async fn serve_peer_stream(node: Weak<Inner>, stream: PeerStream) {
         recv,
         lease: _lease,
     } = stream;
-    let who = match kind {
-        beep_mesh::DeviceKind::Desktop => Who::Everything(peer),
-        beep_mesh::DeviceKind::Node => Who::Node { peer, desktop_here },
-    };
+    let who = Who::of(kind, peer, desktop_here);
     let (tx, rx) = link(send, recv);
 
     if let Err(e) = serve_stream(&inner, tx, rx, who).await {
