@@ -72,6 +72,14 @@ enum Later {
     Synced(mpsc::Sender<()>),
 }
 
+/// Folder changes not yet handed to the writer, and whether the records'
+/// file changed.
+#[derive(Default)]
+pub(crate) struct Pending {
+    pub(crate) writes: Vec<Write>,
+    pub(crate) dirty: bool,
+}
+
 /// A change to the folder, done in order by its thread.
 pub(crate) enum Write {
     /// The records' file, as it is now.
@@ -168,6 +176,20 @@ impl KeptFolder {
         for write in writes {
             let _ = self.writes.send(write);
         }
+    }
+
+    /// Has what `pending` holds done, in order, with the records' file last
+    /// if it changed. `records` is called once, under the caller's lock, so
+    /// no waiting image is copied and the files land in the order of the
+    /// changes.
+    pub(crate) fn commit(&self, pending: &mut Pending, records: impl FnOnce() -> Option<Write>) {
+        let file = std::mem::take(&mut pending.dirty).then(records).flatten();
+        let writes: Vec<Write> = std::mem::take(&mut pending.writes)
+            .into_iter()
+            .chain(file)
+            .collect();
+
+        self.write(writes);
     }
 
     /// The write that replaces the records' file with `records`, for `write`.

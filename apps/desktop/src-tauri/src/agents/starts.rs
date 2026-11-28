@@ -12,7 +12,7 @@
 use crate::store::lock;
 use crate::{
     agents::{
-        kept_folder::{KeptFolder, KeptImage, PastedImage, Write, forget_images, image_writes},
+        kept_folder::{KeptFolder, KeptImage, PastedImage, Pending, forget_images, image_writes},
         steering::{Steer, SteerError, uploads},
     },
     beep::epoch_ms,
@@ -212,10 +212,7 @@ fn may_be_running(machine_name: &str) -> String {
 pub(crate) struct Held {
     starts: Vec<Start>,
     running: HashSet<StartId>,
-    /// Folder changes not yet handed to the writer, and whether the
-    /// starts' file changed.
-    writes: Vec<Write>,
-    dirty: bool,
+    pending: Pending,
 }
 
 impl Held {
@@ -237,11 +234,12 @@ impl Held {
 
     /// Keeps `start`, with a runner the caller starts.
     pub(crate) fn keep(&mut self, start: Start) {
-        self.writes
+        self.pending
+            .writes
             .extend(image_writes(start.id.images(), &start.images));
         self.running.insert(start.id);
         self.starts.push(start);
-        self.dirty = true;
+        self.pending.dirty = true;
     }
 
     fn find(&mut self, id: StartId) -> Option<&mut Start> {
@@ -269,7 +267,7 @@ impl Held {
     pub(crate) fn begin(&mut self, id: StartId) -> Option<Start> {
         let start = self.runnable(id)?;
         self.find(id)?.stage = Stage::Starting;
-        self.dirty = true;
+        self.pending.dirty = true;
         Some(Start {
             stage: Stage::Starting,
             ..start
@@ -284,7 +282,7 @@ impl Held {
             return false;
         };
         start.stage = Stage::Waiting;
-        self.dirty = true;
+        self.pending.dirty = true;
         true
     }
 
@@ -296,7 +294,7 @@ impl Held {
             return false;
         };
         start.stage = Stage::Failed { reason };
-        self.dirty = true;
+        self.pending.dirty = true;
         true
     }
 
@@ -311,7 +309,7 @@ impl Held {
         }
 
         start.stage = Stage::Waiting;
-        self.dirty = true;
+        self.pending.dirty = true;
         Ok(self.running.insert(id))
     }
 
@@ -319,8 +317,9 @@ impl Held {
     pub(crate) fn remove(&mut self, id: StartId) -> Option<Start> {
         let at = self.starts.iter().position(|start| start.id == id)?;
         let start = self.starts.remove(at);
-        self.dirty = true;
-        self.writes
+        self.pending.dirty = true;
+        self.pending
+            .writes
             .extend(forget_images(start.id.images(), start.images.len()));
         Some(start)
     }
@@ -386,16 +385,10 @@ impl Starts {
     pub(crate) fn with<T>(&self, change: impl FnOnce(&mut Held) -> T) -> T {
         let mut held = lock(&self.held);
         let out = change(&mut held);
-        let file = std::mem::take(&mut held.dirty)
-            .then(|| self.folder.records(&held.starts))
-            .flatten();
-        let writes: Vec<Write> = std::mem::take(&mut held.writes)
-            .into_iter()
-            .chain(file)
-            .collect();
-
         // Queued before the lock goes, so a later change cannot be queued first.
-        self.folder.write(writes);
+        let held = &mut *held;
+        self.folder
+            .commit(&mut held.pending, || self.folder.records(&held.starts));
 
         out
     }

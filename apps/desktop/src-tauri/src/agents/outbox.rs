@@ -12,7 +12,7 @@
 use crate::store::lock;
 use crate::{
     agents::{
-        kept_folder::{KeptFolder, KeptImage, PastedImage, Write, forget_images, image_writes},
+        kept_folder::{KeptFolder, KeptImage, PastedImage, Pending, forget_images, image_writes},
         kept_transcripts::SessionKey,
         sessions::resume_session,
         steering::{Steer, SteerError, sent},
@@ -434,10 +434,7 @@ pub(crate) struct Held {
     redirects: HashMap<SessionKey, SessionKey>,
     /// Callers waiting briefly on an order's first try.
     order_replies: HashMap<u64, oneshot::Sender<OrderAnswer>>,
-    /// Folder changes not yet handed to the writer, and whether the
-    /// messages' file changed.
-    writes: Vec<Write>,
-    dirty: bool,
+    pending: Pending,
     /// The last revision a `Changed` took.
     revision: u64,
     /// Messages the machine took, shown as `sent` rows until a push of their session
@@ -527,9 +524,11 @@ impl Held {
         self.next += 1;
         let images: Vec<KeptImage> = draft.images.into_iter().map(Into::into).collect();
 
-        self.writes.extend(image_writes(id, &images));
+        self.pending.writes.extend(image_writes(id, &images));
         let files = draft.files;
-        self.writes.extend(image_writes(files_id(id), &files));
+        self.pending
+            .writes
+            .extend(image_writes(files_id(id), &files));
 
         self.messages.push(Message {
             id,
@@ -553,7 +552,7 @@ impl Held {
             seen,
             reading: draft.reading,
         });
-        self.dirty = true;
+        self.pending.dirty = true;
 
         (id, self.flushing.insert(key.clone()))
     }
@@ -590,7 +589,7 @@ impl Held {
             .find(|m| m.key() == *key && m.state == Stage::Waiting && m.resume.is_none())
         {
             next.resume = Some(resume);
-            self.dirty = true;
+            self.pending.dirty = true;
         }
     }
 
@@ -614,7 +613,7 @@ impl Held {
             }
         }
 
-        self.dirty = true;
+        self.pending.dirty = true;
         Some(self.changed(&key))
     }
 
@@ -1037,7 +1036,7 @@ impl Held {
             return None;
         };
         message.state = Stage::Sending;
-        self.dirty = true;
+        self.pending.dirty = true;
         Some(message.clone())
     }
 
@@ -1098,9 +1097,11 @@ impl Held {
         message.reading = None;
         let key = message.key();
 
-        self.writes.extend(image_writes(id, &images));
-        self.writes.extend(image_writes(files_id(id), &files));
-        self.dirty = true;
+        self.pending.writes.extend(image_writes(id, &images));
+        self.pending
+            .writes
+            .extend(image_writes(files_id(id), &files));
+        self.pending.dirty = true;
         let flusher = self.flushing.insert(key.clone());
 
         Some((self.changed(&key), key, flusher))
@@ -1189,8 +1190,10 @@ impl Held {
         message.text = with_mentions(&message.text, &mentions, images, only_pictures);
         let (message, key) = (message.clone(), message.key());
 
-        self.writes.extend(forget_images(files_id(id), files.len()));
-        self.dirty = true;
+        self.pending
+            .writes
+            .extend(forget_images(files_id(id), files.len()));
+        self.pending.dirty = true;
         let mut changed = self.changed(&key);
         changed.uploaded = uploaded;
         Some((message, changed))
@@ -1249,7 +1252,7 @@ impl Held {
             resume.resumed = true;
         }
 
-        self.dirty = true;
+        self.pending.dirty = true;
         let message = self.messages.iter().find(|m| m.id == id)?.clone();
         Some((message, self.changed(&from), self.changed(&to)))
     }
@@ -1261,7 +1264,7 @@ impl Held {
             return false;
         };
         message.resume = None;
-        self.dirty = true;
+        self.pending.dirty = true;
         true
     }
 
@@ -1271,7 +1274,7 @@ impl Held {
         let message = self.messages.iter_mut().find(|m| m.id == id)?;
         message.state = Stage::Waiting;
         message.unsure = unsure;
-        self.dirty = true;
+        self.pending.dirty = true;
         let key = message.key();
         Some(self.changed(&key))
     }
@@ -1280,7 +1283,7 @@ impl Held {
     pub(crate) fn refused(&mut self, id: u64, reason: String) -> Option<Changed> {
         let message = self.messages.iter_mut().find(|m| m.id == id)?;
         message.state = Stage::Failed { reason };
-        self.dirty = true;
+        self.pending.dirty = true;
         let (key, resume) = (message.key(), message.resume.clone());
         self.hand_on_resume(&key, resume);
         Some(self.changed(&key))
@@ -1328,10 +1331,13 @@ impl Held {
     fn remove(&mut self, id: u64) -> Option<Message> {
         let at = self.messages.iter().position(|m| m.id == id)?;
         let message = self.messages.remove(at);
-        self.dirty = true;
+        self.pending.dirty = true;
 
-        self.writes.extend(forget_images(id, message.images.len()));
-        self.writes
+        self.pending
+            .writes
+            .extend(forget_images(id, message.images.len()));
+        self.pending
+            .writes
             .extend(forget_images(files_id(id), message.files.len()));
 
         Some(message)
@@ -1420,16 +1426,10 @@ impl Outbox {
     pub(crate) fn with<T>(&self, change: impl FnOnce(&mut Held) -> T) -> T {
         let mut held = lock(&self.held);
         let out = change(&mut held);
-        let file = std::mem::take(&mut held.dirty)
-            .then(|| self.folder.records(&held.messages))
-            .flatten();
-        let writes: Vec<Write> = std::mem::take(&mut held.writes)
-            .into_iter()
-            .chain(file)
-            .collect();
-
         // Queued before the lock goes, so a later change cannot be queued first.
-        self.folder.write(writes);
+        let held = &mut *held;
+        self.folder
+            .commit(&mut held.pending, || self.folder.records(&held.messages));
 
         out
     }
