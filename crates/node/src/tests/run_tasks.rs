@@ -158,7 +158,7 @@ async fn a_task_spawned_after_kill_all_is_killed() {
     let (reached, reached_rx) = oneshot::channel();
     let (release_tx, release) = oneshot::channel();
     *lock(&tasks.gate) = Some(Gate { reached, release });
-    let start = tasks.start("sleep 300".to_owned(), None);
+    let start = tasks.start_limited("sleep 300".to_owned(), None, None);
     tokio::pin!(start);
     let id = tokio::select! {
         _ = &mut start => panic!("the spawn was not held"),
@@ -184,7 +184,11 @@ async fn a_start_in_flight_holds_a_place() {
     let _kill = KillOnDrop(tasks.clone());
 
     for _ in 0..MAX_TASKS - 1 {
-        started(tasks.start("sleep 300".to_owned(), None).await);
+        started(
+            tasks
+                .start_limited("sleep 300".to_owned(), None, None)
+                .await,
+        );
     }
 
     let (reached, reached_rx) = oneshot::channel();
@@ -192,11 +196,18 @@ async fn a_start_in_flight_holds_a_place() {
     *lock(&tasks.gate) = Some(Gate { reached, release });
     let last = tokio::spawn({
         let tasks = tasks.clone();
-        async move { tasks.start("sleep 300".to_owned(), None).await }
+        async move {
+            tasks
+                .start_limited("sleep 300".to_owned(), None, None)
+                .await
+        }
     });
     reached_rx.await.expect("the spawn reports it is held");
 
-    match tasks.start("sleep 300".to_owned(), None).await {
+    match tasks
+        .start_limited("sleep 300".to_owned(), None, None)
+        .await
+    {
         Reply::Error { message } => assert!(message.contains("limit reached"), "{message}"),
         other => panic!("the full set took another start: {other:?}"),
     }
@@ -210,14 +221,22 @@ async fn a_start_in_flight_holds_a_place() {
 async fn a_full_set_makes_room_from_the_oldest_finished_task() {
     let tasks = Tasks::default();
     let _kill = KillOnDrop(tasks.clone());
-    let first = started(tasks.start("true".to_owned(), None).await);
+    let first = started(tasks.start_limited("true".to_owned(), None, None).await);
     wait_done(&tasks, first).await;
 
     for _ in 0..MAX_TASKS - 1 {
-        started(tasks.start("sleep 300".to_owned(), None).await);
+        started(
+            tasks
+                .start_limited("sleep 300".to_owned(), None, None)
+                .await,
+        );
     }
 
-    let next = started(tasks.start("sleep 300".to_owned(), None).await);
+    let next = started(
+        tasks
+            .start_limited("sleep 300".to_owned(), None, None)
+            .await,
+    );
     assert!(tasks.entry(first).is_none(), "the finished task made room");
     assert!(tasks.entry(next).is_some());
 }

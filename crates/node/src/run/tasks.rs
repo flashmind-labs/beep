@@ -115,7 +115,7 @@ pub(crate) async fn run_for(
     limit: Duration,
 ) -> Reply {
     let tasks = table.tasks();
-    let id = match tasks.start(command, cwd).await {
+    let id = match tasks.start_limited(command, cwd, None).await {
         Reply::Started { id } => id,
         other => return other,
     };
@@ -214,7 +214,7 @@ struct Shared {
 impl Tasks {
     async fn answer(&self, request: Request) -> Reply {
         match request {
-            Request::Start { command, cwd } => self.start(command, cwd).await,
+            Request::Start { command, cwd } => self.start_limited(command, cwd, None).await,
             Request::List {} => Reply::Tasks {
                 tasks: watched::read_sent(&self.list, |list| {
                     list.iter().map(|entry| entry.task()).collect()
@@ -226,10 +226,6 @@ impl Tasks {
                 message: format!("this node does not handle {other:?}"),
             },
         }
-    }
-
-    async fn start(&self, command: String, cwd: Option<String>) -> Reply {
-        self.start_limited(command, cwd, None).await
     }
 
     /// The start runs as its own task: a caller that goes away leaves the
