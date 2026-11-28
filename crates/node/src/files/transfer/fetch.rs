@@ -80,10 +80,10 @@ impl Job {
 
 /// Where a fetch landed.
 #[derive(Debug)]
-pub(super) struct Fetched {
-    pub(super) path: PathBuf,
-    pub(super) size: u64,
-    pub(super) files: u64,
+pub(crate) struct Fetched {
+    pub(crate) path: PathBuf,
+    pub(crate) size: u64,
+    pub(crate) files: u64,
 }
 
 /// One file or empty folder to write, by its path in the partial folder.

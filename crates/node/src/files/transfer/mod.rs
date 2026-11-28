@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fs,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -48,6 +48,7 @@ mod gate;
 pub(crate) mod offer;
 mod progress;
 
+pub(crate) use fetch::Fetched;
 use progress::Out;
 
 use crate::files::{
@@ -156,12 +157,6 @@ pub(crate) struct Incoming {
     /// A folder inside the shared folders; the first one when unset.
     #[serde(default)]
     pub(crate) dest: Option<String>,
-}
-
-/// Where `receive` put it.
-pub(crate) struct Received {
-    pub(crate) path: PathBuf,
-    pub(crate) size: u64,
 }
 
 /// What `Transfers` answers on the endpoint: the blobs and sync protocols,
@@ -499,7 +494,7 @@ impl Transfers {
     /// Fetches what a source offered with `offer_to` into `dest`, made if
     /// missing (the first shared folder, else the home folder, when none),
     /// writing under the first free name.
-    pub(crate) async fn receive(&self, incoming: Incoming) -> Result<Received> {
+    pub(crate) async fn receive(&self, incoming: Incoming) -> Result<Fetched> {
         let inner = &self.inner;
         let _permit = inner.permit()?;
         place::plain_name(&incoming.name)?;
@@ -523,11 +518,7 @@ impl Transfers {
         let cancel = CancellationToken::new();
         let fetched = fetch::fetch(&inner.parts, &cancel, job, &mut Out::Silent).await;
         inner.collect.notify_one();
-        let fetched = fetched?;
-        Ok(Received {
-            path: fetched.path,
-            size: fetched.size,
-        })
+        fetched
     }
 
     /// Stops the synced projects, saving their state, stops serving, and
