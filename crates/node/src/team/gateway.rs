@@ -143,6 +143,9 @@ struct Gateway {
     sighted: mpsc::Sender<Sighted>,
     sighting: Option<mpsc::Receiver<Sighted>>,
     reaches: Reaches,
+    /// Whether the machines have said something once: the first election
+    /// waits for that, later ones go on with what is known.
+    answered: bool,
     /// The machines that do not push their sessions.
     refused: BTreeSet<EndpointId>,
     /// A session changed while the cards were made.
@@ -235,6 +238,7 @@ impl Gateway {
             sightings: BTreeMap::new(),
             sighted,
             reaches,
+            answered: false,
             refused: BTreeSet::new(),
             stale: false,
             round_due: None,
@@ -335,11 +339,19 @@ impl Gateway {
         let (teams, home) = self.snapshot();
         let wanted = self.wanted(&teams, &home.projects);
 
-        self.reaches.track(wanted.iter().copied());
-
-        if self.reaches.settled(&wanted) {
+        if self.ready(&wanted) {
             self.elect(teams, home);
         }
+    }
+
+    /// Follows `wanted`, and whether to elect: the first election waits until
+    /// they have all said how they reach the hosts, as another machine may be
+    /// the better one; later ones use the current view.
+    fn ready(&mut self, wanted: &BTreeSet<EndpointId>) -> bool {
+        self.reaches.track(wanted.iter().copied());
+        self.answered = self.answered || self.reaches.settled(wanted);
+
+        self.answered
     }
 
     /// The online machines with a team project.

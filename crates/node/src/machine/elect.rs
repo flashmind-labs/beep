@@ -125,10 +125,23 @@ struct Hear {
     said: Arc<Mutex<BTreeMap<EndpointId, Said>>>,
     /// Rises when what a machine said changes.
     changed: watch::Sender<()>,
+    #[cfg(test)]
+    script: Arc<Mutex<std::collections::VecDeque<Streamed>>>,
+    /// A scripted machine stays online.
+    #[cfg(test)]
+    up: bool,
+}
+
+/// What a test makes the stream of a machine do, one per dial.
+#[cfg(test)]
+pub(crate) enum Streamed {
+    Refuse,
+    Fail,
+    Push(ForgeReach),
 }
 
 #[derive(Clone, PartialEq)]
-enum Said {
+pub(crate) enum Said {
     /// Followed; nothing heard yet, and no answer to an ask yet.
     Pending,
     Reach(ForgeReach),
@@ -143,9 +156,35 @@ impl Reaches {
                 mesh,
                 said: Arc::default(),
                 changed: watch::Sender::new(()),
+                #[cfg(test)]
+                script: Arc::default(),
+                #[cfg(test)]
+                up: false,
             },
             follows: Arc::default(),
         }
+    }
+
+    /// A `Reaches` whose streams do what `script` says, one per dial, and
+    /// whose machines stay online.
+    #[cfg(test)]
+    pub(crate) fn scripted(mesh: Mesh, script: impl IntoIterator<Item = Streamed>) -> Self {
+        let reaches = Self::new(mesh);
+        crate::lock(&reaches.hear.script).extend(script);
+
+        Self {
+            hear: Hear {
+                up: true,
+                ..reaches.hear
+            },
+            follows: reaches.follows,
+        }
+    }
+
+    /// Sets what `peer` said.
+    #[cfg(test)]
+    pub(crate) fn put_for_test(&self, peer: EndpointId, said: Said) {
+        self.hear.put(peer, said);
     }
 
     /// Rises when what a machine said changes.
@@ -153,19 +192,26 @@ impl Reaches {
         self.hear.changed.subscribe()
     }
 
-    /// Follows every machine of `peers` not followed yet. Idempotent.
+    /// Follows every machine of `peers` not followed yet. Idempotent. A
+    /// follow that ended, as when its machine went offline, starts again.
     pub(crate) fn track(&self, peers: impl IntoIterator<Item = EndpointId>) {
         let mut follows = crate::lock(&self.follows);
 
         for peer in peers {
-            crate::lock(&self.hear.said)
-                .entry(peer)
-                .or_insert(Said::Pending);
+            // A follow takes its entry away as its last act, under this lock,
+            // so a missing entry means the follow is over or about to be.
+            let running = {
+                let mut said = crate::lock(&self.hear.said);
+                let known = said.contains_key(&peer);
+                said.entry(peer).or_insert(Said::Pending);
 
-            if follows
-                .get(&peer)
-                .is_some_and(|follow| !follow.is_finished())
-            {
+                known
+                    && follows
+                        .get(&peer)
+                        .is_some_and(|follow| !follow.is_finished())
+            };
+
+            if running {
                 continue;
             }
 
@@ -201,9 +247,12 @@ impl Reaches {
 
 impl Hear {
     /// Takes what `peer` pushes until it drops, then dials again while it is
-    /// online. Until it pushes, it is asked once; one that cannot push is
-    /// asked again every `QUIET`.
+    /// online. Until it pushes, it is asked once. A node before 0.8.28 refuses
+    /// the stream: it is asked every `QUIET`, and the stream tried again then,
+    /// for it may have upgraded.
     async fn hear(&self, peer: EndpointId) {
+        let mut refused = false;
+
         loop {
             let mut pushed = false;
             let ended = {
@@ -219,24 +268,34 @@ impl Hear {
                     }
                 }
             };
+            let was_refused = refused;
+            refused = matches!(&ended, Err(e) if e.downcast_ref::<Refused>().is_some());
 
-            if matches!(&ended, Err(e) if e.downcast_ref::<Refused>().is_some()) {
-                self.ask_again(peer).await;
-                return;
+            if !pushed && (self.is_pending(peer) || (refused && was_refused)) {
+                // The ask that raced the stream was cut short, or this machine
+                // still does not push: ask it, so that it never stays pending.
+                let said = self.ask(peer).await;
+                self.put(peer, said);
             }
 
             if pushed {
                 self.forget(peer);
             }
 
-            if let Err(e) = ended {
+            if let Err(e) = ended
+                && !refused
+            {
                 log::debug!("the reach of {peer} is not followed: {e:#}");
             }
 
-            sleep(REDIAL).await;
+            if refused {
+                sleep(QUIET).await;
+            } else {
+                sleep(REDIAL).await;
+            }
 
-            if !online(&self.mesh).contains(&peer) {
-                crate::lock(&self.said).remove(&peer);
+            if !self.is_up(peer) {
+                self.leave(peer);
                 return;
             }
         }
@@ -256,24 +315,20 @@ impl Hear {
         }
     }
 
-    /// Asks `peer`, a node before 0.8.28 that does not push, every `QUIET`
-    /// while it is online.
-    async fn ask_again(&self, peer: EndpointId) {
-        let mut heard = !self.is_pending(peer);
+    fn is_up(&self, peer: EndpointId) -> bool {
+        #[cfg(test)]
+        if self.up {
+            return true;
+        }
 
-        loop {
-            if !heard {
-                let said = self.ask(peer).await;
-                self.put(peer, said);
-            }
+        online(&self.mesh).contains(&peer)
+    }
 
-            heard = false;
-            sleep(QUIET).await;
-
-            if !online(&self.mesh).contains(&peer) {
-                crate::lock(&self.said).remove(&peer);
-                return;
-            }
+    /// Drops what `peer` said as its follow ends, and rings so that whoever
+    /// needs it tracks it again.
+    fn leave(&self, peer: EndpointId) {
+        if crate::lock(&self.said).remove(&peer).is_some() {
+            self.changed.send_replace(());
         }
     }
 
@@ -321,6 +376,21 @@ impl Hear {
     /// Takes what `peer` pushes until the stream ends; `pushed` says whether
     /// it delivered one.
     async fn listen(&self, peer: EndpointId, pushed: &mut bool) -> Result<()> {
+        #[cfg(test)]
+        let step = crate::lock(&self.script).pop_front();
+        #[cfg(test)]
+        if let Some(step) = step {
+            return match step {
+                Streamed::Refuse => Err(Refused("not before 0.8.28".to_owned()).into()),
+                Streamed::Fail => bail!("the stream did not open"),
+                Streamed::Push(reach) => {
+                    *pushed = true;
+                    self.put(peer, Said::Reach(reach));
+                    std::future::pending().await
+                }
+            };
+        }
+
         let mut watch = PeerWatch::open(&self.mesh, peer, Topic::new(FORGE_REACH_TOPIC)).await?;
 
         loop {

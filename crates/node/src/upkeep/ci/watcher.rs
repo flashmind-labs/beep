@@ -71,6 +71,10 @@ pub(super) trait World: Send + Sync + 'static {
     /// none before.
     fn reach_view(&self, wanted: &BTreeSet<EndpointId>)
     -> Option<BTreeMap<EndpointId, ForgeReach>>;
+    /// What the machines say now, said or not.
+    fn reach_now(&self) -> BTreeMap<EndpointId, ForgeReach> {
+        BTreeMap::new()
+    }
     /// Waits for the mesh to change; false once it is gone.
     fn changed(&mut self) -> impl Future<Output = bool> + Send;
     /// Rises when a machine pushes a different reach; none for a world
@@ -282,6 +286,12 @@ impl<F: Forge, W: World> Watcher<F, W> {
             .collect();
 
         self.world.track(&wanted);
+
+        // Only the first election waits for the answers.
+        if self.elected {
+            return Some(self.world.reach_now());
+        }
+
         let peers = self.world.reach_view(&wanted)?;
         self.elected = true;
 
@@ -733,6 +743,10 @@ impl World for MeshWorld {
 
     fn track(&self, wanted: &BTreeSet<EndpointId>) {
         self.reaches.track(wanted.iter().copied());
+    }
+
+    fn reach_now(&self) -> BTreeMap<EndpointId, ForgeReach> {
+        self.reaches.view()
     }
 
     fn reach_view(

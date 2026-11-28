@@ -677,3 +677,27 @@ async fn a_pushed_session_change_makes_the_cards_again_without_a_round() {
     assert!(gateway.rows.is_empty());
     assert_eq!(gateway.round_due, Some(Instant::now() + ROUND));
 }
+
+/// The first election waits until every machine has said something; later
+/// ones go on with what is known, as when a machine reconnects.
+#[tokio::test]
+async fn only_the_first_election_waits_for_the_machines() {
+    use crate::machine::elect::Said;
+    let dir = tempfile::tempdir().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal).bind().await.unwrap();
+    let mesh = Mesh::create(&dir.path().join("mesh"), endpoint, "build-box")
+        .await
+        .unwrap();
+    let me = mesh.me();
+    let (link, _router) = crate::team::board::tests::device().await;
+    let (heard, _hearing) = mpsc::channel(8);
+    let mut gateway = gateway_of(&mesh, me, link, heard, dir.path());
+    let peer = SecretKey::generate().public();
+    let wanted: BTreeSet<EndpointId> = [peer].into();
+
+    assert!(!gateway.ready(&wanted), "the machine has said nothing yet");
+    gateway.reaches.put_for_test(peer, Said::Silent);
+    assert!(gateway.ready(&wanted));
+    gateway.reaches.put_for_test(peer, Said::Pending);
+    assert!(gateway.ready(&wanted), "a reconnect does not stall it");
+}

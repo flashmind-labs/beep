@@ -203,8 +203,8 @@ crates/node/src/watchdog.rs | start | interval#1 | pace | runtime beat the watch
 crates/node/src/upkeep/ci/github.rs | wait | sleep#1 | deadline | stops waiting on a gh run watch after 30 min
 crates/node/src/upkeep/ci/watcher.rs | run | interval#1 | outside | lists busy projects' forge runs every 60 s
 crates/node/src/upkeep/ci/watcher.rs | run | interval_at#1 | outside | checks GitHub projects every 45 s
-crates/node/src/machine/elect.rs | ask_again | sleep#1 | compat | asks a node before 0.8.28 for its reach every 10 min; it does not push it; ends with those nodes
-crates/node/src/machine/elect.rs | hear | sleep#1 | retry | follows a dropped machine again after 5 s
+crates/node/src/machine/elect.rs | hear | sleep#1 | compat | asks a node before 0.8.28 for its reach and tries its stream again every 10 min; it does not push it; ends with those nodes
+crates/node/src/machine/elect.rs | hear | sleep#2 | retry | follows a dropped machine again after 5 s
 crates/node/src/machine/env/latest.rs | probe_while_followed | sleep_until#1 | outside | probes the machine again every REPROBE while followed, since its tools change outside Beep
 crates/node/src/machine/provision/mod.rs | check_loop | interval#1 | outside | hourly probe of tool releases and installs
 crates/node/src/machine/sign_in.rs | drive | sleep_until#1 | deadline | ends a sign-in not finished in time
