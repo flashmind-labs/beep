@@ -69,5 +69,143 @@ class WithoutCfgTest(unittest.TestCase):
         self.assertEqual(depgraph.without_cfg_test(text), text)
 
 
+RUST = {
+    "src/a.rs": '''
+pub struct Hub { tx: tokio::sync::watch::Sender<u8> }
+impl Hub { pub fn publish(&self, v: u8) { let _ = self.tx.send(v); } }
+
+pub struct Top { low: Arc<Low>, hub: Hub, weak: Weak<Side>, plain: Vec<u8> }
+impl Top {
+    pub fn go(&self) {
+        self.low.read();
+        self.low.stop();
+        self.hub.publish(1);
+        // self.weak.ignored();
+    }
+}
+
+pub struct Low { items: Mutex<BTreeMap<SessionId, Row>> }
+impl Low {
+    pub fn read(&self) -> usize { 0 }
+    pub fn stop(&self) -> Result<()> { Ok(()) }
+    pub fn add(&self, r: Row) { self.items.lock().insert(r.id, r); }
+}
+
+pub struct Side { low: Arc<Low>, top: Arc<Top> }
+impl Side { fn hi(&self) { self.top.go(); } }
+
+pub struct Borrowed<'a> { top: &'a Arc<Top> }
+
+#[cfg(test)]
+pub struct OnlyInTests { x: Arc<Top> }
+
+pub async fn serve(top: &Arc<Top>) { top.go(); top.low.read(); }
+pub fn unrelated(n: u8) { n.go(); }
+
+pub struct Copy1 { items: Mutex<BTreeMap<SessionId, Row>>, tx: Sender<u8> }
+impl Copy1 { fn put(&self, r: Row) { self.items.lock().insert(r.id, r); } }
+''',
+}
+
+
+class RustStructs(unittest.TestCase):
+    def setUp(self):
+        self.info = depgraph.build_rust(RUST)
+        self.by_name = {n["name"]: i for i, n in self.info["nodes"].items()}
+        self.kinds = {(self.info["nodes"][e["from"]]["name"], self.info["nodes"][e["to"]]["name"], e["kind"]): e for e in self.info["edges"]}
+
+    def test_nodes_are_long_lived_structs_without_tests_or_borrowers(self):
+        names = set(self.by_name)
+        self.assertTrue({"Hub", "Top", "Low", "Side", "Copy1", "fn serve"} <= names)
+        self.assertFalse({"Borrowed", "OnlyInTests", "fn unrelated"} & names)
+
+    def test_field_edges_and_weak(self):
+        self.assertIn(("Top", "Low", "owns"), self.kinds)
+        self.assertIn(("Top", "Hub", "owns"), self.kinds)
+        self.assertTrue(self.kinds[("Top", "Side", "owns")]["weak"])
+        self.assertFalse(self.kinds[("Top", "Low", "owns")]["weak"])
+
+    def test_call_edges_split_ask_order_push_and_ignore_comments(self):
+        self.assertIn(("Top", "Low", "ask"), self.kinds)
+        self.assertIn(("Top", "Low", "order"), self.kinds)
+        self.assertIn(("Top", "Hub", "push"), self.kinds)
+        self.assertNotIn(("Top", "Side", "ask"), self.kinds)
+        self.assertIn("go", self.kinds[("Side", "Top", "order")]["label"])
+
+    def test_free_fn_serves_param_and_its_fields(self):
+        self.assertIn(("fn serve", "Top", "order"), self.kinds)
+        self.assertIn(("fn serve", "Low", "ask"), self.kinds)
+
+    def test_kinds(self):
+        n = self.info["nodes"]
+        self.assertEqual(n[self.by_name["Low"]]["kind"], "lock")
+        self.assertEqual(n[self.by_name["Hub"]]["kind"], "store")
+
+    def test_cycle_group_cut_and_upward_push(self):
+        result = depgraph.analyse(self.info["nodes"], self.info["edges"], self.info)
+        self.assertEqual(len(result["cycle_groups"]), 1)
+        group = result["cycle_groups"][0]
+        self.assertEqual({self.info["nodes"][m]["name"] for m in group["members"]}, {"Top", "Side"})
+        self.assertEqual(len(group["cuts"]), 1)
+
+    def test_push_that_closes_a_cycle_is_upward_not_a_cycle(self):
+        src = {"x.rs": "pub struct A { b: Arc<B> }\nimpl A { fn go(&self) { self.b.run(); } }\n"
+                       "pub struct B { a: Arc<Hub> }\nimpl B { fn run(&self) { self.a.publish(); } fn on(&self) {} }\n"
+                       "pub struct Hub { t: Sender<u8> }\nimpl Hub { fn publish(&self) {} }\n"}
+        info = depgraph.build_rust(src)
+        result = depgraph.analyse(info["nodes"], info["edges"], info)
+        self.assertEqual(result["cycle_groups"], [])
+        info["edges"].append(dict(**{"from": "x.rs::B", "to": "x.rs::A"}, kind="push", label="", weak=False, count=1))
+        result = depgraph.analyse(info["nodes"], info["edges"], info)
+        self.assertEqual(result["cycle_groups"], [])
+        self.assertEqual(len(result["upward"]), 1)
+
+    def test_duplicated_state_lists_writers(self):
+        rows = depgraph.duplicated_state(self.info)
+        self.assertEqual(len(rows), 1)
+        norm, name, who = rows[0]
+        self.assertEqual(name, "items")
+        self.assertEqual({w[0] for w in who}, {"Low", "Copy1"})
+        self.assertEqual({tuple(w[2]) for w in who}, {("add",), ("put",)})
+
+
+TS = {
+    "src/stores/a-state.ts": '''
+import { createStore } from "zustand";
+import { invoke, listen } from "../ui/tauri.ts";
+import { b, setB } from "./b-state.ts";
+import type { T } from "./b-state.ts";
+export const a = createStore(() => ({ n: 0 }));
+export function load() { invoke("cmd"); b.getState(); listen("x", () => {}); }
+// setB() in a comment
+''',
+    "src/stores/b-state.ts": '''
+import { a } from "./a-state.ts";
+export const b = createStore(() => ({}));
+export function setB() { a.setState({ n: 1 }); }
+''',
+    "src/stores/plain.ts": 'export const x = 1;\n',
+    "src/ui/tauri.ts": "export function invoke() {}\n",
+}
+
+
+class TsStores(unittest.TestCase):
+    def test_stores_edges_and_native(self):
+        g = depgraph.build_ts(TS)
+        self.assertEqual(set(g["nodes"]), {"src/stores/a-state.ts", "src/stores/b-state.ts", "native"})
+        got = {(e["from"], e["to"], e["kind"]) for e in g["edges"]}
+        self.assertIn(("src/stores/a-state.ts", "native", "order"), got)
+        self.assertIn(("native", "src/stores/a-state.ts", "push"), got)
+        self.assertIn(("src/stores/a-state.ts", "src/stores/b-state.ts", "ask"), got)
+        self.assertIn(("src/stores/b-state.ts", "src/stores/a-state.ts", "order"), got)
+        self.assertNotIn(("src/stores/a-state.ts", "src/stores/b-state.ts", "order"), got)
+
+    def test_cycle_between_stores_and_native_loop_is_a_push(self):
+        g = depgraph.build_ts(TS)
+        result = depgraph.analyse(g["nodes"], g["edges"])
+        self.assertEqual(len(result["cycle_groups"]), 1)
+        self.assertEqual([e["from"] for e in result["upward"]], ["native"])
+
+
 if __name__ == "__main__":
     unittest.main()
