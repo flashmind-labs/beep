@@ -5,6 +5,7 @@
 
 use super::{caller::Caller, desktop::answer as answer_projects, team::answer as answer_team};
 use crate::{
+    agents::reply::{done, fail, parse},
     files::transfer::Incoming,
     run::tasks::{self, Table},
 };
@@ -16,7 +17,6 @@ use beep_proto::node::{
     tools::{Reply, Request, Tool},
 };
 use serde::Deserialize;
-use serde_json::Value;
 use std::{fmt::Write, time::Duration};
 use tokio::{
     select,
@@ -47,10 +47,7 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
     if request.tool == Tool::HarnessInfo {
         return match &caller.agents {
             Some(agents) => super::harness::answer(agents, &request).await,
-            None => Reply::Done {
-                text: "This machine has no coding harnesses available.".to_owned(),
-                failed: true,
-            },
+            None => fail("This machine has no coding harnesses available."),
         };
     }
 
@@ -92,10 +89,7 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
                 };
                 answer_team(team, agents, from, &request).await
             }
-            _ => Reply::Done {
-                text: "This machine does not act for a team.".to_owned(),
-                failed: true,
-            },
+            _ => fail("This machine does not act for a team."),
         };
     }
 
@@ -113,50 +107,38 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
         return agent_call(request, &caller).await;
     }
     if request.tool == Tool::ForgeReach {
-        let outcome = match &caller.agents {
+        return from_result(match &caller.agents {
             Some(agents) => serde_json::to_string(&agents.ci.reach()).map_err(|e| e.to_string()),
             None => Err("This node watches no CI runs.".to_owned()),
-        };
-        return match outcome {
-            Ok(text) => Reply::Done {
-                text,
-                failed: false,
-            },
-            Err(text) => Reply::Done { text, failed: true },
-        };
+        });
     }
 
-    let outcome = match serde_json::from_str::<Value>(&request.args) {
-        Err(e) => Err(format!("The arguments are not JSON: {e}")),
-        Ok(args) => match request.tool {
-            Tool::RunOn => match (&caller.commands_off, parse(args)) {
-                (Some(off), _) => Err(off.clone()),
-                (None, Ok(args)) => run_on(args, caller.table).await,
-                (None, Err(e)) => Err(e),
-            },
-            Tool::JobStatus => job(args, false, caller.table).await,
-            Tool::Cancel => job(args, true, caller.table).await,
-            Tool::SyncProject => sync_project(args, &caller).await,
-            Tool::SendFiles => receive_files(args, &caller).await,
-            other => Err(format!("A node does not serve {other} for another node.")),
+    let args = request.args.as_str();
+    from_result(match request.tool {
+        Tool::RunOn => match (&caller.commands_off, parse(args)) {
+            (Some(off), _) => Err(off.clone()),
+            (None, Ok(args)) => run_on(args, caller.table).await,
+            (None, Err(e)) => Err(e),
         },
-    };
+        Tool::JobStatus => job(args, false, caller.table).await,
+        Tool::Cancel => job(args, true, caller.table).await,
+        Tool::SyncProject => sync_project(args, &caller).await,
+        Tool::SendFiles => receive_files(args, &caller).await,
+        other => Err(format!("A node does not serve {other} for another node.")),
+    })
+}
 
+/// The reply for a result: its text, failed when it is an `Err`.
+fn from_result(outcome: Outcome) -> Reply {
     match outcome {
-        Ok(text) => Reply::Done {
-            text,
-            failed: false,
-        },
-        Err(text) => Reply::Done { text, failed: true },
+        Ok(text) => done(text, false),
+        Err(text) => done(text, true),
     }
 }
 
 /// An agent tool another device's agent calls on this machine.
 async fn agent_call(request: Request, caller: &Caller) -> Reply {
-    let failed = |text: &str| Reply::Done {
-        text: text.to_owned(),
-        failed: true,
-    };
+    let failed = |text: &str| fail(text);
     let Some(agents) = &caller.agents else {
         return failed("Agents are started through the node's own Beep MCP server.");
     };
@@ -176,10 +158,6 @@ async fn agent_call(request: Request, caller: &Caller) -> Reply {
     }
 
     super::children::answer_peer(agents, peer, request).await
-}
-
-fn parse<T: for<'de> Deserialize<'de>>(args: Value) -> Result<T, String> {
-    serde_json::from_value(args).map_err(|e| format!("The arguments do not fit: {e}"))
 }
 
 #[derive(Deserialize)]
@@ -229,7 +207,7 @@ struct JobArgs {
     id: String,
 }
 
-async fn job(args: Value, cancel: bool, table: Table) -> Outcome {
+async fn job(args: &str, cancel: bool, table: Table) -> Outcome {
     let JobArgs { id } = parse(args)?;
     let id = id
         .trim()
@@ -259,7 +237,7 @@ static SYNC_SLOTS: Semaphore = Semaphore::const_new(MAX_SYNCS);
 
 /// Scans the project here, then waits until it has what the other machines
 /// have, and says how it stands.
-async fn sync_project(args: Value, caller: &Caller) -> Outcome {
+async fn sync_project(args: &str, caller: &Caller) -> Outcome {
     let SyncArgs { project } = parse(args)?;
     // Capped for node peers only; the server's calls are not theirs to crowd.
     let _slot =
@@ -277,9 +255,8 @@ async fn sync_project(args: Value, caller: &Caller) -> Outcome {
     // Listening before the scan starts, so no change in between is missed.
     let mut rings = crate::events::system().subscribe();
     let mut projects = syncs.changes();
-    let status = syncs.rescan(&project).await.map_err(|e| format!("{e:#}"))?;
+    let mut status = syncs.rescan(&project).await.map_err(|e| format!("{e:#}"))?;
     let deadline = Instant::now() + SYNC_WAIT;
-    let mut status = status;
 
     while !settled(&status) {
         let woke = select! {
@@ -348,7 +325,7 @@ fn sync_line(status: &ProjectStatus) -> String {
 
 /// Takes the file another node's agent offers: the call's args are the
 /// `Incoming` that node built after offering it.
-async fn receive_files(args: Value, caller: &Caller) -> Outcome {
+async fn receive_files(args: &str, caller: &Caller) -> Outcome {
     let Some(transfers) = &caller.transfers else {
         return Err(
             "This machine's file transfers did not start, so it takes no files.".to_owned(),

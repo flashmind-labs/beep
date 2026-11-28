@@ -207,10 +207,8 @@ async fn peer_requests_keep_accepting_extra_fields() {
         panic!("no reply");
     };
     assert!(!failed && text.contains("compatible"), "{text}");
-    assert!(parse::<JobArgs>(serde_json::json!({"id":"1", "future_field":true})).is_ok());
-    assert!(
-        parse::<SyncArgs>(serde_json::json!({"project":"example", "future_field":true})).is_ok()
-    );
+    assert!(parse::<JobArgs>(r#"{"id":"1", "future_field":true}"#).is_ok());
+    assert!(parse::<SyncArgs>(r#"{"project":"example", "future_field":true}"#).is_ok());
 }
 
 #[tokio::test]
