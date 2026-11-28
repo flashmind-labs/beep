@@ -195,7 +195,7 @@ impl Retry {
             self.logged = Some(error);
         }
 
-        if held(replied, self.started.elapsed()) {
+        if replied || self.started.elapsed() >= HELD {
             self.logged = None;
         }
 
@@ -219,12 +219,6 @@ pub(crate) async fn until_online(fleet: &Fleet, id: EndpointId) {
             return;
         }
     }
-}
-
-/// Whether a stream that broke was a working one, so its next error is
-/// logged again: the machine sent something, or kept it open for `HELD`.
-fn held(replied: bool, lived: Duration) -> bool {
-    replied || lived >= HELD
 }
 
 /// One stream's life. `Ok` when the receiver is gone; `replied` says

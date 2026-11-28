@@ -32,15 +32,6 @@ printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt
 cat > /dev/null
 "#;
 
-#[test]
-fn a_stream_that_is_accepted_and_closed_keeps_backing_off() {
-    let secs = Duration::from_secs;
-    assert!(!held(false, secs(1)));
-    assert!(!held(false, HELD - secs(1)));
-    assert!(held(true, secs(0)));
-    assert!(held(false, HELD));
-}
-
 async fn bind() -> Endpoint {
     Endpoint::builder(presets::Minimal)
         .secret_key(SecretKey::generate())

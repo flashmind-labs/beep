@@ -640,7 +640,7 @@ impl Follower {
                 remembered = stands;
             }
 
-            reap(&mut follows);
+            while follows.try_join_next().is_some() {}
             running.retain(|id, follow| {
                 let finished = follow.is_finished();
                 if finished {
@@ -660,7 +660,7 @@ impl Follower {
                 }
 
                 if let Some(at) = ended.get(&id).copied()
-                    && !retry_due(at)
+                    && at.elapsed() < RETRY
                 {
                     let next = at + RETRY;
                     retry = Some(retry.map_or(next, |soonest| soonest.min(next)));
@@ -730,16 +730,6 @@ fn write_seen(path: PathBuf, seen: &BTreeMap<String, u64>) {
             log::warn!("could not save when machines were seen: {e:#}");
         }
     });
-}
-
-/// Collects the follows that have ended, so the set holds only live ones.
-fn reap(follows: &mut JoinSet<()>) {
-    while follows.try_join_next().is_some() {}
-}
-
-/// Whether a follow that ended at `ended` may start again.
-fn retry_due(ended: Instant) -> bool {
-    ended.elapsed() >= RETRY
 }
 
 /// This Mac's Unix time in milliseconds.

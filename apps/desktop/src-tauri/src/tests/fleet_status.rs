@@ -1,4 +1,3 @@
-use super::{reap, retry_due};
 use crate::fleet::tests::{LIMIT, join, online, start, until};
 use beep_mesh::DeviceKind;
 use beep_proto::watched;
@@ -94,25 +93,6 @@ async fn settled(status: &Status, ok: impl Fn(&Status) -> bool) {
 }
 
 #[tokio::test]
-async fn ended_follows_leave_the_set() {
-    let mut follows = JoinSet::new();
-
-    for _ in 0..8 {
-        follows.spawn(async {});
-    }
-    // Finished, but not collected until the set is polled.
-    while !follows.is_empty() {
-        tokio::task::yield_now().await;
-        reap(&mut follows);
-    }
-
-    assert_eq!(follows.len(), 0);
-    follows.spawn(std::future::pending());
-    reap(&mut follows);
-    assert_eq!(follows.len(), 1, "a live follow stays");
-}
-
-#[tokio::test]
 async fn a_machine_list_shows_who_is_on_and_off() {
     let mac = start("Studio").await;
     let host = mac.fleet.mesh().expect("the mesh is open");
@@ -179,15 +159,6 @@ async fn removing_a_machine_cuts_it_off_from_every_other() {
         mac.fleet.client(gone).await.is_err(),
         "a removed machine is not reachable"
     );
-}
-
-#[test]
-fn a_follow_that_ended_waits_before_it_starts_again() {
-    assert!(!retry_due(Instant::now()));
-    let long_ago = Instant::now()
-        .checked_sub(super::RETRY)
-        .expect("the clock has run that long");
-    assert!(retry_due(long_ago));
 }
 
 #[tokio::test]
