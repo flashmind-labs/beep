@@ -42,6 +42,10 @@ impl World for Nobody {
         BTreeSet::new()
     }
 
+    fn reach_now(&self) -> BTreeMap<EndpointId, ForgeReach> {
+        BTreeMap::new()
+    }
+
     fn reach_view(&self, _: &BTreeSet<EndpointId>) -> Option<BTreeMap<EndpointId, ForgeReach>> {
         Some(BTreeMap::new())
     }
@@ -267,6 +271,10 @@ impl World for Silent {
         [self.0].into()
     }
 
+    fn reach_now(&self) -> BTreeMap<EndpointId, ForgeReach> {
+        BTreeMap::new()
+    }
+
     fn reach_view(&self, _: &BTreeSet<EndpointId>) -> Option<BTreeMap<EndpointId, ForgeReach>> {
         self.1.load(SeqCst).then(BTreeMap::new)
     }
@@ -308,4 +316,26 @@ async fn a_silent_machine_does_not_hold_up_a_poll() {
         "later polls go on with what is known"
     );
     assert!(!watcher.calls.is_empty(), "and list the held project");
+}
+
+// Only the first election waits for the machines: after it, a machine that
+// says nothing again, as when its stream dropped, holds the watch up no more.
+#[tokio::test]
+async fn only_the_first_election_waits_for_the_machines() {
+    let dir = TempDir::new().expect("a temp dir");
+    let peer = iroh::SecretKey::from_bytes(&[2; 32]).public();
+    let said = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut watcher = Watcher::start(
+        Slow::default(),
+        Silent(peer, said.clone()),
+        Arc::new(Ci::default()),
+        dir.path().join("runs.json"),
+    )
+    .await;
+
+    assert!(watcher.peers().is_none(), "nothing said yet");
+    said.store(true, SeqCst);
+    assert!(watcher.peers().is_some());
+    said.store(false, SeqCst);
+    assert!(watcher.peers().is_some(), "later elections do not wait");
 }

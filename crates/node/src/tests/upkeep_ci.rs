@@ -280,6 +280,10 @@ impl World for Alone {
         BTreeSet::new()
     }
 
+    fn reach_now(&self) -> BTreeMap<EndpointId, ForgeReach> {
+        BTreeMap::new()
+    }
+
     fn reach_view(&self, _: &BTreeSet<EndpointId>) -> Option<BTreeMap<EndpointId, ForgeReach>> {
         Some(BTreeMap::new())
     }
@@ -308,6 +312,10 @@ impl World for Empty {
 
     fn online(&self) -> BTreeSet<EndpointId> {
         BTreeSet::new()
+    }
+
+    fn reach_now(&self) -> BTreeMap<EndpointId, ForgeReach> {
+        BTreeMap::new()
     }
 
     fn reach_view(&self, _: &BTreeSet<EndpointId>) -> Option<BTreeMap<EndpointId, ForgeReach>> {

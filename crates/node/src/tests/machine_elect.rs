@@ -1,4 +1,4 @@
-use super::{ASK_LIMIT, QUIET, Reaches, Said, Streamed, elect, ranked};
+use super::{QUIET, Reaches, Said, Streamed, elect, ranked};
 use beep_mesh::Mesh;
 use beep_proto::node::tools::{ForgeReach, HostReach};
 use iroh::{Endpoint, endpoint::presets};
@@ -122,35 +122,6 @@ async fn dropping_the_reaches_ends_the_follows_and_lets_go_of_the_mesh() {
     mesh.close().await.unwrap();
 }
 
-/// A machine whose follow ended no longer pushes, so the watcher is woken to
-/// ask it again instead of waiting for some other event.
-#[tokio::test]
-async fn a_machine_that_stops_pushing_rings_the_watcher() {
-    let dir = tempfile::tempdir().unwrap();
-    let endpoint = Endpoint::builder(presets::Minimal).bind().await.unwrap();
-    let mesh = Mesh::create(&dir.path().join("mesh"), endpoint, "build-box")
-        .await
-        .unwrap();
-    let reaches = Reaches::new(mesh.clone());
-    let peer = SecretKey::generate().public();
-    let mut changes = reaches.changes();
-    changes.mark_unchanged();
-
-    // Nothing was pushed, so nothing is lost.
-    reaches.hear.forget(peer);
-    assert!(!changes.has_changed().unwrap());
-
-    reaches.hear.put(peer, Said::Reach(ForgeReach::default()));
-    assert!(reaches.view().contains_key(&peer));
-    changes.mark_unchanged();
-    reaches.hear.forget(peer);
-    assert!(crate::lock(&reaches.hear.said)[&peer] == Said::Pending);
-    assert!(changes.has_changed().unwrap());
-
-    drop(reaches);
-    mesh.close().await.unwrap();
-}
-
 /// An election waits for a machine to say something, and takes what it said.
 #[tokio::test]
 async fn tracking_a_peer_is_pending_until_it_says_or_stays_silent() {
@@ -236,15 +207,74 @@ async fn a_node_that_refused_is_followed_once_it_accepts() {
     let reaches = Reaches::scripted(
         mesh,
         [Streamed::Refuse, Streamed::Push(said_of("git.example.com"))],
+        [Said::Silent],
     );
     let peer = SecretKey::generate().public();
 
     reaches.track([peer]);
-    tokio::time::sleep(ASK_LIMIT + Duration::from_secs(1)).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
     assert!(reaches.settled(&[peer].into()), "silent after the ask");
     assert!(reaches.view().is_empty());
 
-    tokio::time::sleep(QUIET + ASK_LIMIT).await;
+    tokio::time::sleep(QUIET).await;
+    assert_eq!(reaches.view()[&peer], said_of("git.example.com"));
+}
+
+/// A node that is not pushing is asked again each time its stream is refused,
+/// so a reach that changed is seen within `QUIET`.
+#[tokio::test(start_paused = true)]
+async fn a_node_that_keeps_refusing_is_asked_every_quiet() {
+    let dir = tempfile::tempdir().unwrap();
+    let mesh = lone_mesh(dir.path()).await;
+    let (first, second) = (said_of("one.example.com"), said_of("two.example.com"));
+    let reaches = Reaches::scripted(
+        mesh,
+        [Streamed::Refuse, Streamed::Refuse, Streamed::Refuse],
+        [Said::Reach(first.clone()), Said::Reach(second.clone())],
+    );
+    let peer = SecretKey::generate().public();
+
+    reaches.track([peer]);
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(reaches.view()[&peer], first);
+
+    tokio::time::sleep(QUIET).await;
+    assert_eq!(reaches.view()[&peer], second);
+}
+
+/// A refused node that restarts, as it does to upgrade, is followed again at
+/// once, not at the next `QUIET`.
+#[tokio::test(start_paused = true)]
+async fn a_refused_node_that_restarts_is_followed_again_at_once() {
+    use beep_mesh::Key;
+    let dir = tempfile::tempdir().unwrap();
+    let mesh = lone_mesh(dir.path()).await;
+    let reaches = Reaches::scripted(
+        mesh.clone(),
+        [Streamed::Refuse, Streamed::Push(said_of("git.example.com"))],
+        [Said::Silent],
+    );
+    let peer = SecretKey::generate().public();
+
+    reaches.track([peer]);
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert!(reaches.view().is_empty());
+
+    // It goes offline: the mesh changes, the follow lets go and rings.
+    let mut changes = reaches.changes();
+    changes.mark_unchanged();
+    reaches.set_up(false);
+    mesh.set(Key::Pin("org/repo".into()), Some(Vec::new()))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert!(changes.has_changed().unwrap(), "the follow let go and rang");
+    assert!(!reaches.settled(&[peer].into()));
+
+    // It is back, and tracked again: its stream is followed.
+    reaches.set_up(true);
+    reaches.track([peer]);
+    tokio::time::sleep(Duration::from_secs(1)).await;
     assert_eq!(reaches.view()[&peer], said_of("git.example.com"));
 }
 
@@ -254,15 +284,46 @@ async fn a_node_that_refused_is_followed_once_it_accepts() {
 async fn a_stream_that_fails_leaves_the_machine_silent() {
     let dir = tempfile::tempdir().unwrap();
     let mesh = lone_mesh(dir.path()).await;
-    let reaches = Reaches::scripted(mesh, [Streamed::Fail]);
+    let reaches = Reaches::scripted(mesh, [Streamed::Fail], [Said::Silent]);
     let peer = SecretKey::generate().public();
 
     reaches.track([peer]);
-    assert!(!reaches.settled(&[peer].into()));
-    tokio::time::sleep(ASK_LIMIT + Duration::from_secs(1)).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
 
     assert!(reaches.settled(&[peer].into()));
     assert!(reaches.view().is_empty());
+}
+
+/// A stream that drops and is dialled again moves nothing: the last reach
+/// stands, so no election goes on without the machine meanwhile.
+#[tokio::test(start_paused = true)]
+async fn a_stream_drop_and_redial_does_not_change_the_view() {
+    let dir = tempfile::tempdir().unwrap();
+    let mesh = lone_mesh(dir.path()).await;
+    let said = said_of("git.example.com");
+    let reaches = Reaches::scripted(
+        mesh,
+        [
+            Streamed::PushThenDrop(said.clone()),
+            Streamed::Push(said.clone()),
+        ],
+        [],
+    );
+    let peer = SecretKey::generate().public();
+    let mut changes = reaches.changes();
+
+    reaches.track([peer]);
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(reaches.view()[&peer], said);
+    changes.mark_unchanged();
+
+    // The drop, the wait and the redial pass.
+    for _ in 0..8 {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert_eq!(reaches.view()[&peer], said);
+        assert!(reaches.settled(&[peer].into()));
+    }
+    assert!(!changes.has_changed().unwrap(), "nothing moved");
 }
 
 /// A machine tracked as its follow ends is followed again, not left pending
@@ -279,16 +340,20 @@ async fn a_machine_tracked_as_its_follow_ends_is_followed_again() {
             Streamed::Push(first.clone()),
             Streamed::Push(second.clone()),
         ],
+        [],
     );
     let peer = SecretKey::generate().public();
+    let mut changes = reaches.changes();
 
     reaches.track([peer]);
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert_eq!(reaches.view()[&peer], first);
+    changes.mark_unchanged();
 
-    // The follow takes its entry away; the next track starts another.
+    // The follow takes its entry away and rings; the next track starts another.
     reaches.hear.leave(peer);
     assert!(reaches.view().is_empty());
+    assert!(changes.has_changed().unwrap(), "whoever tracks it is told");
     reaches.track([peer]);
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert_eq!(reaches.view()[&peer], second);

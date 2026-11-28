@@ -327,6 +327,7 @@ pub(crate) fn withheld(protocol: &str, lent: bool) -> Option<String> {
         desktop::PROTOCOL,
         sign_in::PROTOCOL,
         mcp_servers::PROTOCOL,
+        beep_proto::node::subscriptions::PROTOCOL,
     ];
     let agent = matches!(
         protocol,

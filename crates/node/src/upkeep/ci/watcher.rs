@@ -72,9 +72,7 @@ pub(super) trait World: Send + Sync + 'static {
     fn reach_view(&self, wanted: &BTreeSet<EndpointId>)
     -> Option<BTreeMap<EndpointId, ForgeReach>>;
     /// What the machines say now, said or not.
-    fn reach_now(&self) -> BTreeMap<EndpointId, ForgeReach> {
-        BTreeMap::new()
-    }
+    fn reach_now(&self) -> BTreeMap<EndpointId, ForgeReach>;
     /// Waits for the mesh to change; false once it is gone.
     fn changed(&mut self) -> impl Future<Output = bool> + Send;
     /// Rises when a machine pushes a different reach; none for a world

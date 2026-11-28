@@ -18,6 +18,7 @@ fn a_machine_not_lent_keeps_its_status_but_gives_no_shell_task_or_screen() {
         "desktop/1",
         "sign-in/1",
         mcp_servers::PROTOCOL,
+        beep_proto::node::subscriptions::PROTOCOL,
         "agents/1",
         "agent-view/1",
         "events/1",
