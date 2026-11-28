@@ -120,19 +120,11 @@ impl Paths {
         reader: &'static str,
         changed: impl Fn(Vec<PathBuf>) + Send + Sync + 'static,
     ) -> Result<Self> {
-        Self::with_structure(reader, move |roots, _| changed(roots))
+        Self::with_paths(reader, move |roots, _, _| changed(roots))
     }
 
-    pub(crate) fn with_structure(
-        reader: &'static str,
-        changed: impl Fn(Vec<PathBuf>, bool) + Send + Sync + 'static,
-    ) -> Result<Self> {
-        Self::with_paths(reader, move |roots, structural, _| {
-            changed(roots, structural)
-        })
-    }
-
-    /// Like `with_structure`, and says which paths changed under the roots when it knows.
+    /// Like `new`, flags structural changes and says which paths changed
+    /// under the roots when it knows.
     pub(crate) fn with_paths(
         reader: &'static str,
         changed: impl Fn(Vec<PathBuf>, bool, Option<Vec<PathBuf>>) + Send + Sync + 'static,
