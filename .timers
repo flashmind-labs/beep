@@ -155,6 +155,7 @@ crates/node/src/tools/devices.rs | drive | sleep#1 | pace | lets the screen sett
 crates/node/src/tools/devices.rs | view | sleep#1 | pace | pause after each input sent to a device
 crates/node/src/tools/devices.rs | view | sleep_until#1 | deadline | ends an idle device view
 crates/node/src/tools/machines.rs | show_sent | sleep#1 | pace | shows send progress at most once a second
+crates/node/src/tools/mod.rs | listen | sleep#1 | retry | waits 1 s after a failed accept, up to 10 in a row, then gives up as before
 crates/node/src/tools/peer_tools.rs | sync_project | sleep_until#1 | deadline | bounds the wait for a project sync to settle
 crates/node/src/agents/moving/dial.rs | poll_target | sleep#1 | compat | asks a move target every 2 to 10 s for nodes before 0.8.28, which cannot follow
 crates/node/src/agents/moving/dial.rs | watch_target | sleep#1 | retry | follows a lost target again after 5 s

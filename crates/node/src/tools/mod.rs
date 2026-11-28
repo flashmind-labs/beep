@@ -60,6 +60,12 @@ use server::Called;
 /// The most MCP connections served at once: one per running session, and
 /// a node runs at most a few dozen.
 const MAX_CONNECTIONS: usize = 64;
+/// Accept errors in a row before the server gives up, as a listener that is
+/// gone does.
+const MAX_ACCEPT_FAILURES: u32 = 10;
+/// Wait after a failed accept: a file-descriptor limit or a dropped client
+/// clears in that time.
+const ACCEPT_RETRY: Duration = Duration::from_secs(1);
 /// How long a connection has to say whose it is.
 const HELLO_LIMIT: Duration = Duration::from_secs(5);
 const MAX_HELLO: u64 = 4096;
@@ -243,11 +249,24 @@ async fn listen(socket: Socket, node: Node) -> Result<()> {
         screens: devices::Screens::default(),
     });
     let mut connections = JoinSet::new();
+    let mut failures = 0u32;
 
     loop {
         tokio::select! {
             stream = listener.accept() => {
-                let stream = stream?;
+                let stream = match stream {
+                    Ok(stream) => {
+                        failures = 0;
+                        stream
+                    }
+                    Err(e) if failures + 1 < MAX_ACCEPT_FAILURES => {
+                        failures += 1;
+                        log::warn!("accepting an MCP connection failed ({failures}): {e}; trying again");
+                        tokio::time::sleep(ACCEPT_RETRY).await;
+                        continue;
+                    }
+                    Err(e) => return Err(e).context("accepting MCP connections"),
+                };
 
                 if connections.len() >= MAX_CONNECTIONS {
                     log::warn!("refused an MCP connection: {MAX_CONNECTIONS} already open");
