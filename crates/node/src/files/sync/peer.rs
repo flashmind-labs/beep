@@ -68,39 +68,13 @@ impl SyncLease {
     }
 
     fn mark_broken(&self) {
-        self.pool.mark_broken(self.peer, &self.conn);
+        self.pool.leave(self.peer, &self.conn, true);
     }
 }
 
 impl Drop for SyncLease {
     fn drop(&mut self) {
-        let close = {
-            let mut peers = lock(&self.pool.peers);
-            let mut close = None;
-
-            if let Some(list) = peers.get_mut(&self.peer) {
-                if let Some(index) = list
-                    .iter()
-                    .position(|held| held.conn.stable_id() == self.conn.stable_id())
-                {
-                    list[index].leases = list[index].leases.saturating_sub(1);
-
-                    if list[index].leases == 0 {
-                        close = Some(list.remove(index).conn);
-                    }
-                }
-
-                if list.is_empty() {
-                    peers.remove(&self.peer);
-                }
-            }
-
-            close
-        };
-
-        if let Some(conn) = close {
-            conn.close(0u32.into(), b"idle");
-        }
+        self.pool.leave(self.peer, &self.conn, false);
     }
 }
 
@@ -178,7 +152,10 @@ impl SyncPool {
         })
     }
 
-    fn mark_broken(&self, peer: EndpointId, connection: &Connection) {
+    /// A lease on `connection` ends, or with `broken` the connection is
+    /// flagged and no pull is placed on it again. It closes once no lease
+    /// is left.
+    fn leave(&self, peer: EndpointId, connection: &Connection, broken: bool) {
         let close = {
             let mut peers = lock(&self.peers);
             let mut close = None;
@@ -188,7 +165,11 @@ impl SyncPool {
                     .iter()
                     .position(|held| held.conn.stable_id() == connection.stable_id())
                 {
-                    list[index].broken = true;
+                    if broken {
+                        list[index].broken = true;
+                    } else {
+                        list[index].leases = list[index].leases.saturating_sub(1);
+                    }
 
                     if list[index].leases == 0 {
                         close = Some(list.remove(index).conn);
@@ -204,7 +185,7 @@ impl SyncPool {
         };
 
         if let Some(conn) = close {
-            conn.close(0u32.into(), b"broken");
+            conn.close(0u32.into(), if broken { b"broken" } else { b"idle" });
         }
     }
 }
