@@ -29,12 +29,16 @@ impl Interest {
     /// Whether this is an interest in what `machine` pushes on `topic`.
     pub(crate) fn wants_node(&self, machine: &str, topic: &Topic) -> bool {
         self.machine.as_ref().is_none_or(|own| own == machine)
-            && (self.topic.matches(topic)
-                || matches!(
-                    (topic.name(), self.topic.name()),
-                    ("agents", "agent") | ("processes", "process-output")
-                ))
+            && (self.topic.matches(topic) || aliased(topic, &self.topic))
     }
+}
+
+/// Whether an interest in `interest` also follows what the node pushes on `topic`.
+pub(crate) fn aliased(topic: &Topic, interest: &Topic) -> bool {
+    matches!(
+        (topic.name(), interest.name()),
+        ("agents", "agent") | ("processes", "process-output")
+    )
 }
 
 /// What the windows want, as `Events` last published it. `Views` keeps this copy to decide what

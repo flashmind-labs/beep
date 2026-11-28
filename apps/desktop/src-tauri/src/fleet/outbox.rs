@@ -4,7 +4,7 @@
 
 use super::{
     terminal_rows,
-    view_signal::{Interest, Update, Wants, join_changed},
+    view_signal::{Interest, Update, Wants, aliased, join_changed},
 };
 use crate::error::{DesktopError, Result};
 use beep_proto::node::events::{self, Topic};
@@ -910,12 +910,7 @@ impl WindowOutbox {
                     .as_ref()
                     .is_none_or(|machine| machine == &update.machine_id)
             })
-            .filter(|interest| {
-                matches!(
-                    (update.topic.name(), interest.topic.name()),
-                    ("agents", "agent") | ("processes", "process-output")
-                )
-            })
+            .filter(|interest| aliased(&update.topic, &interest.topic))
             .map(|interest| interest.topic.clone())
             .collect();
         self.dispatch(update.clone());
@@ -1021,15 +1016,7 @@ impl WindowOutbox {
         let (_, topic, _) = key;
 
         let revision = self.revision.fetch_add(1, Ordering::Relaxed) + 1;
-        self.dispatch(Update {
-            machine_id: machine.to_string(),
-            revision,
-            topic,
-            query: None,
-            initial: false,
-            data: Some(data),
-            seq: 0,
-        });
+        self.dispatch(pushed(machine, revision, topic, data));
     }
 
     /// Sends the views read for a node's topic as an update of that topic, with the revision the
@@ -1045,15 +1032,20 @@ impl WindowOutbox {
             return;
         }
 
-        self.dispatch(Update {
-            machine_id: machine.to_string(),
-            revision,
-            topic,
-            query: None,
-            initial: false,
-            data: Some(data),
-            seq: 0,
-        });
+        self.dispatch(pushed(machine, revision, topic, data));
+    }
+}
+
+/// What a window is sent when `machine` pushes `data` on `topic`.
+fn pushed(machine: EndpointId, revision: u64, topic: Topic, data: serde_json::Value) -> Update {
+    Update {
+        machine_id: machine.to_string(),
+        revision,
+        topic,
+        query: None,
+        initial: false,
+        data: Some(data),
+        seq: 0,
     }
 }
 
