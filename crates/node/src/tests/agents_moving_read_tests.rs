@@ -171,10 +171,11 @@ async fn a_replacement_target_cannot_take_a_session_the_previous_target_may_run(
 #[tokio::test]
 async fn a_read_is_answered_from_the_owners_the_moves_hold() {
     let source = source(&header(""));
-    let own = Arc::new(Reopen::new(
-        source.agents.sessions.clone(),
-        source.agents.links.clone(),
-    ));
+    let own = Arc::new(Reopen {
+        sessions: source.agents.sessions.clone(),
+        links: source.agents.links.clone(),
+        ..Default::default()
+    });
     let moves = Arc::new(Moves::new(
         source.agents.sessions.clone(),
         own,

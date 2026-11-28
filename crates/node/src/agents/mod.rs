@@ -278,22 +278,29 @@ impl Agents {
             events.clone(),
             sessions.clone(),
         ));
-        let reopen = Arc::new(reopen::Reopen::new(sessions.clone(), links.clone()));
+        let reopen = Arc::new(reopen::Reopen {
+            sessions: sessions.clone(),
+            links: links.clone(),
+            ..Default::default()
+        });
         let images = Arc::<Images>::default();
-        let reach = Arc::new(reach::Reach::new(
-            parts.folders,
-            sessions.clone(),
-            parts.occupancy.clone(),
-        ));
+        let reach = Arc::new(reach::Reach {
+            folders: parts.folders,
+            sessions: sessions.clone(),
+            occupancy: parts.occupancy.clone(),
+        });
 
-        let listings = Arc::new(listings::Listings::new(
-            sessions.clone(),
-            parts.occupancy.clone(),
-            images.clone(),
-            events.clone(),
-            reviews.clone(),
-            reopen.clone(),
-        ));
+        let listings = Arc::new(listings::Listings {
+            sessions: sessions.clone(),
+            occupancy: parts.occupancy.clone(),
+            images: images.clone(),
+            events: events.clone(),
+            reviews: reviews.clone(),
+            reopen: reopen.clone(),
+            on_disk: Default::default(),
+            rescanning: Default::default(),
+            listed: Default::default(),
+        });
 
         let moves = Arc::new(moving::Moves::new(
             sessions.clone(),
@@ -317,18 +324,19 @@ impl Agents {
             events.clone(),
         ));
 
-        let delete = Arc::new(delete::Delete::new(
-            sessions.clone(),
-            reopen.clone(),
-            listings.clone(),
-            parts.occupancy.clone(),
-            search.clone(),
-        ));
-        let family = Arc::new(family::Family::new(
-            sessions.clone(),
-            links.clone(),
-            delete.clone(),
-        ));
+        let delete = Arc::new(delete::Delete {
+            closed: Default::default(),
+            sessions: sessions.clone(),
+            reopen: reopen.clone(),
+            listings: listings.clone(),
+            occupancy: parts.occupancy.clone(),
+            search: search.clone(),
+        });
+        let family = Arc::new(family::Family {
+            sessions: sessions.clone(),
+            links: links.clone(),
+            delete: delete.clone(),
+        });
 
         let transcripts = Arc::new(transcripts::Transcripts::new(
             sessions.clone(),
@@ -339,22 +347,22 @@ impl Agents {
         let usage = Arc::new(usage::Usage::new(catalog.clone()));
         let alerts = Arc::<AlertHub>::default();
         let checkouts = Arc::<checkouts::Checkouts>::default();
-        let starter = Arc::new(running::Starter::new(
-            catalog.clone(),
-            sessions.clone(),
-            links.clone(),
-            family.clone(),
-            parts.occupancy.clone(),
-            usage.clone(),
-            images.clone(),
-            alerts.clone(),
-            checkouts.clone(),
-            events.clone(),
-            reopen.clone(),
-            listings.clone(),
-            reviews.clone(),
-            delete.clone(),
-        ));
+        let starter = Arc::new(running::Starter {
+            catalog: catalog.clone(),
+            sessions: sessions.clone(),
+            links: links.clone(),
+            family: family.clone(),
+            occupancy: parts.occupancy.clone(),
+            usage: usage.clone(),
+            images: images.clone(),
+            alerts: alerts.clone(),
+            checkouts: checkouts.clone(),
+            events: events.clone(),
+            reopen: reopen.clone(),
+            listings: listings.clone(),
+            reviews: reviews.clone(),
+            delete: delete.clone(),
+        });
 
         Self {
             occupancy: parts.occupancy,

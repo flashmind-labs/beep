@@ -80,18 +80,26 @@ fn bridge_over(root: &std::path::Path) -> Arc<EventBridge> {
         crate::logs::claude::Store::locate_in(root),
         crate::logs::found::Stores::at(Some(root), None, None),
     );
-    let listings = Arc::new(Listings::new(
-        sessions.clone(),
-        occupancy.clone(),
-        Arc::default(),
-        events.clone(),
-        Arc::new(Reviews::new(events.clone(), sessions.clone())),
-        Arc::new(Reopen::new(
-            sessions.clone(),
-            Arc::new(Links::new(Default::default())),
-        )),
-    ));
-    let reach = Arc::new(Reach::new(Vec::new(), sessions.clone(), occupancy.clone()));
+    let listings = Arc::new(Listings {
+        sessions: sessions.clone(),
+        occupancy: occupancy.clone(),
+        images: Arc::default(),
+        events: events.clone(),
+        reviews: Arc::new(Reviews::new(events.clone(), sessions.clone())),
+        reopen: Arc::new(Reopen {
+            sessions: sessions.clone(),
+            links: Arc::new(Links::new(Default::default())),
+            ..Default::default()
+        }),
+        on_disk: Default::default(),
+        rescanning: Default::default(),
+        listed: Default::default(),
+    });
+    let reach = Arc::new(Reach {
+        folders: Vec::new(),
+        sessions: sessions.clone(),
+        occupancy: occupancy.clone(),
+    });
 
     Arc::new(EventBridge::new(
         events, occupancy, listings, reach, sessions,

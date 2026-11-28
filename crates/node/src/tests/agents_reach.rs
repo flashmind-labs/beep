@@ -231,22 +231,3 @@ fn the_root_folder_is_never_a_reach() {
     };
     assert!(!reach.holds(Path::new("/etc/passwd"), Access::Read));
 }
-
-/// Built from the owners below it: every field is a value of a lower type.
-#[test]
-fn reach_is_built_from_sessions_and_occupancy_alone() {
-    let Reach {
-        folders,
-        sessions,
-        occupancy,
-    } = Reach::new(
-        vec![PathBuf::from("/srv/work")],
-        Arc::default(),
-        Occupancy::default(),
-    );
-    let _: &Vec<PathBuf> = &folders;
-    let _: &Arc<Sessions> = &sessions;
-    let _: &Occupancy = &occupancy;
-
-    assert_eq!(folders, [PathBuf::from("/srv/work")]);
-}

@@ -32,16 +32,6 @@ pub struct Reopen {
     pub(super) links: Arc<Links>,
 }
 
-impl Reopen {
-    pub(crate) fn new(sessions: Arc<Sessions>, links: Arc<Links>) -> Self {
-        Self {
-            sessions,
-            links,
-            ..Self::default()
-        }
-    }
-}
-
 /// What the node keeps of a session, also after it ended, so it goes on as
 /// it was when it is resumed, taken over or moved: its `SessionInfo` as
 /// listed, and the thinking level, which the info does not carry.

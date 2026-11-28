@@ -58,46 +58,6 @@ pub(crate) struct Starter {
 }
 
 impl Starter {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "one owner per lower owner it reads"
-    )]
-    pub(crate) fn new(
-        catalog: Arc<Catalog>,
-        sessions: Arc<Sessions>,
-        links: Arc<Links>,
-        family: Arc<Family>,
-        occupancy: Occupancy,
-        usage: Arc<Usage>,
-        images: Arc<Images>,
-        alerts: Arc<AlertHub>,
-        checkouts: Arc<Checkouts>,
-        events: Hub,
-        reopen: Arc<Reopen>,
-        listings: Arc<Listings>,
-        reviews: Arc<Reviews>,
-        delete: Arc<Delete>,
-    ) -> Self {
-        Self {
-            catalog,
-            sessions,
-            links,
-            family,
-            occupancy,
-            usage,
-            images,
-            alerts,
-            checkouts,
-            events,
-            reopen,
-            listings,
-            reviews,
-            delete,
-        }
-    }
-}
-
-impl Starter {
     /// Starts a session in the branch or worktree `checkout` makes in
     /// `cwd`, or in `cwd` itself without one. A start that would be refused
     /// is refused before anything is made.

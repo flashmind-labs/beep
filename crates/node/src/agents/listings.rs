@@ -36,29 +36,6 @@ pub struct Listings {
     pub(super) listed: Mutex<HashMap<usize, Arc<AsyncMutex<Option<Listed>>>>>,
 }
 
-impl Listings {
-    pub(crate) fn new(
-        sessions: Arc<Sessions>,
-        occupancy: Occupancy,
-        images: Arc<Images>,
-        events: Hub,
-        reviews: Arc<Reviews>,
-        reopen: Arc<Reopen>,
-    ) -> Self {
-        Self {
-            sessions,
-            occupancy,
-            images,
-            events,
-            reviews,
-            reopen,
-            on_disk: Mutex::default(),
-            rescanning: AsyncMutex::default(),
-            listed: Mutex::default(),
-        }
-    }
-}
-
 /// The last folder listing, for the asks that waited while it ran.
 pub(super) struct Listed {
     /// When it ended.

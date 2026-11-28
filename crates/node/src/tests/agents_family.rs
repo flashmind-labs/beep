@@ -918,11 +918,11 @@ async fn stopping_a_parent_stops_its_children_s_turns() {
 #[tokio::test]
 async fn a_family_built_from_the_nodes_owners_finds_and_stops_a_child() {
     let rig = Rig::new();
-    let family = Family::new(
-        rig.agents.sessions.clone(),
-        rig.agents.links.clone(),
-        rig.agents.delete.clone(),
-    );
+    let family = Family {
+        sessions: rig.agents.sessions.clone(),
+        links: rig.agents.links.clone(),
+        delete: rig.agents.delete.clone(),
+    };
     assert!(Arc::ptr_eq(&family.sessions, &rig.agents.sessions));
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
     let child = child_of(&rig.agents, &parent, "kid", "hang on", rig.dir.path()).await;

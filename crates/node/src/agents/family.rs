@@ -39,18 +39,6 @@ pub(crate) struct Family {
 }
 
 impl Family {
-    pub(crate) fn new(
-        sessions: Arc<sessions::Sessions>,
-        links: Arc<links::Links>,
-        delete: Arc<Delete>,
-    ) -> Self {
-        Self {
-            sessions,
-            links,
-            delete,
-        }
-    }
-
     /// The calling session `session` of this node, and who it is to its
     /// children.
     pub(crate) fn caller(&self, session: &SessionId) -> Option<(Arc<Session>, Who)> {

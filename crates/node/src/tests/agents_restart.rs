@@ -1168,18 +1168,3 @@ async fn a_saved_assistant_chat_still_names_its_folder_to_delete() {
     );
     agents.shutdown().await;
 }
-
-/// Built from the owners below it: every field is a value of a lower type.
-#[test]
-fn reopen_is_built_from_sessions_and_links_alone() {
-    let crate::agents::reopen::Reopen {
-        saved,
-        reopened,
-        sessions,
-        links,
-    } = crate::agents::reopen::Reopen::new(Arc::default(), Arc::default());
-    let _: &std::sync::Mutex<Vec<SavedSession>> = &saved;
-    let _: &tokio::sync::watch::Sender<bool> = &reopened;
-    let _: &Arc<crate::agents::sessions::Sessions> = &sessions;
-    let _: &Arc<crate::agents::family::links::Links> = &links;
-}

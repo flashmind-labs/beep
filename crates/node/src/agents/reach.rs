@@ -99,23 +99,11 @@ pub(super) fn refused(asked: &str, access: Access) -> anyhow::Error {
 pub(crate) struct Reach {
     /// The workspace and the folders shared in `node.toml`.
     pub(super) folders: Vec<PathBuf>,
-    sessions: Arc<Sessions>,
-    occupancy: Occupancy,
+    pub(super) sessions: Arc<Sessions>,
+    pub(super) occupancy: Occupancy,
 }
 
 impl Reach {
-    pub(crate) fn new(
-        folders: Vec<PathBuf>,
-        sessions: Arc<Sessions>,
-        occupancy: Occupancy,
-    ) -> Self {
-        Self {
-            folders,
-            sessions,
-            occupancy,
-        }
-    }
-
     /// The folders of the sessions started outside Beep that run now.
     pub(super) fn live_presence_folders(&self) -> Vec<PathBuf> {
         self.occupancy

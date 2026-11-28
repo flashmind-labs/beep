@@ -396,23 +396,27 @@ async fn a_found_session_reads_from_the_listings_alone() {
     .expect("a rollout");
     let events = crate::events::Hub::default();
     let sessions = Arc::new(crate::agents::sessions::Sessions::default());
-    let listings = crate::agents::listings::Listings::new(
-        sessions.clone(),
-        crate::occupancy::Occupancy::over(
+    let listings = crate::agents::listings::Listings {
+        sessions: sessions.clone(),
+        occupancy: crate::occupancy::Occupancy::over(
             crate::logs::claude::Store::at(nothing.path()),
             crate::logs::found::Stores::at(Some(codex.path()), None, None),
         ),
-        Arc::default(),
-        events.clone(),
-        Arc::new(crate::agents::reviews::kept::Reviews::new(
+        images: Arc::default(),
+        events: events.clone(),
+        reviews: Arc::new(crate::agents::reviews::kept::Reviews::new(
             events,
             sessions.clone(),
         )),
-        Arc::new(crate::agents::reopen::Reopen::new(
+        reopen: Arc::new(crate::agents::reopen::Reopen {
             sessions,
-            Arc::new(crate::agents::family::links::Links::new(Default::default())),
-        )),
-    );
+            links: Arc::new(crate::agents::family::links::Links::new(Default::default())),
+            ..Default::default()
+        }),
+        on_disk: Default::default(),
+        rescanning: Default::default(),
+        listed: Default::default(),
+    };
 
     let (entries, earlier) = listings
         .found_transcript(&SessionId::from(CODEX_ID), 10, None, None, true)

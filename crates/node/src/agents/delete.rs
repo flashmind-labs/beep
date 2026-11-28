@@ -32,7 +32,7 @@ pub(super) struct Closed {
 
 /// Where closed background children report, and the end that deletes them,
 /// taken once by the upkeep.
-struct Tidy {
+pub(super) struct Tidy {
     tx: UnboundedSender<Closed>,
     rx: Mutex<Option<UnboundedReceiver<Closed>>>,
 }
@@ -51,32 +51,15 @@ impl Default for Tidy {
 /// Deletes ended sessions, the agent's files and the node's record of them,
 /// and the background children that closed for good.
 pub(crate) struct Delete {
-    closed: Tidy,
+    pub(super) closed: Tidy,
     pub(super) sessions: Arc<Sessions>,
-    reopen: Arc<Reopen>,
+    pub(super) reopen: Arc<Reopen>,
     pub(super) listings: Arc<Listings>,
-    occupancy: Occupancy,
-    search: Arc<Opener>,
+    pub(super) occupancy: Occupancy,
+    pub(super) search: Arc<Opener>,
 }
 
 impl Delete {
-    pub(crate) fn new(
-        sessions: Arc<Sessions>,
-        reopen: Arc<Reopen>,
-        listings: Arc<Listings>,
-        occupancy: Occupancy,
-        search: Arc<Opener>,
-    ) -> Self {
-        Self {
-            closed: Tidy::default(),
-            sessions,
-            reopen,
-            listings,
-            occupancy,
-            search,
-        }
-    }
-
     /// The receiver of the closed background children, for the one task that
     /// deletes them; `None` once taken.
     pub(super) fn take_closed(&self) -> Option<UnboundedReceiver<Closed>> {

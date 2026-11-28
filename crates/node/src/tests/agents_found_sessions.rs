@@ -198,20 +198,24 @@ async fn listings_list_a_transcript_from_the_stores_they_are_built_over() {
     .expect("a transcript");
     let events = crate::events::Hub::default();
     let sessions = Arc::new(Sessions::default());
-    let listings: Listings = Listings::new(
-        sessions.clone(),
-        crate::occupancy::Occupancy::over(
+    let listings: Listings = Listings {
+        sessions: sessions.clone(),
+        occupancy: crate::occupancy::Occupancy::over(
             crate::logs::claude::Store::locate_in(root.path()),
             Default::default(),
         ),
-        Arc::default(),
-        events.clone(),
-        Arc::new(Reviews::new(events, sessions.clone())),
-        Arc::new(Reopen::new(
+        images: Arc::default(),
+        events: events.clone(),
+        reviews: Arc::new(Reviews::new(events, sessions.clone())),
+        reopen: Arc::new(Reopen {
             sessions,
-            Arc::new(Links::new(Default::default())),
-        )),
-    );
+            links: Arc::new(Links::new(Default::default())),
+            ..Default::default()
+        }),
+        on_disk: Default::default(),
+        rescanning: Default::default(),
+        listed: Default::default(),
+    };
 
     let found = listings.external_sessions(10).await.expect("a list");
 
