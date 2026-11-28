@@ -24,8 +24,8 @@ use tokio::sync::watch;
 use uuid::Uuid;
 
 pub(crate) type Sink = Arc<dyn Fn(Update) -> bool + Send + Sync>;
-pub(crate) type Delivery = Arc<Mutex<Sink>>;
-pub(crate) struct Window {
+pub(super) type Delivery = Arc<Mutex<Sink>>;
+pub(super) struct Window {
     pub(crate) id: Uuid,
     pub(crate) topics: Vec<Interest>,
     pub(crate) _stop: watch::Sender<()>,
@@ -35,7 +35,7 @@ pub(crate) struct Window {
 
 /// A hidden window keeps its demand for `Registry::grace`, so showing it again sends only what
 /// changed meanwhile instead of reloading every snapshot.
-pub(crate) struct Paused {
+pub(super) struct Paused {
     pub(crate) at: Instant,
     /// The last update sequence the window had been sent.
     pub(crate) seq: u64,
@@ -60,9 +60,9 @@ impl Window {
 
 /// How long a hidden window keeps its node streams. A phone is suspended soon after it hides.
 #[cfg(mobile)]
-pub(crate) const PAUSE_GRACE: Duration = Duration::from_secs(60);
+pub(super) const PAUSE_GRACE: Duration = Duration::from_secs(60);
 #[cfg(not(mobile))]
-pub(crate) const PAUSE_GRACE: Duration = Duration::from_secs(300);
+pub(super) const PAUSE_GRACE: Duration = Duration::from_secs(300);
 
 /// What a window that shows again or reattaches was sent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,24 +75,24 @@ pub(crate) enum Primed {
     Full,
 }
 
-pub(crate) struct Pending {
+pub(super) struct Pending {
     pub(crate) window: String,
     pub(crate) id: Uuid,
     pub(crate) topics: Option<Vec<Interest>>,
 }
 
-pub(crate) type SnapshotKey = (String, Topic, Option<u64>);
+pub(super) type SnapshotKey = (String, Topic, Option<u64>);
 pub(crate) const MAX_NODE_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
 pub(crate) const MAX_SNAPSHOT_BYTES: usize = 64 * 1024 * 1024;
 
-pub(crate) struct CachedSnapshot {
+pub(super) struct CachedSnapshot {
     update: Update,
     bytes: usize,
     used: Instant,
 }
 
 #[derive(Default)]
-pub(crate) struct Latest {
+pub(super) struct Latest {
     pub(crate) entries: BTreeMap<SnapshotKey, CachedSnapshot>,
     pub(crate) bytes: usize,
     /// The sequence of the last retained update.
@@ -253,7 +253,7 @@ impl Latest {
     }
 }
 
-pub(crate) struct Registry {
+pub(super) struct Registry {
     pub(crate) windows: HashMap<String, Window>,
     pub(crate) pending: VecDeque<Pending>,
     pub(crate) latest: Latest,
@@ -459,7 +459,7 @@ impl Registry {
 }
 
 pub(crate) struct WindowOutbox {
-    pub(crate) registry: Mutex<Registry>,
+    pub(super) registry: Mutex<Registry>,
     pub(crate) demand: watch::Sender<Vec<Interest>>,
     /// What the windows want, for `Views` to follow.
     pub(crate) wants: watch::Sender<Arc<Wants>>,
@@ -727,7 +727,7 @@ impl WindowOutbox {
     }
 
     /// Keep publication inside the registry lock so concurrent IPC changes cannot publish stale demand.
-    pub(crate) fn publish(&self, registry: &Registry) {
+    pub(super) fn publish(&self, registry: &Registry) {
         let topics = registry.interests();
         // Hosts without a push feed are polled only for shown windows.
         let forge = registry
@@ -1032,15 +1032,15 @@ fn pushed(machine: EndpointId, revision: u64, topic: Topic, data: serde_json::Va
 }
 
 /// The start of the registry label of a standing interest, which no window can have.
-pub(crate) const STANDING: &str = "standing:";
+pub(super) const STANDING: &str = "standing:";
 
 #[cfg(desktop)]
-pub(crate) fn standing_label(who: &str) -> String {
+pub(super) fn standing_label(who: &str) -> String {
     format!("{STANDING}{who}")
 }
 
 /// Whether `label` is a standing interest's, which keeps streams on and takes no updates.
-pub(crate) fn standing(label: &str) -> bool {
+pub(super) fn standing(label: &str) -> bool {
     label.starts_with(STANDING)
 }
 
@@ -1091,7 +1091,7 @@ pub(crate) fn controller_topic(topic: &Topic) -> bool {
 
 /// Whether some of `interests` has no kept update in `latest`: a refresh then asks the nodes for
 /// it. Everything kept was primed from the cache and needs none.
-pub(crate) fn has_unkept(
+pub(super) fn has_unkept(
     interests: &[Interest],
     latest: &[&Update],
     controller: &EndpointId,
