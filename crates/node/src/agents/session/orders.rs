@@ -201,7 +201,9 @@ impl Actor {
     /// session declares a stop for each task (`acp::new_session`).
     fn cancel(&mut self, cx: &ConnectionTo<Agent>, by_user: bool) -> Result<()> {
         self.backlog.cancel(by_user);
-        self.by_user |= by_user && self.turn.is_some();
+        if let Some(turn) = &mut self.turn {
+            turn.by_user |= by_user;
+        }
         self.show_queued();
 
         while let Some(asked) = self.asked.pop_front() {

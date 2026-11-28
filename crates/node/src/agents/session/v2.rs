@@ -146,7 +146,7 @@ impl Actor {
 
     pub(super) fn v2_idle(&mut self, cx: &ConnectionTo<Agent>, idle: v2::IdleStateUpdate) {
         self.foreground = false;
-        self.turn = None;
+        let by_user = self.turn.take().is_some_and(|turn| turn.by_user);
         self.running.clear();
         let (stop, error) = match idle.stop_reason {
             Some(v2::StopReason::EndTurn) => (StopReason::EndTurn, None),
@@ -177,7 +177,7 @@ impl Actor {
             };
             self.compacted(cx, result);
         } else {
-            self.turn_done(cx, stop, error);
+            self.turn_done(cx, stop, error, by_user);
         }
     }
 }

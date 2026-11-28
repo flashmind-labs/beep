@@ -99,7 +99,6 @@ impl Actor {
         };
 
         if self.backlog.steers_empty()
-            || self.by_user
             || turn.stopping.is_some()
             || self.backlog.is_steering()
             || turn.steer_after
@@ -280,6 +279,7 @@ impl Actor {
         cx: &ConnectionTo<Agent>,
         stop: StopReason,
         error: Option<String>,
+        by_user: bool,
     ) {
         // A turn that ends leaves no question open. A dropped responder
         // sends nothing, so each is answered cancelled.
@@ -318,7 +318,7 @@ impl Actor {
         let mut files = None;
         let mut made = None;
         let mut worktrees = None;
-        let by_user = std::mem::take(&mut self.by_user) && stop == StopReason::Cancelled;
+        let by_user = by_user && stop == StopReason::Cancelled;
         self.live.send_modify(|live| {
             live.end_thought(Instant::now());
             live.stopped(by_user);

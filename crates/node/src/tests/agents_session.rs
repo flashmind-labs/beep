@@ -2628,6 +2628,44 @@ async fn an_explicit_close_refuses_late_uploads_before_the_agent_stops() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn a_stop_by_the_user_does_not_make_a_dropped_handle_a_close_by_the_user() {
+    let temp = tempfile::tempdir().unwrap();
+    let session = started(temp.path(), "while read -r line; do :; done");
+    until(&session, |live| live.status() == Status::Working).await;
+    let kept =
+        crate::agents::uploads::write(&session.agent, &session.id, "note.txt", 0, 1, b"x", None)
+            .unwrap();
+    session
+        .order(Command::Cancel { by_user: true })
+        .await
+        .unwrap();
+    // The orders channel closes while the task still runs.
+    let Session {
+        orders,
+        live,
+        id,
+        agent,
+        _task,
+        ..
+    } = session;
+    drop(orders);
+    let mut watch = live.clone();
+    tokio::time::timeout(
+        Duration::from_secs(60),
+        watched::wait_for(&mut watch, |live| live.status() == Status::Ended),
+    )
+    .await
+    .expect("the session ends")
+    .unwrap();
+    let by_user = watched::read(&live, |live| live.stopped_by_user);
+    let exists = Path::new(&kept).exists();
+    crate::agents::uploads::remove(&agent, &id).unwrap();
+    assert!(exists, "the attachments stay");
+    assert!(!by_user);
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn a_harness_default_model_is_used_unless_the_session_picks_one() {
     for (requested, expected) in [(None, "deep"), (Some("fast"), "fast")] {
         let temp = tempfile::tempdir().unwrap();

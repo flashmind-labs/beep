@@ -276,8 +276,6 @@ pub(super) struct Actor {
     pub(super) turn: Option<Turn>,
     /// The end of the last turn, held while its subagents run.
     pub(super) held_end: Option<HeldEnd>,
-    /// The user stopped the running turn, or closed the session.
-    pub(super) by_user: bool,
     /// How long the agent has to end its turn after Stop.
     pub(super) stop_within: Duration,
     /// The tool calls of the running turn that have not finished.
@@ -308,6 +306,8 @@ pub(super) struct Turn {
     /// The adapter found no running turn for a steer; wait for our
     /// prompt's reply.
     pub(super) steer_after: bool,
+    /// The user asked it to stop.
+    pub(super) by_user: bool,
 }
 
 impl Turn {
@@ -316,13 +316,17 @@ impl Turn {
             number,
             stopping: None,
             steer_after: false,
+            by_user: false,
         }
     }
 }
 
 /// Why the session's task stopped.
 pub(super) enum End {
-    Closed,
+    /// The session was closed, or its handle dropped; `by_user` when the user closed it.
+    Closed {
+        by_user: bool,
+    },
     Exited,
     Failed(String),
     /// The agent did not end its turn within `stop_within` of Stop.
@@ -473,14 +477,16 @@ impl Actor {
         // The node stopping ends its sessions, whether it closed them or the
         // service manager stopped the agents first.
         let end = match end {
-            Ok(End::Closed | End::Exited) if self.node.stopping.load(Ordering::Relaxed) => {
+            Ok(End::Closed { .. } | End::Exited) if self.node.stopping.load(Ordering::Relaxed) => {
                 Ok(End::NodeStopped)
             }
             end => end,
         };
-        let closed = matches!(end, Ok(End::Closed));
+        let (closed, by_user) = match &end {
+            Ok(End::Closed { by_user }) => (true, *by_user),
+            _ => (false, false),
+        };
         let node_stopped = matches!(end, Ok(End::NodeStopped));
-        let by_user = self.by_user;
         // Stopped as the user asked, or with the node, so not a failure to
         // alert about.
         let asked = closed
@@ -507,7 +513,7 @@ impl Actor {
         };
         let reason = match end {
             Ok(End::NodeStopped) => NODE_STOPPED.to_owned(),
-            Ok(End::Closed) => "closed".to_owned(),
+            Ok(End::Closed { .. }) => "closed".to_owned(),
             Ok(End::StoppedAll) => {
                 "stopped with its subagents; send a message to continue".to_owned()
             }
@@ -708,7 +714,7 @@ impl Actor {
                 ), if self.held_end.is_some() => self.subagents_quiet(),
                 order = orders.recv() => {
                     let Some((Order { command, done }, _timing)) = order else {
-                        return Ok(End::Closed);
+                        return Ok(End::Closed { by_user: false });
                     };
 
                     let command = match command {
@@ -721,18 +727,16 @@ impl Actor {
                     };
 
                     if let Command::Close { by_user } = command {
-                        self.by_user = by_user;
                         self.live.send_modify(|live| live.closing = by_user);
                         let _ = done.send(Ok(()));
-                        return Ok(End::Closed);
+                        return Ok(End::Closed { by_user });
                     }
 
-                    if let Command::StopAll { by_user } = command
+                    if let Command::StopAll { .. } = command
                         && watched::read_sent(&self.live, |live| {
                             live.info.state.subagents > 0 || live.orphaned_subagents
                         })
                     {
-                        self.by_user = by_user;
                         let _ = done.send(Ok(()));
                         return Ok(End::StoppedAll);
                     }
@@ -1144,7 +1148,7 @@ impl Actor {
                 return Ok(Some(End::Failed(format!("the agent did not start: {e}"))));
             }
             Reply::Prompt(result) => {
-                self.turn = None;
+                let by_user = self.turn.take().is_some_and(|turn| turn.by_user);
                 self.running.clear();
                 let tokens = result.as_ref().map(turn_tokens).unwrap_or_default();
                 self.live.send_modify(|live| live.spent(tokens));
@@ -1156,7 +1160,7 @@ impl Actor {
                     }
                     Err(e) => (StopReason::Failed, Some(e.to_string())),
                 };
-                self.turn_done(cx, stop, error);
+                self.turn_done(cx, stop, error, by_user);
             }
             Reply::Steered(result) => self.steered(cx, result)?,
             Reply::Compacted(result) => self.compacted(cx, result),

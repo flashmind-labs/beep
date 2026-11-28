@@ -462,7 +462,6 @@ impl Session {
             kept_title,
             turn: None,
             held_end: None,
-            by_user: false,
             stop_within,
             running: HashSet::new(),
             brief,

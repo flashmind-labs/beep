@@ -40,7 +40,6 @@ fn actor() -> Actor {
         kept_title: false,
         turn: None,
         held_end: None,
-        by_user: false,
         stop_within: Duration::from_secs(1),
         running: HashSet::new(),
         brief: None,
@@ -253,7 +252,10 @@ async fn a_steer_waits_for_the_turn_the_user_stopped() {
             acp::prompt(&session, &Prompt::from("look".to_owned()), None),
             true,
         );
-        actor.by_user = true;
+        actor
+            .command(&cx, Command::Cancel { by_user: true })
+            .unwrap()
+            .unwrap();
         actor
             .backlog
             .push(Prompt::from("it's dark now".to_owned()), true);
@@ -487,7 +489,7 @@ async fn a_steer_during_v1_compaction_waits_for_compaction_to_finish() {
             });
         });
 
-        actor.turn_done(&cx, StopReason::EndTurn, None);
+        actor.turn_done(&cx, StopReason::EndTurn, None, false);
         assert!(actor.compactor.running());
         assert!(actor.turn.is_none());
 
