@@ -11,7 +11,7 @@ use beep_proto::node::events::{self, Topic};
 use iroh::EndpointId;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
-    sync::{Arc, Mutex, OnceLock, PoisonError},
+    sync::{Arc, Mutex, PoisonError},
     time::{Duration, Instant},
 };
 use tokio::sync::watch;
@@ -143,7 +143,7 @@ impl Latest {
     pub(crate) fn drop_unwanted(
         &mut self,
         interests: &[Interest],
-        controller: Option<&EndpointId>,
+        controller: &EndpointId,
     ) -> Vec<Update> {
         let mut removed = Vec::new();
         self.entries.retain(|_, entry| {
@@ -299,7 +299,7 @@ impl Registry {
     }
 
     /// A paused window that had not been sent a dropped update must be primed in full.
-    pub(crate) fn note_lost(&mut self, removed: &[Update], controller: Option<&EndpointId>) {
+    pub(crate) fn note_lost(&mut self, removed: &[Update], controller: &EndpointId) {
         for window in self.windows.values_mut() {
             if let Some(paused) = window.paused.as_mut()
                 && removed
@@ -460,28 +460,21 @@ pub(crate) struct WindowOutbox {
     pub(crate) refresh: watch::Sender<()>,
     /// Whether a window wants the forge items, for `projects::git_items` to follow.
     pub(crate) forge: watch::Sender<bool>,
-    pub(crate) controller: OnceLock<EndpointId>,
+    pub(crate) controller: EndpointId,
     pub(crate) revision: Mutex<u64>,
 }
 
-impl Default for WindowOutbox {
-    fn default() -> Self {
+impl WindowOutbox {
+    pub(crate) fn new(controller: EndpointId) -> Self {
         Self {
             registry: Mutex::default(),
             demand: watch::channel(Vec::new()).0,
             wants: watch::channel(Arc::default()).0,
             refresh: watch::channel(()).0,
             forge: watch::channel(false).0,
-            controller: OnceLock::new(),
+            controller,
             revision: Mutex::new(0),
         }
-    }
-}
-
-impl WindowOutbox {
-    /// Sets the controller, as the manager starts.
-    pub(crate) fn start(&self, me: EndpointId) {
-        self.controller.get_or_init(|| me);
     }
 
     pub(crate) fn demand(&self) -> watch::Receiver<Vec<Interest>> {
@@ -553,7 +546,7 @@ impl WindowOutbox {
         if let Some(before) = before
             && let Some(held) = registry.windows.get(window)
         {
-            let controller = self.controller.get();
+            let controller = &self.controller;
             let primed: Vec<_> = registry
                 .latest
                 .values()
@@ -591,7 +584,7 @@ impl WindowOutbox {
     }
 
     pub(crate) fn changed(&self) {
-        let controller = self.controller.get();
+        let controller = &self.controller;
         let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
         let interests = registry.interests();
         let removed = registry.latest.drop_unwanted(&interests, controller);
@@ -644,7 +637,7 @@ impl WindowOutbox {
         id: Uuid,
         topics: Option<Vec<Interest>>,
     ) -> Result<Option<Primed>> {
-        let controller = self.controller.get();
+        let controller = &self.controller;
         let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
         let grace = registry.grace;
         let paused = registry
@@ -791,7 +784,7 @@ impl WindowOutbox {
             .latest
             .values()
             .filter(|update| {
-                receives(&held.topics, update, self.controller.get())
+                receives(&held.topics, update, &self.controller)
                     && since.is_none_or(|since| update.seq > since)
             })
             .cloned()
@@ -800,7 +793,7 @@ impl WindowOutbox {
             && has_unkept(
                 &held.topics,
                 &registry.latest.values().collect::<Vec<_>>(),
-                self.controller.get(),
+                &self.controller,
             );
         self.publish(&registry);
         drop(registry);
@@ -852,7 +845,7 @@ impl WindowOutbox {
     /// Retains `update` for every window that wants it and sends it to the shown ones. Hidden
     /// windows within their grace period are sent it once they show.
     pub(crate) fn dispatch(&self, mut update: Update) {
-        let controller = self.controller.get();
+        let controller = &self.controller;
         let bytes = serde_json::to_vec(&update).map_or(usize::MAX, |bytes| bytes.len());
         let destinations: Vec<_> = {
             let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
@@ -972,7 +965,7 @@ impl WindowOutbox {
     }
 
     pub(crate) fn clear_node(&self, machine: EndpointId) {
-        let controller = self.controller.get() == Some(&machine);
+        let controller = self.controller == machine;
         self.registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -1126,7 +1119,7 @@ pub(crate) fn controller_topic(topic: &Topic) -> bool {
 pub(crate) fn has_unkept(
     interests: &[Interest],
     latest: &[&Update],
-    controller: Option<&EndpointId>,
+    controller: &EndpointId,
 ) -> bool {
     interests.iter().any(|interest| {
         !latest
@@ -1136,14 +1129,10 @@ pub(crate) fn has_unkept(
 }
 
 /// Controller topics contain the controller's aggregate state and are never machine-scoped.
-pub(crate) fn receives(
-    interests: &[Interest],
-    update: &Update,
-    controller: Option<&EndpointId>,
-) -> bool {
+pub(crate) fn receives(interests: &[Interest], update: &Update, controller: &EndpointId) -> bool {
     interests.iter().any(|interest| {
         let source_matches = if controller_topic(&interest.topic) {
-            controller.is_some_and(|local| local.to_string() == update.machine_id)
+            controller.to_string() == update.machine_id
         } else {
             interest
                 .machine

@@ -69,7 +69,7 @@ fn an_update_answers_each_wanted_topic_it_matches() {
 
 #[test]
 fn a_followed_topic_reaches_the_host_without_the_page() {
-    let events = WindowOutbox::default();
+    let events = WindowOutbox::new(iroh::SecretKey::generate().public());
     let topics = vec![wanted("agents", None, None)];
     let heard = Arc::new(Heard::default());
     let mut reader = Reader::new(heard.clone().sink());
@@ -99,7 +99,7 @@ fn a_followed_topic_reaches_the_host_without_the_page() {
 
 #[test]
 fn a_burst_reaches_the_host_as_its_newest_update() {
-    let events = WindowOutbox::default();
+    let events = WindowOutbox::new(iroh::SecretKey::generate().public());
     let topics = vec![wanted("agents", None, None)];
     let heard = Arc::new(Heard::default());
     let mut reader = Reader::new(heard.clone().sink());
@@ -122,7 +122,7 @@ fn a_burst_reaches_the_host_as_its_newest_update() {
 
 #[test]
 fn a_query_first_answer_does_not_reach_the_host() {
-    let events = WindowOutbox::default();
+    let events = WindowOutbox::new(iroh::SecretKey::generate().public());
     let topics = vec![wanted("agents", None, None)];
     let heard = Arc::new(Heard::default());
     let mut reader = Reader::new(heard.clone().sink());

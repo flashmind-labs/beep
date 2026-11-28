@@ -50,7 +50,6 @@ impl Drop for Job {
 impl Events {
     pub(crate) fn start(&self, app: AppHandle, fleet: Arc<Fleet>) {
         let outbox = app.state::<WindowOutbox>();
-        outbox.start(fleet.me);
         let mut manager = self.manager.lock().unwrap_or_else(PoisonError::into_inner);
 
         if manager.as_ref().is_none_or(|job| job.0.is_finished()) {
@@ -183,7 +182,6 @@ pub async fn mesh_watch(
 ) -> Result<()> {
     validate(&topics)?;
     let send: Sink = Arc::new(move |update| on_event.send(update).is_ok());
-    events.start(fleet.me);
     let label = window.label();
     let Some((mut stopped, primed)) = events.register(
         label,

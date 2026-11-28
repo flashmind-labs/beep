@@ -954,7 +954,7 @@ fn setup(
     app.manage(center::window::OnScreen::default());
     app.manage(agents::follow::Follows::default());
     app.manage(fleet::events::Events::default());
-    app.manage(fleet::outbox::WindowOutbox::default());
+    app.manage(fleet::outbox::WindowOutbox::new(fleet.me));
     app.manage(views::Views::new(
         app.state::<fleet::outbox::WindowOutbox>().wants(),
     ));

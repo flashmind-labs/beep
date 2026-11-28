@@ -31,7 +31,6 @@ pub(crate) async fn follow(app: AppHandle) {
     let wanted = app.state::<Wanted>().0.clone();
     let events = app.state::<WindowOutbox>();
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
-    events.start(fleet.id());
 
     let heard = Arc::new(Heard::default());
     let mut reader = Reader::new(heard.clone().sink());
