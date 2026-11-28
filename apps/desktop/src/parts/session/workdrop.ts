@@ -10,6 +10,7 @@ import { reloadFolder } from "./files.ts";
 import { paneSession } from "../../stores/agentpane/pane-state.ts";
 import { mentioned } from "../../stores/agentpane/worktree-state.ts";
 import { invoke } from "../../ui/tauri.ts";
+import { reason } from "../../ui/format.ts";
 
 export function answerUpload(choice: "there" | "default" | "cancel") {
   const ask = MN.ask;
@@ -94,7 +95,7 @@ async function uploadFiles(files: File[], folder: string, root: string, batch: U
       const path = await uploadOne(f, folder, root, session, state, batch);
       if (path && !state.paths.includes(path)) state.paths.push(path);
     } catch (e) {
-      const message = `${f.name || "That file"} did not upload: ${String(e instanceof Error ? e.message : e).replace(/^bad request: /, "")}`;
+      const message = `${f.name || "That file"} did not upload: ${reason(e)}`;
       state.error = message;
       if (state === currentMentions()) MN.error(message);
       // The field shows it for a few seconds; the conversation forgets it then too, so it does not come back.

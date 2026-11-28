@@ -4,7 +4,7 @@
 import { createStore } from "zustand";
 import { confirmSheet } from "../../ui/menu.tsx";
 import { invoke } from "../../ui/tauri.ts";
-import { errorText } from "../../stores/machines/machines-state.ts";
+import { reason } from "../../ui/format.ts";
 import { AG, type AgentRow, openOf, where } from "../../stores/agents/agents-state.ts";
 import { agentKind } from "../../stores/agents/agent-kind.ts";
 import { agentKey } from "../../stores/agents/conversation-state.ts";
@@ -68,7 +68,7 @@ async function closeOutside(s: AgentRow) {
     // The session reads as ended once its follow sees the process exit; the field replaces the banner.
     if (continuing.getState().kind === "closing") cancelContinue();
   } catch (e) {
-    const message = errorText(e);
+    const message = reason(e);
     continuing.setState({ kind: "failed", key, message }, true);
     throw new Error(message);
   }

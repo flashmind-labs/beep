@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Button, NO_AUTO } from "../../ui/kit.tsx";
+import { reason } from "../../ui/format.ts";
 
 export interface PairingCommands {
   checkPermission(): Promise<{ camera: string }>;
@@ -11,11 +12,6 @@ export interface PairingCommands {
 }
 
 type Phase = "idle" | "permission" | "scanning" | "pairing";
-
-function message(error: unknown) {
-  const said = error instanceof Error ? error.message : typeof error === "object" && error && "message" in error ? error.message : error;
-  return String(said).replace(/^bad request: /, "");
-}
 
 export function PairingScreen({ commands, done }: { commands: PairingCommands; done: () => void }) {
   const [code, setCode] = useState("");
@@ -41,7 +37,7 @@ export function PairingScreen({ commands, done }: { commands: PairingCommands; d
       await commands.pair(ticket);
       if (active.current) done();
     } catch (e) {
-      if (active.current) { setError(message(e)); setPhase("idle"); }
+      if (active.current) { setError(reason(e)); setPhase("idle"); }
     }
   }
 
@@ -76,7 +72,7 @@ export function PairingScreen({ commands, done }: { commands: PairingCommands; d
       setCode(ticket);
       await pair(ticket);
     } catch (e) {
-      if (active.current) { const said = message(e); setError(scanning && said === "cancelled" ? "Scan cancelled." : said); setPhase("idle"); }
+      if (active.current) { const said = reason(e); setError(scanning && said === "cancelled" ? "Scan cancelled." : said); setPhase("idle"); }
     } finally {
       cameraOpen.current = false;
       running.current = false;

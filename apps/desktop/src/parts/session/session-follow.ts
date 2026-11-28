@@ -401,7 +401,7 @@ function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, replace = f
 
   const sig = pushed ? `pushed ${read}` : JSON.stringify(page);
   const moved = pushed || sig !== AG.sig;
-  if (moved) { AG.sig = sig; AG.changed = Date.now(); }
+  if (moved) AG.sig = sig;
   if (page.session.question?.id !== AG.answering) AG.answering = null;
   // A session opened with no folder (from a notice) draws again once a read gives it.
   const placed = !AG.page?.session.cwd && !!page.session.cwd;
@@ -445,7 +445,6 @@ function drawRest(moved = false, placed = false) {
 function shownFromModel(o: OpenAgent) {
   const read = ++AG.polls;
   AG.sig = `pushed ${read}`;
-  AG.changed = Date.now();
   drawAgentHeading();
   // Live: the connecting line under the kept log goes.
   drawRest(true);

@@ -4,7 +4,7 @@ import { confirmSheet, openMenu } from "../../ui/menu.tsx";
 import { openSheet } from "../../ui/parts.tsx";
 import { HarnessIcon, Icon } from "../../ui/icons.tsx";
 import type { invoke as Invoke } from "../../ui/tauri.ts";
-import { errorText } from "../../stores/machines/machines-state.ts";
+import { reason } from "../../ui/format.ts";
 
 type Harness = "codex" | "claude" | "agy";
 const HARNESS = { codex: "Codex", claude: "Claude Code", agy: "Antigravity" } satisfies Record<Harness, string>;
@@ -64,7 +64,7 @@ function Harnesses({ machineId, invoke }: MachineProps) {
     let current = true;
     void invoke<Harness[]>("machine_mcp_harnesses", { machineId }).then(
       value => { if (current) setLoad({ step: "ready", value }); },
-      error => { if (current) setLoad({ step: "failed", error: errorText(error) }); },
+      error => { if (current) setLoad({ step: "failed", error: reason(error) }); },
     );
     return () => { current = false; };
   }, [machineId, invoke, retry]);
@@ -94,7 +94,7 @@ function McpServers({ machineId, harness, invoke }: MachineProps & { harness: Ha
     let current = true;
     void invoke<Server[]>("machine_mcp_servers", { machineId, harness }).then(
       value => { if (current) setLoad({ step: "ready", value }); },
-      error => { if (current) setLoad({ step: "failed", error: errorText(error) }); },
+      error => { if (current) setLoad({ step: "failed", error: reason(error) }); },
     );
     return () => { current = false; };
   }, [machineId, harness, retry, invoke]);
@@ -225,8 +225,8 @@ function ServerEditor({ title, harness, server, save, pending, close }: {
         ? { stdio: { command, args: args.map(row => row.value), env: pairs(env), cwd: codex ? cwd || null : null } }
         : { remote: { transport, url: url.trim(), headers: pairs(headers),
           env_http_headers: codex ? pairs(envHeaders) : {}, bearer_token_env_var: codex ? token.trim() || null : null } };
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : errorText(reason));
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : reason(failure));
       return;
     }
 
@@ -249,8 +249,8 @@ function ServerEditor({ title, harness, server, save, pending, close }: {
       } else {
         setConflict(true);
       }
-    } catch (reason) {
-      setError(errorText(reason));
+    } catch (failure) {
+      setError(reason(failure));
     } finally {
       pending(false);
       setBusy(false);

@@ -1,13 +1,13 @@
 import { parseProjectSort, type ProjectSort } from "./overview-state.ts";
 
-export type ProjectSortPage = "projects";
+const SORT_KEY = "beep.projects.sort";
 
-export function readProjectSort(page: ProjectSortPage): ProjectSort {
-  try { return parseProjectSort(localStorage.getItem(`beep.${page}.sort`)); } catch { return "default"; }
+export function readProjectSort(): ProjectSort {
+  try { return parseProjectSort(localStorage.getItem(SORT_KEY)); } catch { return "default"; }
 }
 
-export function saveProjectSort(page: ProjectSortPage, sort: ProjectSort) {
-  try { localStorage.setItem(`beep.${page}.sort`, sort); } catch { /* kept for this launch only */ }
+export function saveProjectSort(sort: ProjectSort) {
+  try { localStorage.setItem(SORT_KEY, sort); } catch { /* kept for this launch only */ }
 }
 
 const VISITS_KEY = "beep.projects.visited";

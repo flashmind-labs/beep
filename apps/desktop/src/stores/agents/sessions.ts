@@ -1,7 +1,7 @@
 import { invoke, listen } from "../../ui/tauri.ts";
 import { subscribeEach, topic } from "../../ui/mesh-events.ts";
 import { pushedList } from "../../ui/snapshot-state.ts";
-import { AMBIENT_MS, ambient } from "../../ui/active.ts";
+import { AMBIENT_MS, ambient, nextChange } from "../../ui/active.ts";
 import type { AgentRow, AgentSession } from "./agents-state.ts";
 import { replaceStartedSession, type AgentStarted } from "./starting-state.ts";
 import type { MoveRecord } from "./move-state.ts";
@@ -88,13 +88,7 @@ listen<Retitled>("agent-title-changed", ({ payload }) => {
 
 /// Resolves at the next change of the sessions, or after `ms`: for a page that looks for a row
 /// the machine has not listed yet.
-export function nextSessions(ms: number): Promise<void> {
-  return new Promise(done => {
-    const finish = () => { clearTimeout(timer); sessionsRead.delete(finish); done(); };
-    const timer = setTimeout(finish, ms);
-    sessionsRead.add(finish);
-  });
-}
+export const nextSessions = (ms: number) => nextChange(sessionsRead, ms);
 
 /// The sessions every page shares: the list held from the pushes, or one read before the first.
 export function ensureSessions(): Promise<AgentSession[]> {

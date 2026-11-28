@@ -13,12 +13,6 @@ import type { MacControl } from "../../parts/machines/machine-state.ts";
 import type { SyncRow } from "../../parts/project/filesync.ts";
 import type { GitRow } from "../project/gitsync-state.ts";
 
-/// What `agent_resume` gives.
-export interface Started {
-  session: SessionRow;
-  why: string;
-}
-
 // ---------- Window state ----------
 
 /// What a view's mount gets: a pane target, or the Projects page's pick.

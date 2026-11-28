@@ -173,3 +173,13 @@ if (typeof window !== "undefined") {
   told.push(mark);
   mark();
 }
+
+/// Resolves at the next call of one of `listeners`, or after `ms`: for a page that looks for a row
+/// the host has not listed yet.
+export function nextChange(listeners: Set<() => void>, ms: number): Promise<void> {
+  return new Promise(done => {
+    const finish = () => { clearTimeout(timer); listeners.delete(finish); done(); };
+    const timer = setTimeout(finish, ms);
+    listeners.add(finish);
+  });
+}

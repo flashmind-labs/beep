@@ -71,7 +71,6 @@ apps/desktop/src/parts/session/session-follow.ts | followFrom | setTimeout#1 | r
 apps/desktop/src/parts/session/session-follow.ts | still | setTimeout#1 | retry | reopens a lost session follow every RETRY_MS
 apps/desktop/src/parts/session/session-follow.ts | watchRead | setTimeout#1 | deadline | logs if nothing was read after the watch time
 apps/desktop/src/parts/session/sessionmenu.ts | start | setTimeout#1 | ui | starts the continued session once the opened view shows it
-apps/desktop/src/stores/agents/sessions.ts | finish | setTimeout#1 | deadline | stops waiting for a session list after ms
 apps/desktop/src/parts/session/turn-heading-view.tsx | tickClocks | setInterval#1 | ui | ticks the running turn clock each second while shown
 apps/desktop/src/parts/session/turnrows.ts | copyCode | setTimeout#1 | ui | restores the copy icon after the copied mark
 apps/desktop/src/parts/session/workdrop.ts | attachFiles | setTimeout#1 | ui | clears an attach error after its display time
@@ -97,7 +96,6 @@ apps/desktop/src/parts/session/stash.tsx | note | setTimeout#1 | ui | removes th
 apps/desktop/src/parts/session/viewer-overlay.tsx | notice | setTimeout#1 | ui | removes the viewer notice after 5 s
 apps/desktop/src/screens/machines/addmachine.tsx | <top> | setInterval#1 | ui | ticks the ticket countdown while the sheet shows
 apps/desktop/src/screens/machines/addmachine.tsx | openAddMachine | setInterval#1 | ui | ticks the ticket countdown while the sheet shows
-apps/desktop/src/stores/machines/machine-store.ts | finish | setTimeout#1 | deadline | stops waiting for a machines change after ms
 apps/desktop/src/screens/machines/machines.tsx | check | setTimeout#1 | deadline | gives a restart a time limit before reporting failure
 apps/desktop/src/parts/plugins/slot-view.tsx | keeps | setTimeout#1 | ui | sprite animation timing
 apps/desktop/src/parts/plugins/slot-view.tsx | show | setTimeout#1 | ui | drops a held plugin element after its keep time
@@ -114,6 +112,7 @@ apps/desktop/src/stores/terminals/terminal-state.ts | watchGap | setTimeout#1 | 
 apps/desktop/src/parts/terminals/termview.ts | blinking | setInterval#1 | ui | blinks the cursor while focused
 apps/desktop/src/parts/terminals/termview.ts | draw | setTimeout#1 | ui | schedules the next cursor or text animation frame
 apps/desktop/src/parts/terminals/termview.ts | schedule | setTimeout#1 | ui | parses output on a timer while the window is hidden
+apps/desktop/src/ui/active.ts | finish | setTimeout#1 | deadline | stops waiting for a change of a listener set after ms
 apps/desktop/src/ui/active.ts | resume | setTimeout#1 | pace | runs a dirty ambient job when the window shows again
 apps/desktop/src/ui/active.ts | resume | setTimeout#2 | debounce | runs an ambient job once after a burst of requests
 apps/desktop/src/ui/clipboard.ts | copy | setTimeout#1 | ui | restores the button text after the copied mark

@@ -110,7 +110,7 @@ function showSession(s: AgentRow, { why = "", back: from, adopt = false }: { why
   openPage(s, held);
   Object.assign(AG, {
     open,
-    why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), answering: null,
+    why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", answering: null,
     opened: new Set(), steps: new Map(), all: new Set(),
     outbox: [], outboxRevision: 0, stopping: null, modelOpen: false,
     older: { stop: "", reading: null, all: false },

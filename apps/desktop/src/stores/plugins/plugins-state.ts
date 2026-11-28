@@ -1,6 +1,7 @@
 import { createStore } from "zustand";
 import { browserBackend, createAssetCache, parseAssetRef, type AssetBackend, type AssetRef } from "./assets.ts";
 import { isPlay, MAX_FRAMES, parseMotions, parseReactions, type SpriteMotion, type SpritePlay, type SpriteReactions } from "./sprite.ts";
+import { isRecord } from "../../ui/plugin-rows.ts";
 
 /// A named place in the app. A slot can be on the page many times, each with its own context.
 export type PluginSlotName = "composer" | "session.row" | "session.header";
@@ -41,7 +42,6 @@ const MAX_DEPTH = 8;
 const MAX_KEY_BYTES = 128;
 const SLOTS: ReadonlySet<string> = new Set<PluginSlotName>(["composer", "session.row", "session.header"]);
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const isLength = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 65535;
 const isCallback = (value: unknown): value is CallbackId => typeof value === "number" && Number.isInteger(value) && value > 0;
 const isSlot = (value: unknown): value is PluginSlotName => typeof value === "string" && SLOTS.has(value);

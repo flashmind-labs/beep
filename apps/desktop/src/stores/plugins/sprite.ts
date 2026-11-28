@@ -1,3 +1,5 @@
+import { isRecord } from "../../ui/plugin-rows.ts";
+
 /// When a motion plays: `loop` again and again (the only motion of its sprite), `once` when the
 /// sprite appears, `every` after a random delay in the range and after each play.
 type SpriteRepeat = { kind: "loop" } | { kind: "once" } | { kind: "every"; minMs: number; maxMs: number };
@@ -22,7 +24,6 @@ const MAX_STEP_MS = 60_000;
 const MIN_EVERY_MS = 100;
 const MAX_EVERY_MS = 3_600_000;
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const isInt = (value: unknown, min: number, max: number): value is number => typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
 
 function parseRepeat(raw: unknown): SpriteRepeat | null {

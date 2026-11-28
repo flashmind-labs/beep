@@ -1,3 +1,6 @@
+import { clock } from "../../ui/format.ts";
+import { isRecord } from "../../ui/plugin-rows.ts";
+
 // Rows of the session's Running tab. Times are Unix seconds from its machine.
 export interface RunningProcess {
   pid: number;
@@ -27,7 +30,6 @@ export type ProcessesValue =
   | { kind: "list"; processes: RunningProcess[]; containers: RunningContainer[] }
   | { kind: "failed"; message: string };
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const numbers = (value: unknown): value is number[] => Array.isArray(value) && value.every(n => typeof n === "number");
 
 function isProcess(value: unknown): value is RunningProcess {
@@ -79,15 +81,9 @@ export function runningTrees(processes: readonly RunningProcess[]): RunningTree[
   return [...trees.values()];
 }
 
-/// Unix seconds `at` as the local hour and minute.
-function clock(at: number) {
-  const date = new Date(at * 1000);
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-}
-
 export function runningRow(tree: RunningTree) {
   const { root, children } = tree;
-  const time = clock(root.started_at);
+  const time = clock(root.started_at * 1000);
   const more = children.length ? ` · ${children.length} more process${children.length === 1 ? "" : "es"}` : "";
   const ports = [...new Set([root, ...children].flatMap(p => p.ports))].filter(p => Number.isInteger(p) && p > 0 && p <= 65535);
   const page = pagePort([root, ...children], ports);
@@ -108,7 +104,7 @@ export function containerRow(container: RunningContainer) {
 
   return {
     name: container.name || container.id.slice(0, 12),
-    detail: `${container.image} · since ${clock(container.started_at)}`,
+    detail: `${container.image} · since ${clock(container.started_at * 1000)}`,
     page: page === null ? null : { label: `:${page}`, port: page },
     ports: ports.filter(port => port !== page).map(port => ({ label: `:${port}`, port })),
   };

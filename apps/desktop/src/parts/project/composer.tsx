@@ -19,6 +19,7 @@ import { menuPlaceFor } from "../session/mentionmenu.ts";
 import { sessionPicks, startedWith } from "../session/open-state.ts";
 import { reason } from "../../ui/format.ts";
 import { invoke, listen } from "../../ui/tauri.ts";
+import type { Started } from "../../stores/agents/agents-state.ts";
 import type { AgentStarted } from "../../stores/agents/starting-state.ts";
 import { commandKey, isMobile } from "../../ui/platform.ts";
 import { filterProjects } from "../../stores/project/projects-state.ts";
@@ -43,7 +44,7 @@ import { planStarts, type StartEntry, type StartRow } from "../../stores/project
 import type { Outcome } from "../../stores/project/openlist.ts";
 import { fixPrompt, runTarget, type RunDetail } from "./runs.tsx";
 import { conflictPrompt, type Conflict } from "./filesync.ts";
-import { type Started, state, sessionsOf, gitOf, syncChanged } from "../../stores/center/state.ts";
+import { state, sessionsOf, gitOf, syncChanged } from "../../stores/center/state.ts";
 import { currentLocation, go } from "../center/nav.ts";
 import { projectRows } from "../../stores/project/projectrows.ts";
 import { barPlaced, pa, pc, projectChanged } from "../../stores/project/barstate.ts";

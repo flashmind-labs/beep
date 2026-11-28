@@ -2,7 +2,7 @@
 // the node lists it a few levels at a time, what of it shows for a filter,
 // paths mentioned in a message, files dropped to upload, and the simple
 // highlighting of the text view. No page here, so the tests load it.
-import { esc } from "../../ui/format.ts";
+import { esc, reason } from "../../ui/format.ts";
 import { type FileRef, extension, linkedPath, mediaKind } from "./media-state.ts";
 
 /// How git sees an entry changed (WorkEntry.change).
@@ -89,7 +89,7 @@ export interface Listing {
 /// A folder's listing after `agent_tree` failed with `text`. A folder the
 /// machine no longer has, such as a temporary one, reads as empty: no error.
 export function failedListing(text: string, had?: Listing): Listing {
-  const msg = text.replace(/^bad request: /, "");
+  const msg = reason(text);
   if (/: the folder .* is not there/.test(msg)) return { entries: [], more: 0, error: "" };
   const error = /unknown op|not serve|update/i.test(msg) ? "Update beep-node on that machine to browse its files." : msg;
   return { entries: had?.entries ?? null, more: 0, error };

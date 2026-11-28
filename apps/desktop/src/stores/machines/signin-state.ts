@@ -1,3 +1,5 @@
+import { isRecord } from "../../ui/plugin-rows.ts";
+
 // How a machine's coding agent signs in from this Mac, as pure functions.
 // signin.ts draws the sheet.
 
@@ -27,7 +29,6 @@ export function signInOffer(tool: string, machine: string, online: boolean, this
 /// Whether the sheet keeps asking how the sign-in stands.
 export const stillRunning = (view: SignInView) => view.state === "starting" || view.state === "waiting";
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const text = (value: unknown) => typeof value === "string" ? value : null;
 
 /// The sign-in a `sign-in` update carries (the node's `SignIn` state), as the sheet draws it; null

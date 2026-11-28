@@ -446,12 +446,6 @@ export function liveThought(entries: LogEntry[], t: Turn, running: boolean, offs
   return en.kind === "thought" && en.ms == null ? at : null;
 }
 
-/// A time of day as HH:MM, in local time.
-export function clock(ms: number) {
-  const d = new Date(ms);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
 /// How a turn stands: finished, the agent working, or waiting on an answer.
 export type TurnState = "done" | "working" | "waiting";
 

@@ -1,4 +1,5 @@
 // The machines of the mesh as the `machines` push carries them: one copy for every screen.
+import { nextChange } from "../../ui/active.ts";
 import { subscribeEach, topic } from "../../ui/mesh-events.ts";
 import { pushedList, pushedView } from "../../ui/snapshot-state.ts";
 import { invoke } from "../../ui/tauri.ts";
@@ -55,13 +56,7 @@ export function ensureMachines(): Promise<Machine[]> {
 }
 
 /// Resolves when the next list arrives, or after `ms` when the machines did not change.
-export function nextMachines(ms: number): Promise<void> {
-  return new Promise(done => {
-    const finish = () => { clearTimeout(timer); machinesChanged.delete(finish); done(); };
-    const timer = setTimeout(finish, ms);
-    machinesChanged.add(finish);
-  });
-}
+export const nextMachines = (ms: number) => nextChange(machinesChanged, ms);
 
 function take(list: Machine[]) {
   MACHINES.list = list;

@@ -2,7 +2,7 @@ import { memo } from "react";
 import { useStore } from "zustand";
 import { Button, Spinner } from "../../ui/kit.tsx";
 import { artifactsModel } from "./artifacts.ts";
-import { clock } from "./agentturns.ts";
+import { clock } from "../../ui/format.ts";
 import { FRAME_SANDBOX, KIND_NAMES, relativeTo, type Artifact } from "../../stores/agentpane/artifacts-state.ts";
 
 export type ArtifactAction = "fold" | "pdf" | "claude" | "file" | "copy";

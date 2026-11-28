@@ -10,7 +10,7 @@ import { AMBIENT_MS, SLOW_MS } from "../../ui/active.ts";
 import { openAddMachine } from "./addmachine.tsx";
 import { ensureMachines, MACHINES, removeListed, renameListed, takeTraffic } from "../../stores/machines/machine-store.ts";
 import { openJoinTicket } from "./jointicket.tsx";
-import { errorText, offeredNode, type NodeUpdate, updatedTo } from "../../stores/machines/machines-state.ts";
+import { offeredNode, type NodeUpdate, updatedTo } from "../../stores/machines/machines-state.ts";
 import { S, setView } from "../../stores/bar/core.ts";
 import { type BarPage, type BarPageSlot, openBarPage } from "../../stores/bar/bar-page.ts";
 import { hintModel } from "../../stores/bar/hints.ts";
@@ -22,6 +22,7 @@ import { type AdapterInstall } from "../../stores/machines/adapters-state.ts";
 import { savedIn } from "../../ui/platform.ts";
 import { renameSheet } from "../../ui/menu.tsx";
 import type { MachineView } from "../../parts/machines/machine-state.ts";
+import { reason } from "../../ui/format.ts";
 
 // ---------- Machines ----------
 
@@ -200,7 +201,7 @@ async function saveSearch(folder: string) {
     at.folder = await invoke<string>("set_machine_search", { machineId: at.id, search: folder });
     if (generation === searchEditGeneration) at.draft = null;
   } catch (e) {
-    if (generation === searchEditGeneration) at.error = errorText(e);
+    if (generation === searchEditGeneration) at.error = reason(e);
   }
 
   at.busy = false;
@@ -215,7 +216,7 @@ async function readLog(id: string) {
   try {
     at.text = await invoke<string>("machine_log", { id });
   } catch (e) {
-    at.error = errorText(e);
+    at.error = reason(e);
   }
 
   at.busy = false;
@@ -246,7 +247,7 @@ async function updateTool(id: string, tool: string) {
     const found = MACHINES.list?.find(m => m.id === id)?.env?.tools.find(t => t.name === tool);
     if (found) found.version = to;
   } catch (e) {
-    MC.toolUps.set(key, { busy: false, error: errorText(e) });
+    MC.toolUps.set(key, { busy: false, error: reason(e) });
   }
 
   if (shown()) drawMachines();
@@ -264,7 +265,7 @@ async function retryAdapters(id: string) {
     // The node reads them as installing at once; its report follows.
     for (const a of MACHINES.list?.find(m => m.id === id)?.adapters ?? []) a.failed = null;
   } catch (e) {
-    MC.adapterTries.set(id, { busy: false, error: errorText(e) });
+    MC.adapterTries.set(id, { busy: false, error: reason(e) });
   }
 
   if (shown()) drawMachines();
@@ -317,7 +318,7 @@ async function runUpdate(id: string) {
       MC.updates.set(id, { step: "note", text: `Installed beep-node ${done.to}. ${done.note}` });
     }
   } catch (e) {
-    MC.updates.set(id, { step: "failed", error: errorText(e) });
+    MC.updates.set(id, { step: "failed", error: reason(e) });
   }
 
   if (shown()) drawMachines();

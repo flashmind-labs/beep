@@ -95,8 +95,3 @@ export function appendEntry(entry: AgentPage["entries"][number]) {
 export function removeEntry(entry: AgentPage["entries"][number]) {
   if (page?.entries.includes(entry)) page = { ...page, entries: page.entries.filter(en => en !== entry) };
 }
-
-/// Takes out the entry `appendEntry` put last.
-export function dropLastEntry() {
-  if (page) page = { ...page, entries: page.entries.slice(0, -1) };
-}

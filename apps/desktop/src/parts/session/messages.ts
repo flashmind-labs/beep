@@ -28,6 +28,7 @@ import { reopened } from "../../stores/agents/closing.ts";
 import { loadSessions, sessions } from "../../stores/agents/sessions.ts";
 import { agentMessage, sessionBody } from "../../stores/agents/session-frame-state.ts";
 import { shownQuestionsIn } from "./mode-view.tsx";
+import { reason } from "../../ui/format.ts";
 
 const sameOpen = (a: OpenAgent | null, b: OpenAgent | null) =>
   !!a && !!b && a.machine_id === b.machine_id && a.agent === b.agent && a.session === b.session;
@@ -630,7 +631,7 @@ async function continueChat(o: OpenAgent, draft: Waiting, state: MentionState) {
     if (S.view === "agent" && sameSession(AG.open, row)) openSession(started.session, { back: AG.back });
   } catch (e) {
     uploads.discardAll();
-    state.error = String(e).replace(/^bad request: /, "");
+    state.error = reason(e);
     restoreDraft(draft, state, o);
   }
 }

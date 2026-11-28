@@ -30,6 +30,7 @@ import { projectHarnesses, readProjectHarnesses } from "../project/project-harne
 import { addHosts, barCheckout, barPlace, nextBarMachine } from "../../stores/project/projectbar.ts";
 import { composeMessage } from "./compose.tsx";
 import { invoke } from "../../ui/tauri.ts";
+import { reason } from "../../ui/format.ts";
 
 // ----- Start form -----
 
@@ -705,7 +706,7 @@ export async function startAgent() {
     if (assistant && assistantDraft === typed && (startView === view || !startView || !AG.form.assistant)) assistantDraft = "";
     if (showing()) openSession(started.session, { why: started.why, back });
   } catch (e) {
-    const message = String(e).replace(/^bad request: /, "");
+    const message = reason(e);
     view.phase = { kind: "editing", error: { kind: "failed", message } };
     if (startView !== view) {
       attachments.discard();

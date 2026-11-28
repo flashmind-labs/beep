@@ -44,12 +44,12 @@ export function overviewSection(listed: Project[]): PagePart[] {
   return [hostPart(overviewHost)];
 }
 
-let projectSort = readProjectSort("projects");
+let projectSort = readProjectSort();
 
 function changeSort(sort: ProjectSort) {
   projectSort = sort;
   ranked = null;
-  saveProjectSort("projects", sort);
+  saveProjectSort(sort);
   projectChanged.notify();
 }
 

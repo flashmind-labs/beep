@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatAgo, type AgoStyle } from "../src/ui/format.ts";
+import { formatAgo, reason, type AgoStyle } from "../src/ui/format.ts";
 
 process.env.TZ = "UTC";
 
@@ -50,4 +50,11 @@ test("formatAgo says each style's exact words", () => {
 test("a time in the future reads as now", () => {
   assert.equal(formatAgo(NOW + MIN, "short", NOW), "now");
   assert.equal(formatAgo(NOW + MIN, "long", NOW), "just now");
+});
+
+test("reason drops the bridge prefix of a string, an Error or an object", () => {
+  assert.equal(reason("bad request: The message is empty."), "The message is empty.");
+  assert.equal(reason(new Error("not found: no such file")), "no such file");
+  assert.equal(reason({ message: "Conflict: busy" }), "busy");
+  assert.equal(reason("plain"), "plain");
 });

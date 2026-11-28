@@ -1,7 +1,8 @@
 // Parts a turn's rows share in a coding agent's log: the heading, a step's
 // mark and a running clock.
 import { memo, useCallback, useLayoutEffect, useRef, useSyncExternalStore } from "react";
-import { clock, duration, heading, type TurnState } from "./agentturns.ts";
+import { duration, heading, type TurnState } from "./agentturns.ts";
+import { clock } from "../../ui/format.ts";
 import { Icon } from "../../ui/icons.tsx";
 import { Spinner } from "../../ui/kit.tsx";
 import { onShownChange, paneShown } from "../../ui/active.ts";

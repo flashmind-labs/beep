@@ -3,6 +3,8 @@
 // node's input (`device/1`). device.ts keeps the state; device-view.tsx draws it.
 
 import { parseTool } from "../agents/agentlog.ts";
+import { isRecord } from "../../ui/plugin-rows.ts";
+import { reason } from "../../ui/format.ts";
 
 export type DevicePlatform = "Android" | "Ios";
 type DevicePower = "Off" | "Booting" | "On";
@@ -303,7 +305,6 @@ export function readHosts(value: unknown): DeviceHost[] {
     ? [{ machine_id: item.machine_id, machine_name: item.machine_name }] : []);
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
 // ----- The screen -----
 
@@ -398,8 +399,7 @@ export function keyInput(event: { key: string; metaKey: boolean; ctrlKey: boolea
 
 /// An error from a device command as the tab shows it.
 export function deviceError(e: unknown): string {
-  const said = e instanceof Error ? e.message : isRecord(e) && typeof e.message === "string" ? e.message : String(e);
-  const text = said.replace(/^bad request: /, "");
+  const text = reason(e);
   if (/unknown protocol|not serve|refused/i.test(text)) return "beep-node there is too old for devices. Update it.";
   return text;
 }

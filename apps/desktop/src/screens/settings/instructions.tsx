@@ -7,6 +7,7 @@ import type { VersionRow } from "../../stores/settings/instructions-state.ts";
 import type { CenterView, InstructionsTab } from "../../stores/center/state.ts";
 import { Button } from "../../ui/kit.tsx";
 import { InstructionsView, type InstructionsState } from "./instructions-view.tsx";
+import { reason } from "../../ui/format.ts";
 
 /// What the window hands `instructionsPage`.
 interface InstructionsDeps {
@@ -20,7 +21,7 @@ export function instructionsPage(deps: InstructionsDeps): CenterView<"instructio
   const st: InstructionsState = { tab: "editor", newest: undefined, draft: null, note: "", saving: false, error: "", versions: undefined, shown: null };
   let host: HTMLElement | null = null;
 
-  const fail = (e: unknown) => String(e).replace(/^(bad request|conflict|error):\s*/i, "");
+  const fail = (e: unknown) => reason(e);
   const text = () => st.draft ?? st.newest?.text ?? "";
 
   async function load() {

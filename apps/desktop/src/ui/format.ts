@@ -88,9 +88,16 @@ function dayDiff(from: Date, to: Date) {
 export function spoken(...parts: (string | number | null | undefined)[]) { return parts.filter(part => part !== null && part !== undefined && part !== "" && part !== 0).join(" "); }
 export function plural(n: number, one: string, many: string) { return `${n} ${n === 1 ? one : many}`; }
 
+/// A time of day as HH:MM, in local time.
+export function clock(ms: number) {
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 /// A refusal as the desktop said it, without what the bridge puts before it.
 export function reason(e: unknown) {
-  return String(e).replace(/^(bad request|error):\s*/i, "");
+  const said = e instanceof Error ? e.message : typeof e === "object" && e && "message" in e ? e.message : e;
+  return String(said).replace(/^(bad request|not found|conflict|error):\s*/i, "");
 }
 
 

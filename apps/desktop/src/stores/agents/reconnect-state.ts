@@ -3,6 +3,7 @@
 // again or anything new arrives, and a plain ending when the machine came
 // back without it.
 import type { AgentPage } from "./agents-state.ts";
+import { reason } from "../../ui/format.ts";
 
 /// Why `agent_view` failed, as the app tells it.
 type ViewError = { kind: "lost" } | { kind: "gone" } | { kind: "failed"; message: string };
@@ -41,7 +42,7 @@ export function sendError(e: unknown): SendError {
   if (timedOut(e)) return { kind: "timeout", message: String(e) };
   const o = typeof e === "object" && e ? e as { kind?: unknown; message?: unknown } : null;
   const kind = o?.kind === "lost" || o?.kind === "unsure" || o?.kind === "waiting" ? o.kind : "failed";
-  return { kind, message: String(o ? o.message ?? "" : e).replace(/^bad request: /, "") };
+  return { kind, message: reason(o ? o.message ?? "" : e) };
 }
 
 /// After a failed read: the link, and the note under the log ("gone" for a

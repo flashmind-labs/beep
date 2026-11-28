@@ -1,3 +1,5 @@
+import { isRecord } from "../../ui/plugin-rows.ts";
+
 /// An image a plugin placed, named by its content: the host serves the bytes once per hash.
 export interface AssetRef {
   /// 64 lowercase hex digits.
@@ -9,7 +11,6 @@ export interface AssetRef {
 const HASH = /^[0-9a-f]{64}$/;
 const MIME = /^image\/[A-Za-z0-9.+-]{1,64}$/;
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
 /// Reads an asset reference from the host, or null when it is not one.
 export function parseAssetRef(raw: unknown): AssetRef | null {

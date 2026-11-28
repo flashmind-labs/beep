@@ -107,9 +107,6 @@ export type NodeUpdate =
   | { step: "failed"; error: string }
   | { step: "note"; text: string };
 
-/// An error's text without the API's "bad request: " in front.
-export const errorText = (e: unknown) => String(e).replace(/^bad request: /, "");
-
 /// Whether a node restarting on `to` is back: online on `to` or newer.
 export function updatedTo(m: { online: boolean; version: string }, to: string) {
   return m.online && /^\d/.test(m.version) && !isNewer(to, m.version);

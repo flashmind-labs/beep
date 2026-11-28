@@ -3,6 +3,7 @@
 import { createStore } from "zustand";
 import type { invoke as Invoke } from "../../ui/tauri.ts";
 import { EMPTY, flshDraft, flshInput, flshProblem, type FlshDraft, type FlshSettings } from "./flsh-state.ts";
+import { reason } from "../../ui/format.ts";
 
 export interface FlshState {
   saved: FlshSettings | null;
@@ -15,7 +16,7 @@ export interface FlshState {
 export function flshPanel(invoke: typeof Invoke) {
   const state = createStore<FlshState>()(() => ({ saved: null, draft: null, error: "", saving: false, requested: false }));
   const set = state.setState;
-  const fail = (e: unknown) => String(e).replace(/^(bad request|not found|error):\s*/i, "");
+  const fail = (e: unknown) => reason(e);
 
   async function load() {
     if (state.getState().requested) return;

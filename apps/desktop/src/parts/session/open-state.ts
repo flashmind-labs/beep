@@ -131,7 +131,6 @@ export const followStale = createStore<{ stale: number }>(() => ({ stale: 0 }));
 
 /// Follows the open session again after showing it or sending a message.
 export function resumeFollow() {
-  AG.changed = Date.now();
   followStale.setState(s => ({ stale: s.stale + 1 }));
 }
 

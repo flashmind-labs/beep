@@ -13,6 +13,7 @@ import { ensureModels } from "../../stores/agents/model-store.ts";
 import { flshPanel } from "../../stores/settings/flsh.ts";
 import { type AdapterInstall, adapterOf } from "../../stores/machines/adapters-state.ts";
 import { ensureMachines, MACHINES } from "../../stores/machines/machine-store.ts";
+import { reason } from "../../ui/format.ts";
 
 /// A machine as `list_machines` gives it; only these fields are read.
 interface MachineRow { id: string; name: string; online: boolean; can_host?: boolean; adapters?: AdapterInstall[] }
@@ -86,7 +87,7 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
   /// Reads machine `id`'s agents the first time; after that the push keeps them.
   const ensure = (id: string | null) => { if (id && (!st.views.has(id) || st.views.get(id) === null)) void load(false, id); };
 
-  const fail = (e: unknown) => String(e).replace(/^(bad request|not found|error):\s*/i, "");
+  const fail = (e: unknown) => reason(e);
   const view = () => (st.machine ? st.views.get(st.machine) : undefined);
   const key = (agent: string) => `${st.machine} ${agent}`;
   const machineName = () => machines()?.find(m => m.id === st.machine)?.name ?? "this machine";

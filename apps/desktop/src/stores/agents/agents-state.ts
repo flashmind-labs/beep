@@ -192,12 +192,6 @@ export function sessionUsage(u: AgentUsage): SessionUsage {
   return { context, tokens, spend: u.cost_usd == null ? null : spent };
 }
 
-/// The same in one line of words.
-export function usageLine(u: AgentUsage) {
-  const { context, tokens, spend } = sessionUsage(u);
-  return [context && `${context.percent}%/${context.size}`, tokens && `${tokens} tokens`, spend].filter(Boolean).join(" · ");
-}
-
 /// A session `agent_start` or `agent_resume` started, or the one `agent_begin` keeps a start as, and
 /// why Auto picked its machine.
 export interface Started {
@@ -285,7 +279,6 @@ interface AgentState {
   sig: string;
   /// The rest of what the log was last drawn from; empty to draw again.
   rest: string;
-  changed: number;
   answering: number | null;
   /// Images pasted or dropped into the session's field, the error from the last
   /// one and when it goes.
@@ -322,7 +315,7 @@ export const AG: AgentState = {
   hosts: null, error: "",
   form: { prompt: "", assistant: false, machine: "", machinePicked: false, agent: null, cwd: "" },
   open: null, draft: null, get page() { return currentPage(); }, set page(next) { setPage(next); }, why: "", back: "hide", timer: undefined, inflight: null, note: "",
-  sig: "", rest: "", changed: 0, answering: null,
+  sig: "", rest: "", answering: null,
   att: [], attError: "", attTimer: undefined,
   opened: new Set(), steps: new Map(), all: new Set(), outbox: [], outboxRevision: 0, polls: 0, stopping: null, modelOpen: false,
   older: { stop: "", reading: null, all: false },

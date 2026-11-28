@@ -13,7 +13,7 @@ import type { HomeView } from "../src/stores/center/home-state.ts";
 import type { Location } from "../src/stores/center/state.ts";
 import { agentKeys } from "../src/parts/session/agents.ts";
 import { agentBack, agentsList, drawAgents } from "../src/parts/session/agents-list.ts";
-import { AG, type AgentPage, type AgentRow, usageLine } from "../src/stores/agents/agents-state.ts";
+import { AG, type AgentPage, type AgentRow } from "../src/stores/agents/agents-state.ts";
 import { closeSession, visibleRunning } from "../src/stores/agents/closing.ts";
 import { loadSessions } from "../src/stores/agents/sessions.ts";
 import { closeOpenSession } from "../src/parts/session/session.tsx";
@@ -158,7 +158,6 @@ test("live suffixes preserve history and a late fallback read cannot replace the
   finish({ ...page, entries: [{ kind: "agent", text: "stale" }] });
   await polling;
   assert.deepEqual(AG.page?.entries.map(entry => entry.text), ["hello", "finished"]);
-  AG.changed = Date.now() - 10 * 60_000;
   calls.length = 0;
   await pollAgent();
   assert.ok(!calls.some(c => ["agent_view", "agent_modes", "agent_tasks"].includes(c.cmd)));
@@ -696,16 +695,6 @@ test("an image sent without typed text gets a default prompt", async () => {
   assert.equal(input.value, "");
   assert.deepEqual(AG.att, []);
   assert.equal(AG.page?.entries[0].text, "Check this image.\n[image: shot.png]");
-});
-
-test("session usage shows cumulative tokens and spend apart from the remaining key budget", () => {
-  const credit = { provider: "openrouter", scope: "api_key", unit: "usd", remaining: "7.25", total: "10", used: "2.75", resets: "monthly" };
-  const usage = { context: { used: 441_000, size: 1_050_000 }, tokens: 182_000, cost_usd: 1.27, credits: [credit] };
-  assert.equal(usageLine(usage), "42%/1.05M · 182k tokens · $1.27 / $7.25");
-  assert.equal(usageLine({ ...usage, credits: [{ ...credit, remaining: null }] }), "42%/1.05M · 182k tokens · $1.27 / ?");
-  assert.equal(usageLine({ ...usage, credits: [{ ...credit, scope: "account" }] }), "42%/1.05M · 182k tokens · $1.27 / $7.25");
-  assert.equal(usageLine({ ...usage, credits: [{ ...credit, remaining: "0" }] }), "42%/1.05M · 182k tokens · $1.27 / $0.00");
-  assert.equal(usageLine({ context: null, tokens: 0, cost_usd: null }), "");
 });
 
 test("session model choices survive a window reload", async t => {

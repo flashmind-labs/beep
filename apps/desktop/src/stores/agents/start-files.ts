@@ -1,6 +1,7 @@
 import { uploadParts, withMentions } from "../agentpane/files-state.ts";
 import { fileBase64 } from "../chat/pics.ts";
 import { invoke } from "../../ui/tauri.ts";
+import { reason } from "../../ui/format.ts";
 
 /// The machine holding the cache, and the work folder older nodes check.
 interface Destination { machine: string; root: string }
@@ -144,7 +145,7 @@ export class StartFiles {
     } catch (e) {
       if (written) this.removeUpload(where.machine, path);
       if (!gone()) {
-        entry.error = String(e instanceof Error ? e.message : e).replace(/^bad request: /, "");
+        entry.error = reason(e);
         this.failed(entry.error);
       }
     }
