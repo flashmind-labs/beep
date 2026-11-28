@@ -191,7 +191,7 @@ struct HomeParts {
 /// Home, from the mesh. The agent sessions wait only as long as `WAIT`, and not at all with rows kept. A call
 /// while a read runs shares it.
 #[tauri::command]
-pub async fn center_home(app: AppHandle, reads: State<'_, HomeReads>) -> Result<SharedHome> {
+pub async fn center_home(app: AppHandle, reads: State<'_, HomeReads>) -> Result<Arc<HomeView>> {
     reads.read(&app).await
 }
 
@@ -236,7 +236,7 @@ impl HomeReads {
     }
 
     /// Home, from the read under way or a new one.
-    pub(crate) async fn read(&self, app: &AppHandle) -> Result<SharedHome> {
+    pub(crate) async fn read(&self, app: &AppHandle) -> Result<Arc<HomeView>> {
         let reading = {
             let mut flight = self.flight();
 
@@ -264,7 +264,6 @@ impl HomeReads {
 
         reading
             .await
-            .map(SharedHome)
             .map_err(|e| DesktopError::Other(anyhow::anyhow!("{e}")))
     }
 
@@ -279,19 +278,6 @@ impl HomeReads {
     /// Home changed: the next caller reads again rather than share a read from before.
     pub(crate) fn forget(&self) {
         self.flight().reading = None;
-    }
-}
-
-/// One Home read, as each of its callers hands it on.
-#[derive(Debug)]
-pub struct SharedHome(Arc<HomeView>);
-
-impl Serialize for SharedHome {
-    fn serialize<S: serde::Serializer>(
-        &self,
-        serializer: S,
-    ) -> std::result::Result<S::Ok, S::Error> {
-        self.0.serialize(serializer)
     }
 }
 

@@ -49,7 +49,7 @@ rusqlite.workspace = true
 rust_decimal.workspace = true
 secrecy.workspace = true
 semver.workspace = true
-serde.workspace = true
+serde = { workspace = true, features = ["rc"] }
 serde_bytes.workspace = true
 serde_json.workspace = true
 strum.workspace = true
