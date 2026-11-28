@@ -5,6 +5,7 @@ use beep_proto::node::{
     events::{CallReply, Operation, Query, Read, Reply, Value},
     local_link, process,
 };
+use std::time::Duration;
 use tokio_util::task::AbortOnDropHandle;
 
 async fn next(rx: &mut LinkRx) -> Reply {

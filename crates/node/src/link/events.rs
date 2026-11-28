@@ -10,10 +10,7 @@ use beep_proto::node::{
 };
 use beep_proto::watched;
 use futures::{FutureExt, StreamExt};
-use std::{
-    collections::{BTreeMap, HashMap, HashSet, VecDeque},
-    time::Duration,
-};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use tokio::{
     sync::broadcast::error::RecvError,
     task::JoinSet,
@@ -21,8 +18,6 @@ use tokio::{
 };
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 
-const WRITE_WAIT: Duration = Duration::from_secs(15);
-const MAX_CALLS: usize = 16;
 const MAX_QUEUED_WATCHES: usize = 16;
 
 mod ask;
@@ -31,7 +26,7 @@ mod git_reads;
 mod roots;
 mod snapshots;
 pub(crate) mod sources;
-pub(super) use ask::execute;
+pub(super) use ask::{Calls, WRITE_WAIT};
 use roots::broad_files;
 use snapshots::Snapshots;
 use sources::{Pass, Passes, Subscriptions};
@@ -240,8 +235,7 @@ async fn run(
     // every other request is read meanwhile.
     let mut watching = JoinSet::new();
     let mut queued = VecDeque::new();
-    let mut calls = JoinSet::new();
-    let mut pending = HashSet::new();
+    let mut calls = Calls::default();
     let mut heartbeat = interval_at(Instant::now() + HEARTBEAT, HEARTBEAT);
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Skip);
     if compress && wire == Wire::Subscriptions {
@@ -312,11 +306,8 @@ async fn run(
                 },
                 Some(Request::Ping { id }) => send(&mut tx, wire, Reply::Pong { id }).await?,
                 Some(Request::Call { id, operation }) => {
-                    if calls.len() >= MAX_CALLS || !pending.insert(id) {
-                        send(&mut tx, wire, Reply::Error { id, reason: "too many pending calls or duplicate call id".into() }).await?;
-                    } else {
-                        let agents = offers.agents.clone();
-                        calls.spawn(async move { (id, timeout(Duration::from_secs(120), execute(agents, caller, *operation)).await) });
+                    if let Err(reason) = calls.start(offers.agents.clone(), caller, id, *operation) {
+                        send(&mut tx, wire, Reply::Error { id, reason: reason.into() }).await?;
                     }
                 }
                 }
@@ -353,15 +344,9 @@ async fn run(
                     }
                 }
             },
-            Some(result) = calls.join_next(), if !calls.is_empty() => {
-                let (id, result) = result.context("a node command stopped")?;
-                pending.remove(&id);
-
-                match result {
-                    Ok(Ok(reply)) => write(&mut tx, &events::Reply::Result { id, reply: Box::new(reply) }).await?,
-                    Ok(Err(error)) => send(&mut tx, wire, Reply::Error { id, reason: format!("{error:#}") }).await?,
-                    Err(_) => send(&mut tx, wire, Reply::Error { id, reason: "command timed out; its outcome may be unknown".into() }).await?,
-                }
+            result = calls.finished(), if !calls.is_empty() => match result? {
+                (id, Ok(reply)) => write(&mut tx, &events::Reply::Result { id, reply: Box::new(reply) }).await?,
+                (id, Err(reason)) => send(&mut tx, wire, Reply::Error { id, reason }).await?,
             },
             snapshot = snapshots.next() => if let Some(snapshot) = snapshot? {
                 let started = Instant::now();

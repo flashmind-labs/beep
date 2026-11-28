@@ -7,8 +7,65 @@ use beep_proto::node::{
     agent::SessionsRequest,
     events::{CallReply, Operation},
 };
-use std::{future::Future, sync::Arc};
+use std::{collections::HashSet, future::Future, sync::Arc, time::Duration};
+use tokio::{task::JoinSet, time::timeout};
 use tokio_util::task::AbortOnDropHandle;
+
+/// How long a write to a stream may take before its reader is given up on.
+pub(in crate::link) const WRITE_WAIT: Duration = Duration::from_secs(15);
+const MAX_CALLS: usize = 16;
+
+/// The calls a stream has running: at most `MAX_CALLS`, each with its own id.
+#[derive(Default)]
+pub(in crate::link) struct Calls {
+    tasks: JoinSet<(u64, Result<Result<CallReply>, tokio::time::error::Elapsed>)>,
+    pending: HashSet<u64>,
+}
+
+impl Calls {
+    pub(in crate::link) fn is_empty(&self) -> bool {
+        self.tasks.is_empty()
+    }
+
+    /// Starts `operation` as call `id`, or says why it was refused.
+    pub(in crate::link) fn start(
+        &mut self,
+        agents: Arc<crate::agents::Agents>,
+        caller: iroh::EndpointId,
+        id: u64,
+        operation: Operation,
+    ) -> Result<(), &'static str> {
+        if self.tasks.len() >= MAX_CALLS || !self.pending.insert(id) {
+            return Err("too many pending calls or duplicate call id");
+        }
+
+        self.tasks.spawn(async move {
+            (
+                id,
+                timeout(Duration::from_secs(120), execute(agents, caller, operation)).await,
+            )
+        });
+
+        Ok(())
+    }
+
+    /// The next call to finish, with its outcome as the text a reply carries.
+    pub(in crate::link) async fn finished(&mut self) -> Result<(u64, Result<CallReply, String>)> {
+        let Some(done) = self.tasks.join_next().await else {
+            return std::future::pending().await;
+        };
+        let (id, result) = done.context("a command stopped")?;
+        self.pending.remove(&id);
+
+        Ok((
+            id,
+            match result {
+                Ok(done) => done.map_err(|error| format!("{error:#}")),
+                Err(_) => Err("command timed out; its outcome may be unknown".into()),
+            },
+        ))
+    }
+}
 
 /// Sends one `request` to `serve` on an in-memory link and reads its first
 /// reply; `None` when the stream ends without one.
@@ -28,7 +85,7 @@ where
     rx.recv().await
 }
 
-pub(in crate::link) async fn execute(
+pub(super) async fn execute(
     agents: Arc<crate::agents::Agents>,
     caller: iroh::EndpointId,
     operation: Operation,
