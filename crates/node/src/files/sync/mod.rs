@@ -1052,14 +1052,20 @@ impl Syncs {
     }
 
     /// What tells the server this node scans a project when asked.
-    pub fn rescans(&self) -> Rescans {
-        Rescans(self.clone())
+    pub fn rescans(&self) -> Alias {
+        Alias {
+            syncs: self.clone(),
+            name: RESCAN,
+        }
     }
 
     /// What tells the server this node pauses projects and settles
     /// conflicts.
-    pub fn controls(&self) -> Controls {
-        Controls(self.clone())
+    pub fn controls(&self) -> Alias {
+        Alias {
+            syncs: self.clone(),
+            name: CONTROLS,
+        }
     }
 
     /// How many pulls other nodes have open here now.
@@ -1141,32 +1147,21 @@ impl Protocol for Syncs {
     }
 }
 
-/// `CONTROLS`, offered beside `sync/1`: the server sends a paused project
-/// and `Request::Resolve` only to a node that offers it. Its sessions are
-/// served as `sync/1`'s.
-pub struct Controls(Syncs);
-
-impl Protocol for Controls {
-    fn name(&self) -> &str {
-        CONTROLS
-    }
-
-    fn serve(&self, tx: LinkTx, rx: LinkRx) -> Session {
-        Box::pin(serve(self.0.clone(), tx, rx))
-    }
+/// `CONTROLS` or `RESCAN`, offered beside `sync/1`: the server sends a paused
+/// project, `Request::Resolve` or `Request::Rescan` only to a node that offers
+/// it. Its sessions are served as `sync/1`'s.
+pub struct Alias {
+    syncs: Syncs,
+    name: &'static str,
 }
 
-/// `RESCAN`, offered beside `sync/1`: the server sends `Request::Rescan`
-/// only to a node that offers it. Its sessions are served as `sync/1`'s.
-pub struct Rescans(Syncs);
-
-impl Protocol for Rescans {
+impl Protocol for Alias {
     fn name(&self) -> &str {
-        RESCAN
+        self.name
     }
 
     fn serve(&self, tx: LinkTx, rx: LinkRx) -> Session {
-        Box::pin(serve(self.0.clone(), tx, rx))
+        Box::pin(serve(self.syncs.clone(), tx, rx))
     }
 }
 
