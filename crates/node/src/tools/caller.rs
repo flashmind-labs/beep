@@ -5,6 +5,11 @@ use crate::{agents::Agents, files::transfer::Transfers, run::tasks::Table, team:
 use beep_mesh::Mesh;
 use std::sync::Arc;
 
+/// `text` without surrounding blanks, or none when nothing else is left.
+pub(super) fn trimmed(text: Option<&str>) -> Option<&str> {
+    text.map(str::trim).filter(|text| !text.is_empty())
+}
+
 /// Who calls, and what this device lets them do.
 #[derive(Clone)]
 pub(crate) struct Caller {

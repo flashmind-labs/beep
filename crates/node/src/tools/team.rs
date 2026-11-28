@@ -6,7 +6,7 @@
 //! and has a machine with the project start a session on an issue newly
 //! assigned to the user (`Tool::TeamPickup`).
 
-use super::{Node, desktop, server::ASK_LIMIT};
+use super::{Node, caller::trimmed, desktop, server::ASK_LIMIT};
 use crate::agents::child_view::full_id;
 use crate::agents::machine_list::{find, machine_name};
 use crate::agents::reply::{fail, json_of, ok, parse};
@@ -85,9 +85,7 @@ pub(super) fn team_of(node: &Node, session: &SessionId) -> Option<(TeamLink, Tea
     let folder = node.agents.sessions.folder_of(session)?;
     let repo = link.home(|home| home.team_of(&folder))?;
     link.with(|teams| teams.rosters.get(&repo).is_some())
-        .then_some(())?;
-
-    Some((link, repo))
+        .then_some((link, repo))
 }
 
 /// `team_join` from any session: validates the code, asks the user to confirm,
@@ -102,16 +100,8 @@ pub(super) async fn join_call(node: &Node, request: &Request) -> Reply {
         Ok(ticket) => ticket,
         Err(e) => return fail(e.to_string()),
     };
-    let machine = args
-        .machine
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    let folder = args
-        .folder
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
+    let machine = trimmed(args.machine.as_deref());
+    let folder = trimmed(args.folder.as_deref());
     let mut detail = format!(
         "Adds {} automatically if it is not imported yet, proves push access, and joins its team.",
         ticket.repo
@@ -243,7 +233,7 @@ fn outgoing(
     repo: TeamRepo,
 ) -> Result<Outgoing, String> {
     let AskArgs { to, text, reply_to } = parse(&request.args)?;
-    let to = to.as_deref().map(str::trim).filter(|to| !to.is_empty());
+    let to = trimmed(to.as_deref());
 
     if text.trim().is_empty() {
         return Err("Give `text`.".to_owned());

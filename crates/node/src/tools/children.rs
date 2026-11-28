@@ -7,7 +7,7 @@
 //! starts it and checks the limits. An agent stops and checks only its own
 //! children; it lists and messages any agent the user runs.
 
-use super::Node;
+use super::{Node, caller::trimmed};
 use crate::agents::child_reach::{ChildId, Found, Reach};
 use crate::agents::child_view::{ChildView, full_id};
 use crate::agents::family::Family;
@@ -204,12 +204,8 @@ impl Calls<'_> {
             None => cwd,
         };
 
-        let harness = harness
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_owned);
-        let persona = match persona.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let harness = trimmed(harness.as_deref()).map(str::to_owned);
+        let persona = match trimmed(persona.as_deref()) {
             None => None,
             Some(_) if target.is_some() => {
                 return Err(

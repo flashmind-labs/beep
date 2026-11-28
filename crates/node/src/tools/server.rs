@@ -197,11 +197,7 @@ async fn answer<B: Backend>(
             let called = match media.as_deref().filter(|media| media.offers(name)) {
                 Some(media) => {
                     let (text, failed) = media.call(name, args).await;
-                    Called {
-                        text,
-                        failed,
-                        image: None,
-                    }
+                    Called::new(text, failed)
                 }
                 None => call(backend, session, name, args).await,
             };
@@ -235,31 +231,27 @@ pub(crate) struct Called {
 }
 
 impl Called {
-    pub(super) fn ok(text: impl Into<String>) -> Self {
+    pub(super) fn new(text: impl Into<String>, failed: bool) -> Self {
         Self {
             text: text.into(),
-            failed: false,
+            failed,
             image: None,
         }
     }
 
+    pub(super) fn ok(text: impl Into<String>) -> Self {
+        Self::new(text, false)
+    }
+
     pub(super) fn failed(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            failed: true,
-            image: None,
-        }
+        Self::new(text, true)
     }
 }
 
 impl From<Reply> for Called {
     fn from(reply: Reply) -> Self {
         match reply {
-            Reply::Done { text, failed } => Self {
-                text,
-                failed,
-                image: None,
-            },
+            Reply::Done { text, failed } => Self::new(text, failed),
             other => Self::failed(format!("Unexpected reply {other:?}.")),
         }
     }
