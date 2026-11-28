@@ -31,7 +31,7 @@ use crate::{
         sessions::Sessions,
     },
     events::Hub,
-    machine::elect::{Reaches, elect, gather, online, ranked},
+    machine::elect::{QUIET, Reaches, elect, online, ranked},
 };
 use beep_mesh::Mesh;
 use beep_projects::commands::OpenIssue;
@@ -67,11 +67,9 @@ const SETTLE: Duration = Duration::from_secs(3);
 /// sessions, as one from before it: they are listed from it then.
 const ROUND: Duration = Duration::from_secs(10);
 /// How often the issue titles, and the issues pickup starts sessions on,
-/// are read while a team session works, and otherwise; the machines are
-/// asked how they reach the hosts every `QUIET`. The cards are also made
-/// again every `BUSY`, as the forge says nothing of its own.
+/// are read while a team session works; otherwise every `QUIET`. The cards
+/// are also made again every `BUSY`, as the forge says nothing of its own.
 const BUSY: Duration = Duration::from_secs(60);
-const QUIET: Duration = Duration::from_secs(10 * 60);
 
 /// The machine that acts for `repo`, as `me` sees it with the online
 /// `peers`: one of the project's machines on `mine`, this mesh's entry on the
@@ -137,16 +135,6 @@ struct Gateway {
     links: Arc<Links>,
     heard: mpsc::Sender<Followed>,
     dir: PathBuf,
-    /// What the online machines said of their reach, and when they were
-    /// asked and which were asked then.
-    peers: BTreeMap<EndpointId, ForgeReach>,
-    asked: Option<(Instant, BTreeSet<EndpointId>)>,
-    /// The machines being asked now: at most one gather, a newer one
-    /// replaces it.
-    asking: JoinSet<BTreeMap<EndpointId, ForgeReach>>,
-    /// Whether the machines have answered once, so that an election has their
-    /// reach to go on.
-    answered: bool,
     held: BTreeSet<TeamRepo>,
     /// What each other machine of a held team pushed of its sessions, and the
     /// follows that hear it.
@@ -242,10 +230,6 @@ impl Gateway {
             links,
             heard,
             sighting: Some(sighting),
-            peers: BTreeMap::new(),
-            asked: None,
-            asking: JoinSet::new(),
-            answered: false,
             held: BTreeSet::new(),
             rows: BTreeMap::new(),
             sightings: BTreeMap::new(),
@@ -286,17 +270,8 @@ impl Gateway {
             } else {
                 self.round_due
             };
-            let ask = ask_again_at(self.asked.as_ref());
 
             select! {
-                // A machine that does not push its reach is asked again when it is due:
-                // a machine that acts for no team would not elect once the acting machine stepped down.
-                _ = async {
-                    match ask {
-                        Some(due) => sleep_until(due).await,
-                        None => std::future::pending().await,
-                    }
-                } => self.step(),
                 _ = async {
                     match round {
                         Some(due) => sleep_until(due).await,
@@ -318,10 +293,7 @@ impl Gateway {
                 Some(sighted) = sighting.recv() => self.sighted(sighted),
                 // A machine pushed how it reaches the hosts: elect on it.
                 changed = pushed.changed() => match changed {
-                    Ok(()) => {
-                        self.asked = None;
-                        self.step();
-                    }
+                    Ok(()) => self.step(),
                     Err(_) => return,
                 },
                 // This machine's own sessions.
@@ -336,15 +308,6 @@ impl Gateway {
                     Ok(()) => self.step(),
                     Err(_) => return,
                 },
-                Some(done) = self.asking.join_next(), if !self.asking.is_empty() => {
-                    // A gather that a newer one replaced ends cancelled.
-                    if let Ok(peers) = done {
-                        self.peers = peers;
-                        self.answered = true;
-                        let (teams, home) = self.snapshot();
-                        self.elect(teams, home);
-                    }
-                }
                 Some(done) = self.serving.join_next(), if !self.serving.is_empty() => {
                     self.served(done);
                 }
@@ -365,17 +328,34 @@ impl Gateway {
         (teams, home)
     }
 
-    /// Asks the machines when that is due, and elects once they have answered.
+    /// Follows the online machines with a team project, and elects once they
+    /// have all said how they reach the hosts: another machine may be the
+    /// better one.
     fn step(&mut self) {
         let (teams, home) = self.snapshot();
+        let wanted = self.wanted(&teams, &home.projects);
 
-        self.ask_peers(&teams, &home.projects);
+        self.reaches.track(wanted.iter().copied());
 
-        // The first election waits for the first answers: another machine
-        // may be the better one.
-        if self.answered {
+        if self.reaches.settled(&wanted) {
             self.elect(teams, home);
         }
+    }
+
+    /// The online machines with a team project.
+    fn wanted(
+        &self,
+        teams: &[Team],
+        projects: &BTreeMap<TeamRepo, Project>,
+    ) -> BTreeSet<EndpointId> {
+        let online = online(&self.mesh);
+
+        teams
+            .iter()
+            .flat_map(|team| &projects[&team.repo].devices)
+            .map(|device| device.id)
+            .filter(|machine| online.contains(machine))
+            .collect()
     }
 
     /// Elects the gateway of each team, takes the teams this machine acts
@@ -383,12 +363,8 @@ impl Gateway {
     /// their teammates, their cards and the check of their members.
     fn elect(&mut self, teams: Vec<Team>, home: Home) {
         let online = online(&self.mesh);
-        let peers: BTreeMap<EndpointId, ForgeReach> = self
-            .peers
-            .iter()
-            .filter(|(peer, _)| online.contains(*peer))
-            .map(|(peer, reach)| (*peer, reach.clone()))
-            .collect();
+        let mut peers = self.reaches.view();
+        peers.retain(|peer, _| online.contains(peer));
         let ci = &self.ci;
         let me = self.me;
         let gateways: BTreeMap<TeamRepo, EndpointId> = teams
@@ -432,33 +408,6 @@ impl Gateway {
         self.serve_cards(teams, home.projects);
     }
 
-    /// Asks the online machines with a team project how they reach the
-    /// hosts, every `QUIET` and when one of them comes or goes, or a team
-    /// brings others, all at once, in place of an ask still going. The loop
-    /// elects when the answers arrive.
-    fn ask_peers(&mut self, teams: &[Team], projects: &BTreeMap<TeamRepo, Project>) {
-        let online = online(&self.mesh);
-        let asked: BTreeSet<EndpointId> = teams
-            .iter()
-            .flat_map(|team| &projects[&team.repo].devices)
-            .map(|device| device.id)
-            .filter(|machine| online.contains(machine))
-            .collect();
-
-        if !ask_due(self.asked.as_ref(), &asked) {
-            return;
-        }
-
-        self.asked = Some((Instant::now(), asked.clone()));
-        let reaches = self.reaches.clone();
-        self.asking.abort_all();
-        self.asking.spawn(async move {
-            let asks = asked.into_iter().map(|peer| (peer, reaches.ask(peer)));
-
-            gather("team gateway", asks).await
-        });
-    }
-
     /// Hands pickup what is to be kept when it is here to take it.
     fn keep_cards(&mut self) {
         if let Some(cards) = &mut self.cards {
@@ -490,7 +439,7 @@ impl Gateway {
             links: self.links.clone(),
             teams,
             projects,
-            peers: self.peers.clone(),
+            peers: self.reaches.view(),
             rows: self.rows.clone(),
             refused: self.unheard(),
         };
@@ -903,19 +852,6 @@ fn elsewhere(job: &Job, project: &Project, repo: &TeamRepo) -> Vec<EndpointId> {
     let machines = starters(project, &online(&job.mesh));
 
     ranked(&machines, job.me, reach, &job.peers, &repo.host)
-}
-
-/// Whether the machines are asked of their reach again: every `QUIET`, and
-/// whenever those to ask are not the ones `asked` last.
-fn ask_due(asked: Option<&(Instant, BTreeSet<EndpointId>)>, now: &BTreeSet<EndpointId>) -> bool {
-    asked.is_none_or(|(at, then)| at.elapsed() >= QUIET || then != now)
-}
-
-/// When the machines are asked of their reach again, while there are any to ask.
-fn ask_again_at(asked: Option<&(Instant, BTreeSet<EndpointId>)>) -> Option<Instant> {
-    let (at, machines) = asked?;
-
-    (!machines.is_empty()).then(|| *at + QUIET)
 }
 
 /// `rows`, the sessions `peer` pushed, as the agents list names them: those

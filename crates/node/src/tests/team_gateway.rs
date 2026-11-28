@@ -425,34 +425,9 @@ fn a_forgejo_repository_with_a_port_is_asked_on_its_host() {
     assert_eq!(name.to_string(), "org/repo");
 }
 
-/// A team made on two machines already online asks them at once, though
-/// the machines were asked moments before, when there was no team.
-#[test]
-fn a_new_team_asks_its_machines_at_once() {
-    let other = SecretKey::generate().public();
-    let none = (Instant::now(), BTreeSet::new());
-
-    assert!(ask_due(None, &BTreeSet::new()));
-    assert!(!ask_due(Some(&none), &BTreeSet::new()));
-    assert!(ask_due(Some(&none), &[other].into()));
-}
-
-/// A machine that acts for no team still asks again by itself while a team has machines to ask:
-/// the acting machine stepping down tells it nothing.
-#[test]
-fn machines_with_a_team_are_asked_again_when_quiet_has_passed() {
-    let other = SecretKey::generate().public();
-    let at = Instant::now();
-
-    assert_eq!(ask_again_at(None), None);
-    assert_eq!(ask_again_at(Some(&(at, BTreeSet::new()))), None);
-    assert_eq!(ask_again_at(Some(&(at, [other].into()))), Some(at + QUIET));
-}
-
-/// A gather that waits on a machine that does not answer holds nothing up:
-/// what a teammate's gateway says is taken meanwhile.
+/// What a teammate's gateway says is taken while the machines are followed.
 #[tokio::test]
-async fn teammates_are_heard_while_the_machines_are_asked() {
+async fn teammates_are_heard_while_the_machines_are_followed() {
     use crate::team::{
         board::tests::{device, login},
         cards::Teammates,
@@ -467,14 +442,23 @@ async fn teammates_are_heard_while_the_machines_are_asked() {
     let (link, _router) = device().await;
     let (heard, hearing) = mpsc::channel(8);
     let mut gateway = gateway_of(&mesh, me, link.clone(), heard.clone(), dir.path());
+    let alice = member("alice", me);
     let bob = member("bob", SecretKey::generate().public());
+    let team = TeamRecord::new(repo(), vec![alice.clone(), bob.clone()]);
+    link.with(|teams| teams.rosters.refresh([(repo(), team)].into()));
+    link.edit_home(|home| {
+        home.mesh = Some(alice.mesh);
+        let project = Project {
+            name: "org/repo".to_owned(),
+            checkout: None,
+            devices: vec![EndpointAddr::new(me)],
+        };
+        home.projects.insert(repo(), project);
+    });
     let follow = AbortOnDropHandle::new(tokio::spawn(std::future::pending()));
     gateway
         .follows
         .insert((repo(), bob.mesh), (bob.clone(), follow));
-    // The machines were just asked and one does not answer.
-    gateway.asked = Some((Instant::now(), BTreeSet::new()));
-    gateway.asking.spawn(std::future::pending());
     let card = Card {
         id: "s1@build-box".to_owned(),
         title: "Fix the fee model".to_owned(),
@@ -515,8 +499,7 @@ async fn the_gateway_elects_when_the_home_changes() {
     let me = mesh.me();
     let (link, _router) = crate::team::board::tests::device().await;
     let (heard, hearing) = mpsc::channel(8);
-    let mut gateway = gateway_of(&mesh, me, link.clone(), heard, dir.path());
-    gateway.answered = true;
+    let gateway = gateway_of(&mesh, me, link.clone(), heard, dir.path());
     let alice = member("alice", me);
     let team = TeamRecord::new(repo(), vec![alice.clone()]);
     link.with(|teams| teams.rosters.refresh([(repo(), team)].into()));
@@ -554,8 +537,7 @@ async fn the_gateway_elects_when_a_roster_is_edited() {
     let me = mesh.me();
     let (link, _router) = crate::team::board::tests::device().await;
     let (heard, hearing) = mpsc::channel(8);
-    let mut gateway = gateway_of(&mesh, me, link.clone(), heard, dir.path());
-    gateway.answered = true;
+    let gateway = gateway_of(&mesh, me, link.clone(), heard, dir.path());
     let alice = member("alice", me);
     link.edit_home(|home| {
         home.mesh = Some(alice.mesh);
