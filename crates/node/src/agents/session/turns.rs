@@ -161,13 +161,13 @@ impl Actor {
 
         match outcome {
             Ok(acp::SteeringOutcome::Injected) => {}
-            // Taken back, so it is not sent again, but an adapter that failed
-            // it is not asked to steer the next one.
             Err(e) if steer.shown => {
                 self.note(&format!(
                     "The agent echoed the steer but its delivery reply failed: {e}"
                 ));
             }
+            // Taken back, so it is not sent again, but an adapter that failed
+            // it is not asked to steer the next one.
             _ if steer.dropped => {
                 if !matches!(outcome, Ok(acp::SteeringOutcome::PromptRequired)) {
                     self.offers.takes_steering = false;
