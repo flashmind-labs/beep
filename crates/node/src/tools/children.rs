@@ -124,14 +124,9 @@ struct SendArgs {
     text: String,
 }
 
-/// What `StartArgs` hands on without the `wait`.
-struct StartParts {
-    harness: String,
-    prompt: String,
-    cwd: Option<String>,
-    model: Option<String>,
-    title: Option<String>,
-    persona: Option<CustomAgent>,
+/// The mesh the registered projects live in.
+fn registered(mesh: Option<&Mesh>) -> Result<&Mesh, String> {
+    mesh.ok_or_else(|| "This machine is in no mesh, so it has no registered projects.".to_owned())
 }
 
 /// The caller's reach and the node's agents the tools start children on.
@@ -202,11 +197,7 @@ impl Calls<'_> {
                     return Err("Give either `project` or `cwd`, not both.".to_owned());
                 }
 
-                let mesh = self
-                    .reach
-                    .mesh
-                    .as_ref()
-                    .ok_or("This machine is in no mesh, so it has no registered projects.")?;
+                let mesh = registered(self.reach.mesh.as_ref())?;
                 let on = target.as_ref().map_or(mesh.me(), |m| m.id);
                 Some(crate::agents::projects::folder(mesh, &project, on)?)
             }
@@ -253,17 +244,19 @@ impl Calls<'_> {
             background,
             ..self.agents.family.link_for(parent, self.reach.who)?
         };
-        let parts = StartParts {
+        let start = ChildStart {
             harness,
             prompt,
             cwd,
-            model,
+            model: model.map(ModelId::new),
+            review: None,
+            account: parent.account.clone(),
             title,
             persona,
         };
         let view = match target {
-            None => self.start_here(parent, link, parts).await?,
-            Some(machine) => self.start_there(&machine, parent, link, parts).await?,
+            None => self.start_here(parent, link, start).await?,
+            Some(machine) => self.start_there(&machine, parent, link, start).await?,
         };
 
         Ok(json_of(&if wait { self.waited(view).await } else { view }))
@@ -273,34 +266,19 @@ impl Calls<'_> {
         &self,
         parent: &Arc<Session>,
         link: ParentLink,
-        start: StartParts,
+        mut start: ChildStart,
     ) -> Result<ChildView, String> {
         let made = match start.cwd {
             Some(_) => None,
             None => child_folder(parent, start.title.as_deref()).map_err(|e| format!("{e:#}"))?,
         };
-        let cwd = match (start.cwd, &made) {
+        let cwd = match (start.cwd.take(), &made) {
             (Some(cwd), _) => cwd,
             (None, Some(made)) => made.to_string_lossy().into_owned(),
             (None, None) => parent.info().cwd,
         };
-        let child = self
-            .agents
-            .starter
-            .start_child(
-                link,
-                ChildStart {
-                    harness: start.harness,
-                    prompt: start.prompt,
-                    cwd: Some(cwd),
-                    model: start.model.map(ModelId::new),
-                    review: None,
-                    account: parent.account.clone(),
-                    title: start.title,
-                    persona: start.persona,
-                },
-            )
-            .await;
+        start.cwd = Some(cwd);
+        let child = self.agents.starter.start_child(link, start).await;
 
         // A start that was refused keeps no folder and no name: its folder,
         // still empty, goes.
@@ -322,7 +300,7 @@ impl Calls<'_> {
         machine: &Machine,
         parent: &Arc<Session>,
         link: ParentLink,
-        start: StartParts,
+        start: ChildStart,
     ) -> Result<ChildView, String> {
         let mesh = self.reach.mesh()?;
         let cwd = match start.cwd {
@@ -333,9 +311,9 @@ impl Calls<'_> {
             harness: start.harness,
             prompt: start.prompt,
             cwd: Some(cwd),
-            model: start.model,
+            model: start.model.map(|model| model.as_ref().to_owned()),
             parent: link,
-            account: parent.account.clone(),
+            account: start.account,
             title: start.title,
         };
         let me = &self.reach.who.session;
@@ -458,11 +436,7 @@ impl Calls<'_> {
         let project = match project {
             None => None,
             Some(name) => {
-                let mesh = self
-                    .reach
-                    .mesh
-                    .as_ref()
-                    .ok_or("This machine is in no mesh, so it has no registered projects.")?;
+                let mesh = registered(self.reach.mesh.as_ref())?;
                 Some(crate::agents::projects::project_name(mesh, &name)?)
             }
         };
