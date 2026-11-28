@@ -605,6 +605,27 @@ async fn a_stream_opened_right_after_join_is_served() {
     }
 }
 
+/// A mesh installed twice before the stream server runs takes its streams
+/// from the later install.
+#[tokio::test]
+async fn a_mesh_installed_twice_in_a_row_is_still_served() {
+    use beep_proto::node::agent::{SESSIONS_PROTOCOL, SessionsReply, SessionsRequest};
+    let pair = channel_pair(true).await;
+    let client = PeerClient::over(pair.desktop.clone(), pair.endpoint.id());
+    let mesh = pair.peers.inner.active().expect("the node is in a mesh");
+    pair.peers.install(mesh.clone());
+    pair.peers.install(mesh);
+
+    let reply: SessionsReply = timeout(
+        Duration::from_secs(10),
+        client.call(SESSIONS_PROTOCOL, &SessionsRequest::ListAll {}),
+    )
+    .await
+    .expect("the node answered")
+    .expect("the call succeeds");
+    assert!(matches!(reply, SessionsReply::Sessions { .. }));
+}
+
 #[tokio::test]
 async fn peers_without_the_new_protocols_are_rejected_without_fallback() {
     let pair = channel_pair(false).await;

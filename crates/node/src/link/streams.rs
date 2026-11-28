@@ -67,9 +67,17 @@ async fn serve_incoming(
                 serving.shutdown().await;
                 return;
             }
-            Some(stream) = incoming.recv() => {
-                serving.spawn(serve_peer_stream(node.clone(), stream));
-            }
+            stream = incoming.recv() => match stream {
+                Some(stream) => {
+                    serving.spawn(serve_peer_stream(node.clone(), stream));
+                }
+                // The mesh gave its streams to a later install of itself:
+                // that one is the next to read.
+                None => {
+                    serving.shutdown().await;
+                    return;
+                }
+            },
             Some(_) = serving.join_next() => {}
             else => return,
         }

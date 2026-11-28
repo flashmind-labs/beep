@@ -320,16 +320,18 @@ impl Peers {
             follower: Mutex::new(None),
             installed,
             _following: OnceLock::new(),
+            _serving: OnceLock::new(),
         });
         // Started once the node exists, which they upgrade to read.
         let following = tokio::spawn(from_mesh::run(Arc::downgrade(&inner)));
         inner._following.set(AbortOnDropHandle::new(following)).ok();
         let membership = inner.offers().mesh.subscribe();
-        tokio::spawn(streams::serve_meshes(
+        let serving = tokio::spawn(streams::serve_meshes(
             Arc::downgrade(&inner),
             incoming,
             membership,
         ));
+        inner._serving.set(AbortOnDropHandle::new(serving)).ok();
 
         Self { inner }
     }

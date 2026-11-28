@@ -98,8 +98,10 @@ pub(super) struct Inner {
     /// Watches the mesh and the transfers to start the follower.
     pub(super) _following: OnceLock<AbortOnDropHandle<()>>,
     /// Hands each installed mesh and its incoming streams to
-    /// `streams::serve_meshes`, which ends with the node.
+    /// `streams::serve_meshes`.
     pub(super) installed: mpsc::UnboundedSender<Installed>,
+    /// The stream server, which ends with the node.
+    pub(super) _serving: OnceLock<AbortOnDropHandle<()>>,
 }
 
 impl Inner {
@@ -157,8 +159,11 @@ impl Peers {
 
     /// Lets go of the mesh, so it can stop: the mesh is cleared first, so the
     /// follower starts nothing on it; the follower is then aborted and
-    /// awaited, which drops what it held. Nothing in the node holds the mesh
-    /// once this returns. Peers are refused until `install`.
+    /// awaited, which drops what it held. The streams being served end once
+    /// the stream server sees the mesh cleared, so they still hold the mesh
+    /// for a moment after this returns, until their shutdown finishes; a
+    /// close that waits for the mesh waits for them. Peers are refused until
+    /// `install`.
     pub async fn leave(&self) {
         let offers = self.inner.offers().clone();
         // Cleared first: the follower starts nothing on a mesh that is gone.
