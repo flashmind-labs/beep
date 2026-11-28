@@ -287,9 +287,15 @@ async fn run(reach: &Reach<'_>, screens: &Screens, action: Action) -> Result<Ran
         Action::Ui(at) => {
             let (viewer, used) = screens.viewer(reach, &at).await?;
             let shot = viewer.shot().await?;
-            let (machine, device) = reach.find(&at).await?;
+            let machine = machine(reach.mesh, &at.machine)?;
             let elements = match reach
-                .ask(&machine, &Request::Ui { id: device.id }, UI_LIMIT)
+                .ask(
+                    &machine,
+                    &Request::Ui {
+                        id: used.device.clone(),
+                    },
+                    UI_LIMIT,
+                )
                 .await?
             {
                 Reply::Ui { elements } => elements,
@@ -336,7 +342,7 @@ async fn run(reach: &Reach<'_>, screens: &Screens, action: Action) -> Result<Ran
         }
         Action::Screenshot(at) => {
             let (viewer, used) = screens.viewer(reach, &at).await?;
-            Ok((shown(&at, viewer.shot().await?)?, Some(used)))
+            Ok((shown(&at, viewer.shot().await?), Some(used)))
         }
         Action::Tap { at, x, y } => {
             let (viewer, used) = screens.viewer(reach, &at).await?;
@@ -412,7 +418,7 @@ fn used(machine: &Machine, device: &Device) -> SessionDevice {
 async fn drive(viewer: &Viewer, at: &Target, inputs: Vec<(Input, Duration)>) -> Result<Called> {
     viewer.input(inputs).await?;
     sleep(SETTLE).await;
-    shown(at, viewer.shot().await?)
+    Ok(shown(at, viewer.shot().await?))
 }
 
 /// A line per element, with where to tap it in a `width` by `height`
@@ -441,7 +447,7 @@ fn placed(elements: &[Element], width: u32, height: u32) -> String {
         .join("\n")
 }
 
-fn shown(at: &Target, frame: Frame) -> Result<Called> {
+fn shown(at: &Target, frame: Frame) -> Called {
     let mut called = Called::ok(format!(
         "{} on {}: {} x {} pixels.",
         at.device,
@@ -450,7 +456,7 @@ fn shown(at: &Target, frame: Frame) -> Result<Called> {
         frame.height
     ));
     called.image = Some(frame);
-    Ok(called)
+    called
 }
 
 fn touch(phase: TouchPhase, x: f32, y: f32) -> Input {
