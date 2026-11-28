@@ -287,7 +287,7 @@ impl Desk {
         }
 
         // Runs at once would read every project again each: one reads, the others take its list.
-        let _run = self.hosts.board_run().lock().await;
+        let _run = self.hosts.board_run.lock().await;
 
         if let Some(update) = fresh(&key) {
             return Ok(update);
@@ -300,7 +300,7 @@ impl Desk {
             show(progress, &mut shown, sources.items()).await;
         }
 
-        let client = self.hosts.client();
+        let client = &self.hosts.client;
         let logins = &logins;
         let turns = Semaphore::new(AT_ONCE);
         let turns = &turns;
@@ -377,7 +377,7 @@ impl Desk {
         };
         let host = host_of_url(url.as_ref())?;
 
-        if !self.hosts.gates().is_paused(self.local, &host) {
+        if !self.hosts.gates.is_paused(self.local, &host) {
             return None;
         }
 

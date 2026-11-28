@@ -20,7 +20,6 @@ use beep_proto::{
 use iroh::EndpointId;
 use std::{
     path::{Component, Path},
-    sync::PoisonError,
     time::Duration,
 };
 use tokio::time::timeout;
@@ -229,11 +228,7 @@ impl Desk {
     async fn forget_old_moves(&self, now: u64) -> Result<()> {
         for (key, record) in scan::<SessionMove>(&self.mesh, "session-move/") {
             if now.saturating_sub(record.at) > KEEP_MOVES_MS {
-                self.hosts
-                    .move_states()
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .remove(&record.id);
+                self.hosts.forget_move_state(&record.id);
                 self.mesh.set(key, None).await?;
             }
         }
@@ -257,11 +252,7 @@ impl Desk {
     /// the target already resumed the session.
     pub async fn cancel_move(&self, id: &SessionId) -> Result<()> {
         let _one = WRITES.lock().await;
-        self.hosts
-            .move_states()
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(id);
+        self.hosts.forget_move_state(id);
         self.mesh.set(Key::SessionMove(id.clone()), None).await?;
         Ok(())
     }
@@ -284,45 +275,18 @@ impl Desk {
         })
         .await;
 
-        match asked {
-            Ok(Ok(state)) => {
-                self.hosts
-                    .move_states()
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .insert(id.clone(), state.clone());
-                Ok(state)
-            }
-            Ok(Err(err)) => {
-                if let Some(cached) = self
-                    .hosts
-                    .move_states()
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .get(id)
-                    .cloned()
-                {
-                    return Ok(cached);
-                }
+        if let Ok(Ok(state)) = &asked {
+            self.hosts.keep_move_state(id, state.clone());
+            return Ok(state.clone());
+        }
 
-                Err(err)
-            }
-            Err(_) => {
-                if let Some(cached) = self
-                    .hosts
-                    .move_states()
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .get(id)
-                    .cloned()
-                {
-                    return Ok(cached);
-                }
-
-                Err(FleetError::Refused(
-                    "the target machine did not answer in time".into(),
-                ))
-            }
+        // The link glitched or the target is slow: the last state it reported stands.
+        match (self.hosts.move_state(id), asked) {
+            (Some(cached), _) => Ok(cached),
+            (None, Ok(Err(err))) => Err(err),
+            (None, _) => Err(FleetError::Refused(
+                "the target machine did not answer in time".into(),
+            )),
         }
     }
 }

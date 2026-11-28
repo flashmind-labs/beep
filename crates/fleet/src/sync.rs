@@ -252,13 +252,13 @@ impl Desk {
     /// does not push is read from its last direct answer.
     pub(crate) async fn node_statuses(&self, machine: EndpointId) -> Option<Vec<ProjectStatus>> {
         if !self.is_online(machine) {
-            self.hosts.direct_syncs().forget(machine);
+            self.hosts.direct_syncs.forget(machine);
             return None;
         }
 
         // A node that pushed before gets the time a first direct read gets, for the client, the
         // snapshot and a direct call together.
-        if self.hosts.direct_syncs().pushes(machine) {
+        if self.hosts.direct_syncs.pushes(machine) {
             return timeout(
                 SYNC_FIRST_WAIT,
                 self.read_statuses(machine, SYNC_FIRST_WAIT),
@@ -277,7 +277,7 @@ impl Desk {
         machine: EndpointId,
         wait: Duration,
     ) -> Option<Vec<ProjectStatus>> {
-        let direct = self.hosts.direct_syncs();
+        let direct = &self.hosts.direct_syncs;
         let client = timeout(wait, self.machines.client(machine))
             .await
             .ok()

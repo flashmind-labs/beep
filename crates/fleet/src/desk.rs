@@ -100,22 +100,6 @@ impl Desk {
         self.look_all(self.mesh.code_hosts()).await
     }
 
-    /// Only the machines among `ids`: a read of one project has no use for the others, and one
-    /// that is slow to answer is not waited on.
-    pub(crate) async fn machines_among(&self, ids: &[EndpointId]) -> Vec<Machine> {
-        let wanted = self
-            .mesh
-            .code_hosts()
-            .into_iter()
-            .filter(|status| ids.contains(&status.device.id))
-            .collect();
-        self.look_all(wanted)
-            .await
-            .into_iter()
-            .map(|seen| seen.machine)
-            .collect()
-    }
-
     /// Only this Mac's own machine, without asking the others anything.
     pub(crate) async fn local_machine(&self) -> Option<Machine> {
         Some(self.seen_one(self.local).await?.machine)
@@ -160,6 +144,8 @@ impl Desk {
         join_all(statuses.into_iter().map(|status| self.look(status))).await
     }
 
+    /// Only the code hosts among `ids`: a read of one project has no use for the others, and one
+    /// that is slow to answer is not waited on.
     pub(crate) async fn seen_among(&self, ids: &[EndpointId]) -> Vec<Seen> {
         let wanted = self
             .mesh
@@ -256,19 +242,19 @@ type KeptRemotes = (Instant, Vec<String>);
 /// on calls in flight, and the replies and rate limits kept for the runs.
 #[derive(Clone)]
 pub(crate) struct DesktopHosts {
-    client: Client,
-    calls: Arc<Semaphore>,
-    kept: Arc<HostCalls>,
+    pub(crate) client: Client,
+    pub(crate) calls: Arc<Semaphore>,
+    pub(crate) kept: Arc<HostCalls>,
     /// Each project's checkout remotes and when they were read, for the hosts its runs are on.
     remotes: Arc<Mutex<HashMap<String, KeptRemotes>>>,
     /// The issue hosts each machine could not reach lately.
-    gates: Arc<HostGates>,
+    pub(crate) gates: Arc<HostGates>,
     /// Held by the run reading Home's pull requests and issues.
-    board_run: Arc<AsyncMutex<()>>,
+    pub(crate) board_run: Arc<AsyncMutex<()>>,
     /// What nodes that push no sync status last said of it.
-    direct_syncs: Arc<crate::direct_syncs::DirectSyncs>,
+    pub(crate) direct_syncs: Arc<crate::direct_syncs::DirectSyncs>,
     /// Per-machine spend cache, so a degraded node keeps its last spend instead of dropping to 0.
-    usage: Arc<crate::usage_cache::UsageCache>,
+    pub(crate) usage: Arc<crate::usage_cache::UsageCache>,
     /// Last move state reported by each target machine, used when a link glitches momentarily.
     moves: Arc<Mutex<HashMap<SessionId, MoveState>>>,
 }
@@ -298,36 +284,20 @@ impl DesktopHosts {
         })
     }
 
-    pub(crate) fn direct_syncs(&self) -> &Arc<crate::direct_syncs::DirectSyncs> {
-        &self.direct_syncs
+    pub(crate) fn move_state(&self, id: &SessionId) -> Option<MoveState> {
+        self.moves().get(id).cloned()
     }
 
-    pub(crate) fn usage(&self) -> &Arc<crate::usage_cache::UsageCache> {
-        &self.usage
+    pub(crate) fn keep_move_state(&self, id: &SessionId, state: MoveState) {
+        self.moves().insert(id.clone(), state);
     }
 
-    pub(crate) fn move_states(&self) -> &Arc<Mutex<HashMap<SessionId, MoveState>>> {
-        &self.moves
+    pub(crate) fn forget_move_state(&self, id: &SessionId) {
+        self.moves().remove(id);
     }
 
-    pub(crate) fn client(&self) -> &Client {
-        &self.client
-    }
-
-    pub(crate) fn semaphore(&self) -> &Arc<Semaphore> {
-        &self.calls
-    }
-
-    pub(crate) fn host_calls(&self) -> &HostCalls {
-        &self.kept
-    }
-
-    pub(crate) fn gates(&self) -> &Arc<HostGates> {
-        &self.gates
-    }
-
-    pub(crate) fn board_run(&self) -> &AsyncMutex<()> {
-        &self.board_run
+    fn moves(&self) -> std::sync::MutexGuard<'_, HashMap<SessionId, MoveState>> {
+        self.moves.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// `project`'s remotes as read less than `within` ago.
@@ -346,7 +316,7 @@ impl DesktopHosts {
 
 impl Hosts for DesktopHosts {
     fn client(&self) -> anyhow::Result<Client> {
-        Ok(DesktopHosts::client(self).clone())
+        Ok(self.client.clone())
     }
 
     fn calls(&self) -> &Arc<Semaphore> {

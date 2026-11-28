@@ -596,7 +596,7 @@ impl Desk {
     }
 
     fn checker(&self) -> Checker {
-        let checker = Checker::new(self.hosts.client().clone());
+        let checker = Checker::new(self.hosts.client.clone());
         match &self.github_api {
             Some(base) => checker.github_at(base),
             None => checker,

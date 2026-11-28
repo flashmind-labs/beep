@@ -326,7 +326,7 @@ impl Desk {
 
     /// One host's newest runs, with the progress of those running, and how its read went.
     async fn host_runs(&self, place: &Place) -> (Vec<WorkflowRun>, RunsHost) {
-        let calls = self.hosts.host_calls();
+        let calls = &self.hosts.kept;
         let mut host = RunsHost {
             host: place.target.host.clone(),
             kind: place.kind,
@@ -337,9 +337,7 @@ impl Desk {
             rate_limited_until: None,
             url: Some(place.web.clone()),
         };
-        let caller = place
-            .target
-            .caller(self.hosts.semaphore(), self.hosts.client());
+        let caller = place.target.caller(&self.hosts.calls, &self.hosts.client);
         let mut shown = match host_runs::list(calls, &caller, &place.target).await {
             Ok(runs) => runs,
             Err(e) => {
@@ -379,10 +377,8 @@ impl Desk {
     /// The open pull requests' numbers and head branches; none when they cannot be read, as the
     /// checks then only go unmatched.
     async fn open_heads(&self, place: &Place) -> Vec<(u64, String)> {
-        let caller = place
-            .target
-            .caller(self.hosts.semaphore(), self.hosts.client());
-        host_runs::heads(self.hosts.host_calls(), &caller, &place.target)
+        let caller = place.target.caller(&self.hosts.calls, &self.hosts.client);
+        host_runs::heads(&self.hosts.kept, &caller, &place.target)
             .await
             .unwrap_or_default()
     }
@@ -410,10 +406,8 @@ impl Desk {
             Some(place) => place,
             None => own.map_err(FleetError::Refused)?,
         };
-        let calls = self.hosts.host_calls();
-        let caller = place
-            .target
-            .caller(self.hosts.semaphore(), self.hosts.client());
+        let calls = &self.hosts.kept;
+        let caller = place.target.caller(&self.hosts.calls, &self.hosts.client);
         // The run and its jobs are asked at once; the log waits for the jobs, which name it.
         let (run, jobs) = join(
             host_runs::one(calls, &caller, &place.target, id),

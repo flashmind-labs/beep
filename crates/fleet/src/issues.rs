@@ -55,7 +55,7 @@ impl Desk {
         local_only: bool,
     ) -> Result<(DeskProject, DeskMachines, bool)> {
         let store = DeskProject::of(&self.mesh, name)?;
-        let gates = self.hosts.gates();
+        let gates = &self.hosts.gates;
         let local_answers = store.host.as_ref().is_none_or(|host| {
             !gates.is_paused(self.local, host)
                 && gates
@@ -71,7 +71,12 @@ impl Desk {
             return Ok((store, DeskMachines::of(&[local], gates), true));
         }
 
-        let machines = self.machines_among(&store.machine_ids()).await;
+        let machines: Vec<Machine> = self
+            .seen_among(&store.machine_ids())
+            .await
+            .into_iter()
+            .map(|seen| seen.machine)
+            .collect();
         Ok((store, DeskMachines::of(&machines, gates), false))
     }
 

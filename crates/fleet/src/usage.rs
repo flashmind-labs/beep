@@ -57,7 +57,7 @@ impl Desk {
         let open_limit = self.settle.max(MIN_OPEN);
         let Ok(Ok(client)) = timeout(open_limit, self.machines.client(machine)).await else {
             self.hosts
-                .usage()
+                .usage
                 .merge_and_fill(machine, false, Vec::new(), HashMap::new(), said);
             return;
         };
@@ -70,7 +70,7 @@ impl Desk {
         .await
         else {
             self.hosts
-                .usage()
+                .usage
                 .merge_and_fill(machine, false, Vec::new(), HashMap::new(), said);
             return;
         };
@@ -117,7 +117,7 @@ impl Desk {
 
         let complete = listened.is_ok() && open;
         self.hosts
-            .usage()
+            .usage
             .merge_and_fill(machine, complete, machine_plans, machine_sessions, said);
 
         if !open {
@@ -142,7 +142,7 @@ impl Desk {
                 waiting,
                 incomplete_history,
                 settle: quiet,
-                usage: self.hosts.usage().clone(),
+                usage: self.hosts.usage.clone(),
                 opened,
             });
         }
@@ -192,7 +192,7 @@ impl Desk {
             .filter(|status| status.online)
             .map(|status| status.device.id)
             .collect();
-        let said = self.hosts.usage().snapshot(&online);
+        let said = self.hosts.usage.snapshot(&online);
         self.report_from_said(&said)
     }
 
