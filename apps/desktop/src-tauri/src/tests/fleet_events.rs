@@ -1242,3 +1242,37 @@ fn mesh_key_routing_skips_unrelated_keys_and_targets_affected_topics() {
         ["terminals"]
     );
 }
+
+#[test]
+fn a_rejected_pause_topic_change_leaves_the_window_shown() {
+    let events = WindowOutbox::new(iroh::SecretKey::generate().public());
+    let id = Uuid::new_v4();
+    let topics: Vec<_> = (0..events::MAX_TOPICS)
+        .map(|number| interest(&format!("plugin_{number}"), None))
+        .collect();
+    let _one = events
+        .register("one", id, topics, Arc::new(|_| true), || true, None)
+        .unwrap()
+        .unwrap();
+    let second = Uuid::new_v4();
+    let _two = events
+        .register(
+            "two",
+            second,
+            vec![interest("plugin_0", None)],
+            Arc::new(|_| true),
+            || true,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+
+    let result = events.pause("two", second, Some(vec![interest("another", None)]));
+
+    assert!(result.is_err());
+    assert!(
+        events.registry.lock().unwrap().windows["two"]
+            .paused
+            .is_none()
+    );
+}
