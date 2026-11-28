@@ -454,7 +454,6 @@ impl Session {
             foreground: false,
             ready_for_prompts: false,
             initial_v2_state: None,
-            compacting_v2: false,
             accepting_v2: Accepting::Done,
             backlog: Backlog::new(prompt),
             sent: 0,

@@ -29,7 +29,6 @@ fn actor() -> Actor {
         foreground: false,
         ready_for_prompts: true,
         initial_v2_state: None,
-        compacting_v2: false,
         accepting_v2: Accepting::Done,
         left_plan_for: None,
         returning: None,

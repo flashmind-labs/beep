@@ -52,7 +52,6 @@ impl Actor {
             self.sent += 1;
             self.turn = Some(Turn::new(self.sent));
         }
-        self.compacting_v2 = compact;
         self.accepting_v2 = Accepting::Waiting;
         self.foreground = false;
         let turn = self.sent;
@@ -165,8 +164,7 @@ impl Actor {
             idle.usage.as_ref().map(|usage| usage.total_tokens),
         );
         self.live.send_modify(|live| live.spent(tokens));
-        if self.compacting_v2 {
-            self.compacting_v2 = false;
+        if self.compactor.running() {
             let result = if stop == StopReason::EndTurn {
                 Ok(PromptResponse::new(
                     agent_client_protocol::v1::schema::StopReason::EndTurn,

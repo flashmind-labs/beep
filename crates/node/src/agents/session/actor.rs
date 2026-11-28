@@ -254,7 +254,6 @@ pub(super) struct Actor {
     pub(super) foreground: bool,
     pub(super) ready_for_prompts: bool,
     pub(super) initial_v2_state: Option<agent_client_protocol::v2::schema::StateUpdate>,
-    pub(super) compacting_v2: bool,
     pub(super) accepting_v2: Accepting,
     /// The last mode the session was in other than plan mode.
     pub(super) left_plan_for: Option<String>,
@@ -1013,7 +1012,6 @@ impl Actor {
                         self.live.send_modify(|live| live.v2_rejected());
                         if compact {
                             self.turn = None;
-                            self.compacting_v2 = false;
                             self.compacted(cx, Err(error));
                         } else {
                             return self.reply(cx, Reply::Prompt(Err(error)));
