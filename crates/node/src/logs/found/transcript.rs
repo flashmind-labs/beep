@@ -95,17 +95,10 @@ impl Stores {
     /// The database of Antigravity conversation `id`: in `root`, else in a
     /// WSL distribution's store.
     fn agy_database(&self, root: Option<&Path>, id: &SessionId) -> Option<PathBuf> {
-        let wsl = if self.in_wsl {
-            Vec::new()
-        } else {
-            super::wsl_stores()
-        };
+        let wsl = (!self.in_wsl).then(super::wsl_stores).into_iter().flatten();
         root.map(|root| agy::database(root, id))
             .into_iter()
-            .chain(
-                wsl.into_iter()
-                    .filter_map(|(_, stores)| Some(agy::database(stores.agy.as_deref()?, id))),
-            )
+            .chain(wsl.filter_map(|(_, stores)| Some(agy::database(stores.agy.as_deref()?, id))))
             .find(|database| database.is_file())
     }
 }
