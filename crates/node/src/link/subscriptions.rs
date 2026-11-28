@@ -50,7 +50,7 @@ fn serve_stream(
             peers.controller_allowed(peer, mesh),
             "only a controller may subscribe"
         );
-        serve_open(tx, rx, offers, peer, Reach::Whole).await
+        serve_open(tx, rx, offers, peer, false, Reach::Whole).await
     })
 }
 
@@ -59,11 +59,12 @@ pub(super) async fn serve_open(
     mut rx: LinkRx,
     offers: Offers,
     caller: EndpointId,
+    local: bool,
     reach: Reach,
 ) -> Result<()> {
     let open = timeout(CHANNEL_OPEN_WAIT, rx.recv::<Open>())
         .await??
         .context("the subscription stream closed before opening")?;
     let compress = open.compress && !tx.is_zstd();
-    events::serve_subscriptions(tx, rx, offers, caller, reach, compress).await
+    events::serve_subscriptions(tx, rx, offers, caller, local, reach, compress).await
 }

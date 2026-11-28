@@ -21,12 +21,17 @@ async fn next(rx: &mut LinkRx) -> Reply {
 }
 
 async fn start(offers: Offers) -> (LinkTx, LinkRx, AbortOnDropHandle<Result<()>>) {
+    start_as(offers, false).await
+}
+
+async fn start_as(offers: Offers, local: bool) -> (LinkTx, LinkRx, AbortOnDropHandle<Result<()>>) {
     let link = local_link();
     let task = AbortOnDropHandle::new(tokio::spawn(serve(
         link.node.0,
         link.node.1,
         offers,
         iroh::SecretKey::generate().public(),
+        local,
     )));
     let (tx, mut rx) = link.caller;
     assert_eq!(next(&mut rx).await, Reply::Ready);
@@ -57,6 +62,36 @@ async fn state(rx: &mut LinkRx, topic: &Topic) -> events::Snapshot {
             return *snapshot;
         }
     }
+}
+
+#[tokio::test]
+async fn switching_lending_off_ends_an_open_events_stream_of_another_desktop() {
+    let offers = Offers::default();
+    offers.lend_to_peers(true);
+    let (mut tx, mut rx, task) = start(offers.clone()).await;
+    tx.send(&Request::Ping { id: 5 }).await.unwrap();
+    assert_eq!(next(&mut rx).await, Reply::Pong { id: 5 });
+
+    offers.lend_to_peers(false);
+    tx.send(&Request::Ping { id: 6 }).await.unwrap();
+    let error = timeout(Duration::from_secs(10), task)
+        .await
+        .expect("the stream ends")
+        .unwrap()
+        .unwrap_err();
+
+    assert!(error.to_string().contains("no longer shared"), "{error}");
+}
+
+#[tokio::test]
+async fn the_local_desktop_keeps_its_events_stream_when_lending_is_off() {
+    let offers = Offers::default();
+    offers.lend_to_peers(false);
+    let (mut tx, mut rx, task) = start_as(offers, true).await;
+    tx.send(&Request::Ping { id: 5 }).await.unwrap();
+
+    assert_eq!(next(&mut rx).await, Reply::Pong { id: 5 });
+    assert!(!task.is_finished());
 }
 
 #[tokio::test]
@@ -442,6 +477,7 @@ mod node_caller {
             link.node.1,
             offers.clone(),
             iroh::SecretKey::generate().public(),
+            false,
             Reach::Node,
             false,
         )));

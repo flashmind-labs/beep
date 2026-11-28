@@ -1184,6 +1184,7 @@ mod actor_tests {
             link.node.1,
             offers,
             iroh::SecretKey::generate().public(),
+            false,
         )));
         let (mut tx, mut rx) = link.caller;
         tx.send(&Request::Watch {

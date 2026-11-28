@@ -388,6 +388,7 @@ pub(super) async fn serve_open(
     offers: Offers,
     who: Who,
     compress: bool,
+    local: bool,
 ) -> Result<()> {
     if matches!(who, Who::Node { .. }) && !node_may_open(&protocol) {
         let reason = format!("a node may not open {}", protocol);
@@ -476,9 +477,9 @@ pub(super) async fn serve_open(
                     Who::Everything(_) => super::events::Reach::Whole,
                     Who::Node { .. } => super::events::Reach::Node,
                 };
-                super::subscriptions::serve_open(tx, rx, offers, who.id(), reach).await
+                super::subscriptions::serve_open(tx, rx, offers, who.id(), local, reach).await
             }
-            SessionProtocol::Events => super::events::serve(tx, rx, offers, who.id()).await,
+            SessionProtocol::Events => super::events::serve(tx, rx, offers, who.id(), local).await,
             SessionProtocol::AgentFollow => {
                 crate::agents::serve_follow(tx, rx, offers.agents).await
             }
@@ -620,14 +621,13 @@ async fn serve_protocol(
     }
 
     // The person at this machine is not held to the setting; a device of the mesh is.
-    if who.id() != inner.own.endpoint.id()
-        && let Some(reason) = withheld(protocol.as_ref(), offers.lends_to_peers())
-    {
+    let local = who.id() == inner.own.endpoint.id();
+    if !local && let Some(reason) = withheld(protocol.as_ref(), offers.lends_to_peers()) {
         let mut tx = tx;
         return tx.send(&Opened::Refused { reason }).await;
     }
 
-    serve_open(tx, rx, protocol, offers, who, compress).await
+    serve_open(tx, rx, protocol, offers, who, compress, local).await
 }
 
 #[cfg(test)]

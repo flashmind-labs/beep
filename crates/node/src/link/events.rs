@@ -159,8 +159,16 @@ pub(crate) async fn serve(
     rx: LinkRx,
     offers: Offers,
     caller: iroh::EndpointId,
+    local: bool,
 ) -> Result<()> {
-    run(Wire::Events, tx, rx, offers, caller, Reach::Whole, false).await
+    let opening = Opening {
+        wire: Wire::Events,
+        local,
+        reach: Reach::Whole,
+        compress: false,
+    };
+
+    run(opening, tx, rx, offers, caller).await
 }
 
 pub(super) async fn serve_subscriptions(
@@ -168,21 +176,42 @@ pub(super) async fn serve_subscriptions(
     rx: LinkRx,
     offers: Offers,
     caller: iroh::EndpointId,
+    local: bool,
     reach: Reach,
     compress: bool,
 ) -> Result<()> {
-    run(Wire::Subscriptions, tx, rx, offers, caller, reach, compress).await
+    let opening = Opening {
+        wire: Wire::Subscriptions,
+        local,
+        reach,
+        compress,
+    };
+
+    run(opening, tx, rx, offers, caller).await
+}
+
+/// How a stream was opened: its protocol, whether the caller is the person
+/// at this machine (not held to the lending setting), and what it may see.
+struct Opening {
+    wire: Wire,
+    local: bool,
+    reach: Reach,
+    compress: bool,
 }
 
 async fn run(
-    wire: Wire,
+    opening: Opening,
     mut tx: LinkTx,
     mut rx: LinkRx,
     offers: Offers,
     caller: iroh::EndpointId,
-    reach: Reach,
-    compress: bool,
 ) -> Result<()> {
+    let Opening {
+        wire,
+        local,
+        reach,
+        compress,
+    } = opening;
     let mut snapshots = Snapshots::new();
     let stream = snapshots.stream();
     tracing::info!(%stream, "subscription stream opened");
@@ -239,9 +268,7 @@ async fn run(
                 }
             }, if snapshot_due.is_some() => {},
             request = read_request(wire, &mut rx) => {
-                if wire == Wire::Subscriptions {
-                    anyhow::ensure!(offers.lends_to_peers() || offers.mesh.get().is_some_and(|mesh| mesh.me() == caller), "this machine is no longer shared");
-                }
+                anyhow::ensure!(local || offers.lends_to_peers(), "this machine is no longer shared");
 
                 let (request, deltas, query_deltas) = match request? {
                     None => (None, false, false),

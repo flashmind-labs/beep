@@ -101,6 +101,7 @@ async fn only_a_controller_can_read_or_change_mcp_servers() -> Result<()> {
             desktop_here: false,
         },
         false,
+        false,
     )
     .await?;
     assert!(matches!(
@@ -118,6 +119,7 @@ async fn only_a_controller_can_read_or_change_mcp_servers() -> Result<()> {
         offers,
         Who::Everything(peer),
         false,
+        true,
     ));
     tx.send(&Request::Harnesses).await?;
     assert!(matches!(rx.recv::<Opened>().await?, Some(Opened::Ready {})));
@@ -160,6 +162,7 @@ async fn desktop_runs(offers: &Offers, who: Who) -> beep_proto::node::tools::Rep
         SessionProtocol::Tools,
         offers.clone(),
         who,
+        false,
         false,
     ));
     tx.send(&Request {

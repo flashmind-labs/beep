@@ -79,6 +79,7 @@ async fn subscribe(root: &Path) -> (LinkTx, LinkRx, AbortOnDropHandle<Result<()>
         link.node.1,
         offers,
         iroh::SecretKey::generate().public(),
+        false,
     )));
     let (mut tx, mut rx) = link.caller;
     assert_eq!(rx.recv::<Reply>().await.unwrap(), Some(Reply::Ready));
@@ -277,6 +278,7 @@ mod current {
             link.node.1,
             offers,
             iroh::SecretKey::generate().public(),
+            false,
             crate::link::events::Reach::Whole,
             false,
         )));
