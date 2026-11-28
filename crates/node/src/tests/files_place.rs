@@ -156,7 +156,11 @@ fn a_stopped_nodes_partial_folders_are_swept() {
 
 #[test]
 fn room_counts_one_disk_twice() {
-    let disk = |free, device| Space { free, device };
+    let disk = |free, device| Volume {
+        device,
+        free,
+        total: free,
+    };
     let fits = |need, store, folder| {
         Arc::new(Room::default())
             .reserve(need, store, folder, 10)

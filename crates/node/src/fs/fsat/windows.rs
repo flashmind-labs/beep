@@ -1,7 +1,7 @@
 //! Folders as paths on Windows. Every step checks the path it reaches is
 //! not a link or junction before using it.
 
-use super::types::{FileId, Space, Volume};
+use super::types::{FileId, Volume};
 use std::{
     ffi::OsStr,
     fs::{self, File, Metadata, OpenOptions},
@@ -131,12 +131,8 @@ impl Dir {
         }
     }
 
-    pub(crate) fn space(&self) -> io::Result<Space> {
-        let volume = volume(&self.path)?;
-        Ok(Space {
-            free: volume.free,
-            device: volume.device,
-        })
+    pub(crate) fn space(&self) -> io::Result<Volume> {
+        volume(&self.path)
     }
 
     pub(crate) fn id(&self) -> io::Result<FileId> {

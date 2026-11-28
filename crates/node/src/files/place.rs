@@ -27,7 +27,7 @@ use std::{
 const PARTIAL_START: &str = ".beep-";
 const PARTIAL_END: &str = ".partial";
 
-pub(crate) use fsat::Space;
+pub(crate) use fsat::Volume;
 
 /// `name` when it is one plain path part, as a file or folder name the
 /// source gave.
@@ -79,7 +79,7 @@ impl Folder {
     }
 
     /// Bytes free on its disk, and the disk's id.
-    pub(crate) fn space(&self) -> Result<Space> {
+    pub(crate) fn space(&self) -> Result<Volume> {
         self.dir
             .space()
             .with_context(|| format!("reading free space at {}", self.path.display()))
@@ -87,7 +87,7 @@ impl Folder {
 }
 
 /// Free bytes on the disk that holds `dir`.
-pub(crate) fn space_at(dir: &Path) -> Result<Space> {
+pub(crate) fn space_at(dir: &Path) -> Result<Volume> {
     let opened = Dir::open(dir).with_context(|| format!("opening {}", dir.display()))?;
     opened
         .space()
@@ -370,7 +370,7 @@ pub(crate) struct Room {
 /// What one disk must hold for a fetch.
 #[derive(Debug, Clone, Copy)]
 struct Want {
-    space: Space,
+    space: Volume,
     bytes: u64,
 }
 
@@ -404,8 +404,8 @@ impl Room {
     pub(crate) fn reserve(
         self: &Arc<Self>,
         need: u64,
-        store: Space,
-        folder: Space,
+        store: Volume,
+        folder: Volume,
         margin: u64,
     ) -> Result<Reserved> {
         let held = if store.device == folder.device {

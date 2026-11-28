@@ -1,6 +1,6 @@
 //! Folders as open descriptors, with `*at` calls through rustix.
 
-use super::types::{FileId, Space, Volume};
+use super::types::{FileId, Volume};
 use rustix::{
     fs::{
         AtFlags, FileType, Mode, OFlags, RenameFlags, fstat, fstatvfs, linkat, mkdirat, openat,
@@ -178,12 +178,13 @@ impl Dir {
         }
     }
 
-    /// Bytes free on its disk, and the disk's id.
-    pub(crate) fn space(&self) -> io::Result<Space> {
+    /// The disk it is on: its id, and its free and total bytes.
+    pub(crate) fn space(&self) -> io::Result<Volume> {
         let stats = fstatvfs(&self.fd)?;
-        Ok(Space {
-            free: stats.f_bavail.saturating_mul(stats.f_frsize),
+        Ok(Volume {
             device: self.id()?.device,
+            free: stats.f_bavail.saturating_mul(stats.f_frsize),
+            total: stats.f_blocks.saturating_mul(stats.f_frsize),
         })
     }
 
