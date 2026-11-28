@@ -13,9 +13,8 @@ apps/desktop/src-tauri/src/store/window_session.rs | changed | sleep#1 | debounc
 apps/desktop/src-tauri/src/fleet/alerts.rs | again | sleep#1 | retry | waits RETRY after the machine is online, then follows again
 apps/desktop/src-tauri/src/fleet/events.rs | mesh_topics | sleep#1 | deadline | waits the grace of a paused window, then lets its outbox expire
 apps/desktop/src-tauri/src/views.rs | paced | sleep_until#1 | pace | spaces repeated change signals for a topic to a minimum gap
-apps/desktop/src-tauri/src/fleet/events/commands.rs | <top> | sleep#1 | deadline | dead-link timer for the command stream, reset on each message
+apps/desktop/src-tauri/src/fleet/events/commands.rs | <top> | sleep#1 | deadline | dead-link timer for the command and event streams, reset on each message
 apps/desktop/src-tauri/src/fleet/events/commands.rs | retrying | sleep#1 | retry | waits RETRY before reconnecting the command stream
-apps/desktop/src-tauri/src/fleet/events/subscriptions.rs | <top> | sleep#1 | deadline | dead-link timer for the event stream, reset on each message
 apps/desktop/src-tauri/src/fleet/events/subscriptions.rs | connect | interval#1 | deadline | expires held queries that nobody watches after the linger time
 apps/desktop/src-tauri/src/fleet/node_actor.rs | run_lane | sleep#1 | retry | waits RETRY before running the failed job again
 apps/desktop/src-tauri/src/fleet/session_lists.rs | follow | sleep#1 | pace | waits REDRAW_GAP between list redraws while rows keep changing

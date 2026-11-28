@@ -21,6 +21,7 @@ use tokio::{
     sync::{mpsc, oneshot},
     time::{Sleep, sleep, timeout},
 };
+use tokio_util::task::AbortOnDropHandle;
 use uuid::Uuid;
 
 /// One order for a machine, and where its answer goes.
@@ -30,22 +31,23 @@ pub(super) struct Call {
 }
 pub(super) type Commands = Arc<Mutex<HashMap<EndpointId, (Uuid, mpsc::Sender<Call>)>>>;
 
+/// A silent stream is lost after this long without a message.
 const IDLE: Duration = Duration::from_secs(35);
 const SEND_LIMIT: Duration = Duration::from_secs(15);
 
-/// A deadline across `select!` iterations so inbound calls do not reset the dead-link timer.
-struct Idle(Pin<Box<Sleep>>);
+/// A deadline across `select!` iterations that restarts only when a message arrives.
+pub(super) struct Idle(Pin<Box<Sleep>>);
 
 impl Idle {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self(Box::pin(sleep(IDLE)))
     }
 
-    fn reset(&mut self) {
+    pub(super) fn reset(&mut self) {
         self.0.as_mut().reset(tokio::time::Instant::now() + IDLE);
     }
 
-    async fn expired(&mut self) {
+    pub(super) async fn expired(&mut self) {
         self.0.as_mut().await;
     }
 }
@@ -93,16 +95,14 @@ impl CommandWorker {
         let (mut tx, mut rx) = client.open_commands().await?;
         let (orders, mut input) = mpsc::channel::<Call>(16);
         let (wire_tx, mut wire_rx) = mpsc::channel::<Request>(16);
-        let writer = tokio::spawn(async move {
+        let mut writer = AbortOnDropHandle::new(tokio::spawn(async move {
             while let Some(request) = wire_rx.recv().await {
                 timeout(SEND_LIMIT, tx.send(&request))
                     .await
                     .map_err(|_| DesktopError::Unsure("the machine".into()))??;
             }
             Ok::<(), DesktopError>(())
-        });
-        let _abort_writer = AbortWriter(writer.abort_handle());
-        tokio::pin!(writer);
+        }));
         let _registered = Registered {
             machine: self.machine,
             commands: &self.commands,
@@ -155,14 +155,6 @@ impl CommandWorker {
     }
 }
 
-struct AbortWriter(tokio::task::AbortHandle);
-
-impl Drop for AbortWriter {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
 pub(super) struct Registered<'a> {
     pub(super) machine: EndpointId,
     pub(super) commands: &'a Commands,
@@ -181,3 +173,7 @@ impl Drop for Registered<'_> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/fleet_events_commands.rs"]
+mod tests;

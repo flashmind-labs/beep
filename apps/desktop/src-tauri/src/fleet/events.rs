@@ -25,6 +25,7 @@ use tokio::{
     task::JoinSet,
     time::timeout,
 };
+use tokio_util::task::AbortOnDropHandle;
 use uuid::Uuid;
 
 mod commands;
@@ -37,14 +38,7 @@ use subscriptions::{SubscriptionWorker, TOOL_UPDATES};
 #[derive(Default)]
 pub(crate) struct Events {
     commands: Commands,
-    manager: Mutex<Option<Job>>,
-}
-
-struct Job(tokio::task::JoinHandle<()>);
-impl Drop for Job {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
+    manager: Mutex<Option<AbortOnDropHandle<()>>>,
 }
 
 impl Events {
@@ -52,8 +46,8 @@ impl Events {
         let outbox = app.state::<WindowOutbox>();
         let mut manager = self.manager.lock().unwrap_or_else(PoisonError::into_inner);
 
-        if manager.as_ref().is_none_or(|job| job.0.is_finished()) {
-            *manager = Some(Job(tokio::spawn(run(
+        if manager.as_ref().is_none_or(|job| job.is_finished()) {
+            *manager = Some(AbortOnDropHandle::new(tokio::spawn(run(
                 app.clone(),
                 fleet,
                 outbox.demand(),

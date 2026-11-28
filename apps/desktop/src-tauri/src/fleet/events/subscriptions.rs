@@ -1,6 +1,6 @@
 //! One snapshot worker per demanded topic, independent of action delivery.
 
-use super::commands::retrying;
+use super::commands::{Idle, retrying};
 use crate::error::{DesktopError, Result};
 use crate::fleet::outbox::{WindowOutbox, controller_topic};
 use crate::fleet::{
@@ -17,37 +17,15 @@ use beep_proto::node::{
 use iroh::EndpointId;
 use std::{
     collections::HashSet,
-    pin::Pin,
     sync::Arc,
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Manager};
-use tokio::time::{Sleep, sleep, timeout};
+use tokio::time::timeout;
 use uuid::Uuid;
 
 /// The node topic of the tools it found a newer release of.
 pub(super) const TOOL_UPDATES: &str = "tool-updates";
-
-/// A silent stream is lost after this long without a message.
-const IDLE: Duration = Duration::from_secs(35);
-
-/// The deadline for the next message. It lives across loop turns and
-/// restarts only when a message arrives.
-struct Idle(Pin<Box<Sleep>>);
-
-impl Idle {
-    fn new() -> Self {
-        Self(Box::pin(sleep(IDLE)))
-    }
-
-    fn reset(&mut self) {
-        self.0.as_mut().reset(tokio::time::Instant::now() + IDLE);
-    }
-
-    async fn expired(&mut self) {
-        self.0.as_mut().await;
-    }
-}
 
 pub(super) struct SubscriptionWorker {
     pub(super) app: AppHandle,
@@ -360,7 +338,3 @@ fn invalidate(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option
         _ => {}
     }
 }
-
-#[cfg(test)]
-#[path = "../../tests/fleet_events_subscriptions.rs"]
-mod tests;
