@@ -4,7 +4,7 @@
 use beep_mesh::{Key, Mesh};
 use beep_proto::node::{
     MachineCredentials,
-    mesh_state::{Credential, Place, ProjectRecord, StateValue},
+    mesh_state::{Credential, Place, ProjectRecord, ProjectSyncSettings, StateValue},
 };
 use beep_proto::{
     lenient,
@@ -64,6 +64,31 @@ pub(crate) fn read<T: StateValue>(mesh: &Mesh, prefix: &str) -> Vec<(Key, T)> {
             }
         })
         .collect()
+}
+
+/// The projects in the mesh that `me` has a checkout of, with where it is.
+pub(crate) fn placed_projects(
+    mesh: &Mesh,
+    me: EndpointId,
+) -> impl Iterator<Item = (String, ProjectRecord, Place)> {
+    mesh.scan("project/")
+        .into_iter()
+        .filter_map(move |(key, bytes)| {
+            let Key::Project(name) = key else {
+                return None;
+            };
+            let record = ProjectRecord::from_bytes(&bytes).ok()?;
+            let place = mesh.get(&Key::Project(format!("{name}/{me}")))?;
+            let place = Place::from_bytes(&place).ok()?;
+            Some((name, record, place))
+        })
+}
+
+/// The project sync settings the mesh holds, the defaults when it holds none.
+pub(crate) fn project_sync_settings(mesh: &Mesh) -> ProjectSyncSettings {
+    mesh.get(&Key::ProjectSync)
+        .and_then(|bytes| ProjectSyncSettings::from_bytes(&bytes).ok())
+        .unwrap_or_default()
 }
 
 /// The base URLs of the Forgejo and Gitea servers the mesh holds logins for.

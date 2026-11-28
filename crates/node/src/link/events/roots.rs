@@ -117,7 +117,7 @@ fn project_files(offers: &Offers) -> BTreeMap<Topic, String> {
         }
     }
 
-    for (name, _, place) in crate::link::from_mesh::placed_projects(&mesh, mesh.me()) {
+    for (name, _, place) in crate::membership::placed_projects(&mesh, mesh.me()) {
         let topic = Topic::scoped("files", name.split('/'));
         if topic.valid() {
             projects.insert(topic, place.folder);

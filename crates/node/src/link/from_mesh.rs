@@ -10,7 +10,7 @@
 use crate::{
     files::{sync::Syncs, syncthing::Syncthing},
     link::{Offers, peers::Inner},
-    membership::{credentials, read},
+    membership::{self, credentials, read},
     status::Own,
     team::link::TeamLink,
     watchdog::{self, Step},
@@ -22,9 +22,7 @@ use beep_proto::{
     node::{
         MachineCredentials,
         harness::{AgentSettings, HarnessConfig},
-        mesh_state::{
-            Place, ProjectRecord, ProjectSyncSettings, SavedVersion, StateValue, SyncSpec,
-        },
+        mesh_state::{ProjectRecord, SavedVersion, StateValue, SyncSpec},
         sync::{Project, ignored_project},
     },
 };
@@ -160,7 +158,7 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
             AbortOnDropHandle::new(tokio::spawn(syncthing_events(syncthing_moved.clone())));
 
         loop {
-            super::project_remotes::apply(placed_projects(&preferences_mesh, me)).await;
+            super::project_remotes::apply(membership::placed_projects(&preferences_mesh, me)).await;
             apply_syncthing(&preferences_mesh, me, &preferences_offers).await;
             tokio::select! {
                 change = changes.recv() => if matches!(change, Err(RecvError::Closed)) { return; },
@@ -209,37 +207,16 @@ async fn syncthing_events(moved: Arc<tokio::sync::Notify>) {
     }
 }
 
-/// The projects in the mesh that `me` has a checkout of, with where it is.
-pub(crate) fn placed_projects(
-    mesh: &Mesh,
-    me: EndpointId,
-) -> impl Iterator<Item = (String, ProjectRecord, Place)> {
-    mesh.scan("project/")
-        .into_iter()
-        .filter_map(move |(key, bytes)| {
-            let Key::Project(name) = key else {
-                return None;
-            };
-            let record = ProjectRecord::from_bytes(&bytes).ok()?;
-            let place = mesh.get(&Key::Project(format!("{name}/{me}")))?;
-            let place = Place::from_bytes(&place).ok()?;
-            Some((name, record, place))
-        })
-}
-
 /// Each machine applies the replicated preference to its own local share.
 async fn apply_syncthing(mesh: &Mesh, me: EndpointId, offers: &Offers) {
     let Some(transfers) = offers.transfers.get() else {
         return;
     };
     let syncs = transfers.syncs();
-    let sync = mesh
-        .get(&Key::ProjectSync)
-        .and_then(|bytes| ProjectSyncSettings::from_bytes(&bytes).ok())
-        .unwrap_or_default();
+    let sync = membership::project_sync_settings(mesh);
 
     // Each folder's check and change run on their own, all together.
-    let preferences = placed_projects(mesh, me).filter_map(|(_, record, place)| {
+    let preferences = membership::placed_projects(mesh, me).filter_map(|(_, record, place)| {
         let enabled = record.syncthing_choice(&sync)?;
         let syncs = &syncs;
 
@@ -460,11 +437,7 @@ fn harnesses_for(me: &str, named: Vec<(String, HarnessConfig)>) -> Vec<HarnessCo
 /// reading keeps the last one that did, in `specs`.
 fn projects(mesh: &Mesh, me: EndpointId, specs: &mut BTreeMap<Key, SyncSpec>) -> Vec<Project> {
     let devices = mesh.code_hosts();
-    let sync_enabled = mesh
-        .get(&Key::ProjectSync)
-        .and_then(|bytes| ProjectSyncSettings::from_bytes(&bytes).ok())
-        .unwrap_or_default()
-        .enabled;
+    let sync_enabled = membership::project_sync_settings(mesh).enabled;
     let mut now = BTreeMap::new();
 
     for (key, bytes) in mesh.scan("sync/") {

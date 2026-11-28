@@ -1,7 +1,7 @@
 use super::*;
 use crate::link::peers::Peers;
 use beep_mesh::transport_config;
-use beep_proto::node::mesh_state::Credential;
+use beep_proto::node::mesh_state::{Credential, ProjectSyncSettings};
 use iroh::{Endpoint, SecretKey, endpoint::presets};
 use tempfile::TempDir;
 
