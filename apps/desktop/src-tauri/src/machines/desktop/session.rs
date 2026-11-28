@@ -2,6 +2,7 @@
 //! node link. Each request runs on a blocking thread, one at a time.
 
 use super::mac;
+use crate::store::lock;
 
 use anyhow::Result;
 use beep_node::link::{Protocol, Session};
@@ -30,17 +31,12 @@ async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
 
     while let Some(request) = rx.recv::<Request>().await? {
         let session = session.clone();
-        let reply = spawn_blocking(move || {
-            session
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .handle(request)
-        })
-        .await
-        .unwrap_or_else(|e| Reply::Failed {
-            reason: format!("The request failed on this computer: {e}"),
-            missing: None,
-        });
+        let reply = spawn_blocking(move || lock(&session).handle(request))
+            .await
+            .unwrap_or_else(|e| Reply::Failed {
+                reason: format!("The request failed on this computer: {e}"),
+                missing: None,
+            });
         tx.send(&reply).await?;
     }
 

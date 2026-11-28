@@ -1,11 +1,12 @@
 //! Bounded timings from the webviews, without page arguments or user data.
 
+use crate::store::lock;
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 use serde::Deserialize;
 use std::{
     io::{self, Write},
     path::Path,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 use std::{
@@ -361,7 +362,7 @@ fn write_snapshot(handle: &PrometheusHandle, file: &Mutex<RollingFileAppender>) 
         "# snapshot unix_seconds={timestamp}\n{}\n# end snapshot\n",
         handle.render()
     );
-    let mut file = file.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut file = lock(file);
     file.write_all(snapshot.as_bytes())?;
     file.flush()
 }

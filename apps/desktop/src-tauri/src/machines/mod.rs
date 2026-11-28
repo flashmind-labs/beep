@@ -21,12 +21,13 @@ pub(crate) mod this_mac;
 pub(crate) mod tools;
 
 use crate::error::{DesktopError, Result};
+use crate::store::lock;
 use beep_proto::node::desktop::Permissions;
 use serde::Serialize;
 use std::{
     collections::HashMap,
     hash::Hash,
-    sync::{Mutex, MutexGuard, PoisonError},
+    sync::{Mutex, MutexGuard},
 };
 
 /// Whether this Mac is lent to the mesh, as Settings shows it. A phone is always `Off`.
@@ -78,7 +79,7 @@ impl<K, S> Default for Registry<K, S> {
 
 impl<K: Eq + Hash, S: Clone> Registry<K, S> {
     fn lock(&self) -> MutexGuard<'_, Following<K, S>> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.0)
     }
 
     pub(crate) fn follow(&self, key: K, window: &str, up: S) -> u64 {

@@ -14,6 +14,7 @@ use crate::fleet::{
     view_signal::{Update, View, join_changed},
 };
 use crate::palette_store::places::within;
+use crate::store::lock;
 use beep_proto::{
     SessionId,
     node::{agent::Worktree, events::Topic},
@@ -22,7 +23,7 @@ use iroh::EndpointId;
 use serde_json::json;
 use std::{
     collections::{HashMap, HashSet, hash_map::Entry},
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
 };
 use tauri::{AppHandle, Manager};
 
@@ -193,7 +194,7 @@ impl FilesLive {
         ignored: bool,
         deep: bool,
     ) {
-        let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut held = lock(&self.0);
         let folder = held.folders.entry((machine, root.to_owned())).or_default();
         let read = TreeRead {
             path: path.to_owned(),
@@ -210,7 +211,7 @@ impl FilesLive {
         folder: &str,
         session: Option<&SessionId>,
     ) {
-        let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut held = lock(&self.0);
         let at = held
             .folders
             .entry((machine, folder.to_owned()))
@@ -223,7 +224,7 @@ impl FilesLive {
     }
 
     pub(crate) fn follow_places(&self, window: &str, machine: EndpointId, asks: &[PlaceAsk]) {
-        let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut held = lock(&self.0);
         let sets = held.places.entry(machine).or_default();
         keep(sets, (window.to_owned(), asks.to_vec()), PLACES_KEPT);
         held.forget_placed();
@@ -234,7 +235,7 @@ impl FilesLive {
         let Places::Found { places } = places else {
             return;
         };
-        let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut held = lock(&self.0);
 
         for (ask, place) in asks.iter().zip(places) {
             let key = (machine, ask.session().clone());
@@ -253,7 +254,7 @@ impl FilesLive {
         followed: impl Fn(EndpointId, &str) -> bool,
         windows: &HashSet<String>,
     ) {
-        let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut held = lock(&self.0);
         held.forget_windows(windows);
         held.keep(followed);
     }
@@ -265,7 +266,7 @@ impl FilesLive {
         let Some(root) = topic.key().filter(|_| !topic.is_pattern()) else {
             return Reserve::Unfollowed;
         };
-        let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut held = lock(&self.0);
 
         if !wanted {
             held.folders.remove(&(machine, root.to_owned()));
@@ -292,7 +293,7 @@ impl FilesLive {
         machine: EndpointId,
         topic: &Topic,
     ) -> (String, Followed, Vec<Vec<PlaceAsk>>) {
-        let held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let held = lock(&self.0);
         let root = topic.key().unwrap_or_default().to_owned();
         let folder = held
             .folders
@@ -309,7 +310,7 @@ impl FilesLive {
 
     /// The update that came while reading, if one did; else the reading ends.
     pub(crate) fn next(&self, machine: EndpointId, topic: &Topic) -> Option<Update> {
-        let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut held = lock(&self.0);
         held.next(&(machine, topic.clone()))
     }
 }

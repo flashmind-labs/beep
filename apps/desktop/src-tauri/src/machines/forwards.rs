@@ -1,6 +1,7 @@
 //! Ports on other machines, reached through a port on this computer's
 //! loopback. A forward listens until the app quits.
 
+use crate::store::lock;
 use crate::{
     error::{DesktopError, Result},
     fleet::Machines,
@@ -8,11 +9,7 @@ use crate::{
 use anyhow::Context;
 use beep_mesh::Mesh;
 use iroh::EndpointId;
-use std::{
-    collections::HashMap,
-    net::Ipv4Addr,
-    sync::{Mutex, PoisonError},
-};
+use std::{collections::HashMap, net::Ipv4Addr, sync::Mutex};
 use tauri::State;
 use tokio::{
     io::{copy_bidirectional, join},
@@ -78,7 +75,7 @@ pub async fn machine_forward_port(
         .context("could not listen on this computer")?
         .port();
 
-    let mut open = forwards.0.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut open = lock(&forwards.0);
     // Another click may have opened one while this one bound.
     if let Some(forward) = open.get(&(machine, port))
         && !forward.task.is_finished()
@@ -93,7 +90,7 @@ pub async fn machine_forward_port(
 
 impl Forwards {
     fn open(&self, machine: EndpointId, port: u16) -> Option<u16> {
-        let open = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let open = lock(&self.0);
         open.get(&(machine, port))
             .filter(|forward| !forward.task.is_finished())
             .map(|forward| forward.local)

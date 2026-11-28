@@ -9,6 +9,7 @@
 //! the user to retry or close. The starts are a folder in the app data
 //! folder, written by its own thread as the outbox's is.
 
+use crate::store::lock;
 use crate::{
     agents::{
         kept_folder::{KeptFolder, KeptImage, PastedImage, Write, forget_images, image_writes},
@@ -36,7 +37,7 @@ use std::{
     collections::HashSet,
     path::PathBuf,
     str::FromStr,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
     time::SystemTime,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -383,7 +384,7 @@ impl Starts {
     /// and queued under the lock so no waiting image is copied and the
     /// files land in the order of the changes.
     pub(crate) fn with<T>(&self, change: impl FnOnce(&mut Held) -> T) -> T {
-        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut held = lock(&self.held);
         let out = change(&mut held);
         let file = std::mem::take(&mut held.dirty)
             .then(|| self.folder.records(&held.starts))
@@ -400,7 +401,7 @@ impl Starts {
     }
 
     pub(crate) fn read<T>(&self, read: impl FnOnce(&Held) -> T) -> T {
-        read(&self.held.lock().unwrap_or_else(PoisonError::into_inner))
+        read(&lock(&self.held))
     }
 
     /// The kept starts as the session lists show them.

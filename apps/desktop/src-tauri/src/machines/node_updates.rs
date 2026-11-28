@@ -2,6 +2,7 @@
 //! they are seen online. With auto-update off, a notification says so instead; its Update
 //! button updates them all and a click opens Machines. Entry point: `follow`.
 
+use crate::store::lock;
 use crate::{
     beep::state::Prefs,
     error::DesktopError,
@@ -14,7 +15,7 @@ use iroh::EndpointId;
 use semver::Version;
 use std::{
     collections::HashSet,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use tauri::{AppHandle, Manager};
@@ -114,10 +115,7 @@ async fn update_each(app: &AppHandle, fleet: &Arc<Fleet>, asked: &Arc<Mutex<Aske
         .as_ref()
         .map(|(_, behind)| behind.iter().map(|device| device.id).collect())
         .unwrap_or_default();
-    asked
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .seen(&online);
+    lock(asked).seen(&online);
 
     let Some((latest, behind)) = found else {
         return;
@@ -125,10 +123,7 @@ async fn update_each(app: &AppHandle, fleet: &Arc<Fleet>, asked: &Arc<Mutex<Aske
     let channel = app.state::<Prefs>().node_release_channel();
 
     for device in behind {
-        let claimed = asked
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .claim(device.id, &latest);
+        let claimed = lock(asked).claim(device.id, &latest);
 
         if !claimed {
             continue;
@@ -142,7 +137,7 @@ async fn update_each(app: &AppHandle, fleet: &Arc<Fleet>, asked: &Arc<Mutex<Aske
                 log::info!("updating {} to beep-node {latest}: {e}", device.name);
             }
 
-            asked.lock().unwrap_or_else(PoisonError::into_inner).finish(
+            lock(&asked).finish(
                 device.id,
                 &latest,
                 updated.as_ref().map_or_else(running_already, |_| true),

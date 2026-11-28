@@ -9,6 +9,7 @@
 //! folder: the messages in one file, each image in its own, written by the
 //! outbox's own thread.
 
+use crate::store::lock;
 use crate::{
     agents::{
         kept_folder::{KeptFolder, KeptImage, PastedImage, Write, forget_images, image_writes},
@@ -39,7 +40,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
@@ -1417,7 +1418,7 @@ impl Outbox {
     /// and queued under the lock so no waiting image is copied and the
     /// files land in the order of the changes.
     pub(crate) fn with<T>(&self, change: impl FnOnce(&mut Held) -> T) -> T {
-        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut held = lock(&self.held);
         let out = change(&mut held);
         let file = std::mem::take(&mut held.dirty)
             .then(|| self.folder.records(&held.messages))
@@ -1434,7 +1435,7 @@ impl Outbox {
     }
 
     fn read<T>(&self, read: impl FnOnce(&Held) -> T) -> T {
-        read(&self.held.lock().unwrap_or_else(PoisonError::into_inner))
+        read(&lock(&self.held))
     }
 
     /// Returns once what changed so far is on disk.

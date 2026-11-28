@@ -3,6 +3,7 @@
 //! the code is entered there gh exits, and its token is saved as "Use gh
 //! sign-in" saves it.
 
+use crate::store::lock;
 use crate::{
     error::Result,
     fleet::projects::FleetState,
@@ -14,7 +15,7 @@ use serde::Serialize;
 use std::{
     path::Path,
     process::Stdio,
-    sync::{Mutex, MutexGuard, PoisonError},
+    sync::{Mutex, MutexGuard},
     time::Duration,
 };
 use tauri::{State, ipc::Channel};
@@ -61,7 +62,7 @@ struct Started {
 
 impl GhSignIn {
     fn lock(&self) -> MutexGuard<'_, Slot> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.0)
     }
 
     fn start(&self) -> Result<Started> {

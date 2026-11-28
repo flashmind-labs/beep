@@ -20,6 +20,7 @@
 //! Each HTML response starts with [`PANE_SCRIPT`] to forward pane shortcuts
 //! and external link clicks from the sandboxed frame to the app.
 
+use crate::store::lock;
 use crate::{
     agents::files::read_part,
     chat::files::free_name,
@@ -273,7 +274,7 @@ impl Pages {
     /// preview's `entry` is its file in the URL.
     fn keep(&self, html: Vec<u8>, place: Place, entry: String) -> String {
         let token = Uuid::new_v4();
-        let mut kept = self.kept.lock().unwrap_or_else(|e| e.into_inner());
+        let mut kept = lock(&self.kept);
         kept.push_back(Arc::new(Page {
             token,
             entry: entry.clone(),
@@ -300,7 +301,7 @@ impl Pages {
     }
 
     fn get(&self, token: Uuid) -> Option<Arc<Page>> {
-        let kept = self.kept.lock().unwrap_or_else(|e| e.into_inner());
+        let kept = lock(&self.kept);
         kept.iter().find(|page| page.token == token).cloned()
     }
 
@@ -312,12 +313,7 @@ impl Pages {
             .and_then(|url| url.path_segments()?.next()?.parse::<Uuid>().ok());
         token
             .and_then(|token| self.get(token))
-            .map(|page| {
-                page.loaded
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .clone()
-            })
+            .map(|page| lock(&page.loaded).clone())
             .unwrap_or_default()
     }
 }
@@ -557,7 +553,7 @@ pub fn route(pages: &Pages, request: &Request<Vec<u8>>) -> Route {
     }
 
     let file = page.place.file(&rel);
-    let mut loaded = page.loaded.lock().unwrap_or_else(|e| e.into_inner());
+    let mut loaded = lock(&page.loaded);
     if !loaded.contains(&file.path) {
         loaded.push(file.path.clone());
     }

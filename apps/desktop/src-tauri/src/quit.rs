@@ -1,10 +1,11 @@
 //! Coordinates bounded async shutdown so the UI event loop keeps servicing
 //! WebKit while Tokio tasks stop, and `RunEvent::Exit` never calls `block_on`.
 
+use crate::store::lock;
 use std::{
     fmt::Display,
     sync::{
-        Arc, Condvar, Mutex, MutexGuard, PoisonError,
+        Arc, Condvar, Mutex, PoisonError,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
@@ -249,10 +250,6 @@ impl Quitting {
             }
         }
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 #[cfg(target_os = "macos")]

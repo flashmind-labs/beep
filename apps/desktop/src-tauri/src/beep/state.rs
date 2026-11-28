@@ -1,12 +1,13 @@
 //! What the app remembers between launches, in `state.json`, and `Prefs`,
 //! which holds it for the windows.
 
+use crate::store::lock;
 use beep_proto::node::update::ReleaseChannel;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::{Mutex, MutexGuard, PoisonError},
+    sync::{Mutex, MutexGuard},
 };
 use tauri::LogicalSize;
 
@@ -166,7 +167,7 @@ impl Prefs {
     }
 
     fn saved(&self) -> MutexGuard<'_, Saved> {
-        self.saved.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.saved)
     }
 
     /// Changes the saved state and writes it to disk.

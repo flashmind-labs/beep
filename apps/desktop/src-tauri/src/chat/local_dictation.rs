@@ -2,6 +2,7 @@
 //! `Nemotron 3.5`), downloaded on demand as quantized GGUF files and streamed
 //! through `transcribe-cpp`.
 
+use crate::store::lock;
 use crate::{
     beep,
     error::{DesktopError, Result},
@@ -252,11 +253,7 @@ impl LocalDictation {
     }
 
     fn active_progress(&self, model: LocalModelId) -> Option<u64> {
-        let downloads = self
-            .inner
-            .downloads
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let downloads = lock(&self.inner.downloads);
         downloads
             .get(&model)
             .map(|active| active.downloaded.load(Ordering::Relaxed))
@@ -264,11 +261,7 @@ impl LocalDictation {
 
     fn cancel(&self, model: LocalModelId) {
         let removed = {
-            let mut downloads = self
-                .inner
-                .downloads
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut downloads = lock(&self.inner.downloads);
             downloads.remove(&model)
         };
 
@@ -286,11 +279,7 @@ impl LocalDictation {
         INIT_LOGGING.call_once(transcribe_cpp::init_logging);
 
         {
-            let loaded = self
-                .inner
-                .loaded
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let loaded = lock(&self.inner.loaded);
             if let Some(entry) = loaded.as_ref()
                 && entry.id == id
                 && entry.path == path
@@ -301,11 +290,7 @@ impl LocalDictation {
 
         let model = transcribe_cpp::Model::load(path)
             .map_err(|e| format!("Could not load {}: {e}", id.display_name()))?;
-        let mut loaded = self
-            .inner
-            .loaded
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut loaded = lock(&self.inner.loaded);
         *loaded = Some(LoadedModel {
             id,
             path: path.to_path_buf(),
@@ -348,22 +333,14 @@ pub async fn dictation_model_download(
     }
 
     let (downloaded, cancel, subscribers) = {
-        let mut downloads = local
-            .inner
-            .downloads
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut downloads = lock(&local.inner.downloads);
         if let Some(existing) = downloads.get(&id) {
             let so_far = existing.downloaded.load(Ordering::Relaxed);
             let _ = on_event.send(LocalDownloadEvent::Progress {
                 downloaded_bytes: so_far,
                 total_bytes: id.bytes(),
             });
-            existing
-                .subscribers
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .push(on_event);
+            lock(&existing.subscribers).push(on_event);
             return Ok(());
         }
 
@@ -410,11 +387,7 @@ pub async fn dictation_model_download(
         .await;
 
         let was_active = {
-            let mut downloads = state
-                .inner
-                .downloads
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut downloads = lock(&state.inner.downloads);
             downloads
                 .get(&id)
                 .is_some_and(|active| Arc::ptr_eq(&active.cancel, &cancel))
@@ -452,9 +425,7 @@ pub fn dictation_model_cancel_download(
 }
 
 fn broadcast(subscribers: &Mutex<Vec<Channel<LocalDownloadEvent>>>, event: LocalDownloadEvent) {
-    let list = subscribers
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let list = lock(subscribers);
     for channel in list.iter() {
         let _ = channel.send(event.clone());
     }

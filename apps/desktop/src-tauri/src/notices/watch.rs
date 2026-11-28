@@ -4,6 +4,7 @@
 //! a note in `notes`.
 
 use crate::notes::{self, Note, NoteKind, now_ms};
+use crate::store::lock;
 use crate::{
     beep::epoch_ms,
     fleet::Fleet,
@@ -28,7 +29,7 @@ use std::{
     collections::{BTreeSet, HashMap, HashSet},
     hash::Hash,
     sync::{
-        Arc, Mutex, PoisonError,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant, SystemTime},
@@ -94,29 +95,18 @@ impl Looks {
                         )
                     })
                     .collect();
-                self.said
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .insert(machine, said);
+                lock(&self.said).insert(machine, said);
             }
             (MOVE_PROGRESS_TOPIC, Value::Sessions(reply)) => {
                 let SessionsReply::Moves { moves } = reply.as_ref() else {
                     return;
                 };
-                self.moves
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .insert(machine, moves.clone());
+                lock(&self.moves).insert(machine, moves.clone());
                 self.moves_pushed.store(true, Ordering::Relaxed);
             }
             // A machine that pushes its moves says what changed itself.
             ("moves", _) => {
-                if self
-                    .moves
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .contains_key(&machine)
-                {
+                if lock(&self.moves).contains_key(&machine) {
                     return;
                 }
 
@@ -127,15 +117,12 @@ impl Looks {
     }
 
     fn pushed_moves(&self) -> HashMap<EndpointId, Vec<MoveEntry>> {
-        self.moves
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        lock(&self.moves).clone()
     }
 
     /// The syncs pushed since the last call, the latest of each machine.
     fn take_said(&self) -> HashMap<EndpointId, Said> {
-        std::mem::take(&mut *self.said.lock().unwrap_or_else(PoisonError::into_inner))
+        std::mem::take(&mut *lock(&self.said))
     }
 }
 

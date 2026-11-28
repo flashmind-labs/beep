@@ -4,6 +4,7 @@
 //! mobile platforms a session's checkout builds for. Machines whose node
 //! does not serve `device/1` are left out.
 
+use crate::store::lock;
 use crate::{
     error::{DesktopError, Result},
     fleet::{
@@ -31,7 +32,7 @@ use serde::Serialize;
 use std::future::Future;
 use std::{
     sync::{
-        Arc, Mutex, PoisonError,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
@@ -566,21 +567,14 @@ impl InputReader {
             match self.rx.try_recv() {
                 Ok(item) => return Some(item),
                 Err(mpsc::error::TryRecvError::Empty) => {
-                    if let Some(release) = self
-                        .overflow_up
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .take()
-                    {
+                    if let Some(release) = lock(&self.overflow_up).take() {
                         return Some(release);
                     }
 
                     tokio::select! {
                         item = self.rx.recv() => {
                             return item.or_else(|| {
-                                self.overflow_up
-                                    .lock()
-                                    .unwrap_or_else(PoisonError::into_inner)
+                                lock(&self.overflow_up)
                                     .take()
                             });
                         }
@@ -588,11 +582,7 @@ impl InputReader {
                     }
                 }
                 Err(mpsc::error::TryRecvError::Disconnected) => {
-                    return self
-                        .overflow_up
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .take();
+                    return lock(&self.overflow_up).take();
                 }
             }
         }
@@ -804,10 +794,7 @@ async fn send_device_input(controls: &DeviceControls, input: Input) -> Result<()
             match up.try_send(input) {
                 Ok(()) => {}
                 Err(mpsc::error::TrySendError::Full(release)) => {
-                    *controls
-                        .overflow_up
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner) = Some(release);
+                    *lock(&controls.overflow_up) = Some(release);
                     controls.wake.notify_one();
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => {
@@ -820,18 +807,11 @@ async fn send_device_input(controls: &DeviceControls, input: Input) -> Result<()
         }
 
         // Flush any earlier overflow release into a freed slot before sending newer discrete input.
-        let pending_up = controls
-            .overflow_up
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        let pending_up = lock(&controls.overflow_up).take();
         if let Some(release) = pending_up
             && let Err(mpsc::error::TrySendError::Full(still_full)) = up.try_send(release)
         {
-            *controls
-                .overflow_up
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner) = Some(still_full);
+            *lock(&controls.overflow_up) = Some(still_full);
             return Err(DesktopError::TimedOut(
                 "The device connection is congested.".into(),
             ));

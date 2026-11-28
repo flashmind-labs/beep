@@ -3,6 +3,7 @@
 //! how the move goes. `move-state.ts` shows the answers.
 
 use super::sessions::{MoveView, moves};
+use crate::store::lock;
 use crate::{
     error::{DesktopError, Result},
     fleet::{
@@ -22,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
     collections::HashMap,
-    sync::{Arc, LazyLock, Mutex, PoisonError},
+    sync::{Arc, LazyLock, Mutex},
     time::SystemTime,
 };
 
@@ -245,11 +246,7 @@ pub(crate) async fn progress_views(
             return View::new("session_move_progress", args, progress);
         }
 
-        if let Some(ended) = ENDED
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(&key)
-        {
+        if let Some(ended) = lock(&ENDED).get(&key) {
             return View::new("session_move_progress", args, ended);
         }
 
@@ -260,10 +257,7 @@ pub(crate) async fn progress_views(
                 if progress.answer == "known"
                     && matches!(progress.phase, "done" | "failed" | "cancelled")
                 {
-                    ENDED
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .insert(key, progress.clone());
+                    lock(&ENDED).insert(key, progress.clone());
                 }
 
                 View::new("session_move_progress", args, progress)

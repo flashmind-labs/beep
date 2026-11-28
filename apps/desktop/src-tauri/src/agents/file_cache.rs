@@ -4,6 +4,7 @@
 //! conversation drops the files only it opened; files not opened for `KEEP`
 //! go, and the store stays under `MAX_BYTES`.
 
+use crate::store::lock;
 use crate::{chat::files::GONE, error::DesktopError, fleet::Fleet};
 use anyhow::{Context, Result};
 use beep_mesh::machine::{NodeShare, sessions};
@@ -23,7 +24,7 @@ use std::{
     collections::{BTreeSet, HashMap},
     fs,
     path::{Path, PathBuf},
-    sync::{Mutex, MutexGuard, PoisonError},
+    sync::Mutex,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
@@ -396,10 +397,6 @@ fn remove_copies(dir: &Path, gone: &[String]) {
             log::debug!("could not remove an opened chat file: {e}");
         }
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 fn now() -> u64 {

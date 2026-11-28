@@ -2,6 +2,7 @@
 //! in a dot folder, show a preview, then move it in or throw it away. Nothing
 //! staged runs or counts as installed.
 
+use crate::store::lock;
 use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -377,9 +378,7 @@ impl Installer {
     }
 
     fn stages(&self) -> std::sync::MutexGuard<'_, HashMap<StageId, Stage>> {
-        self.stages
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+        lock(&self.stages)
     }
 }
 

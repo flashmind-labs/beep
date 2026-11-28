@@ -4,6 +4,7 @@
 //! the sheet learns which machine joined with it from the push.
 //! Only a desktop mints tickets.
 
+use crate::store::lock;
 use crate::{
     beep::identity::computer_name,
     error::{DesktopError, Result},
@@ -18,7 +19,7 @@ use iroh_tickets::Ticket;
 use qrcode::{EcLevel, QrCode, render::svg::Color};
 use serde::Serialize;
 use std::{
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Manager, State};
@@ -32,7 +33,7 @@ pub(crate) struct Tickets(Mutex<Vec<(String, u64)>>);
 
 impl Tickets {
     fn keep(&self, token: String, expires_at: u64) {
-        let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut held = lock(&self.0);
         held.push((token, expires_at));
 
         if held.len() > TICKETS_KEPT {
@@ -47,7 +48,7 @@ impl Tickets {
             .map_or(0, |since| {
                 u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
             });
-        let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut held = lock(&self.0);
         held.retain(|(_, expires_at)| *expires_at > now);
         held.iter().map(|(token, _)| token.clone()).collect()
     }

@@ -5,6 +5,7 @@
 //! Codex signs in on each machine with its device sign-in, which the
 //! machine runs, or uses an API key the mesh hands out.
 
+use crate::store::lock;
 use crate::{
     beep::epoch_ms,
     error::Result,
@@ -27,7 +28,7 @@ use std::{
     path::Path,
     process::Stdio,
     str::FromStr,
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{Arc, Mutex, MutexGuard},
     time::Duration,
 };
 use tauri::{AppHandle, Manager, State};
@@ -287,7 +288,7 @@ impl Drop for SignInAttempt {
 
 impl ClaudeSignIn {
     fn lock(&self) -> MutexGuard<'_, Option<watch::Sender<bool>>> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.0)
     }
 
     fn start(&self) -> Result<SignInAttempt> {

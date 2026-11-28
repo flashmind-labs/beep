@@ -1,13 +1,14 @@
 //! What waits on the user, for the tray menu: the questions coding agents
 //! ask, as Home lists them under Needs you.
 
+use crate::store::lock;
 use crate::{
     home::NeedsYou,
     notes,
     targets::{AgentTarget, CenterTarget},
 };
 use beep_proto::SessionId;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard};
 use tauri::AppHandle;
 
 /// Menu ids of Waiting's items start with this.
@@ -40,7 +41,7 @@ pub struct WaitingList {
 
 impl WaitingList {
     fn slot(&self) -> MutexGuard<'_, Vec<Entry>> {
-        self.entries.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.entries)
     }
 
     pub fn entries(&self) -> Vec<Entry> {

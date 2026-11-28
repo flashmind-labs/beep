@@ -2,6 +2,7 @@
 //! control offered to the other devices while it is lent to the mesh.
 
 use crate::platform::logfile;
+use crate::store::lock;
 use crate::{
     beep::state::Prefs,
     machines::{ThisMacStatus, ThisMacView, desktop},
@@ -20,7 +21,7 @@ use iroh::{Endpoint, EndpointId};
 use std::{
     future::pending,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{Arc, Mutex},
 };
 use tauri::async_runtime::{self, JoinHandle};
 
@@ -207,10 +208,6 @@ impl Machine {
 /// Asks macOS for `permission`, opening its page in System Settings.
 pub fn allow(permission: Permission) {
     desktop::request(permission);
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 #[cfg(test)]

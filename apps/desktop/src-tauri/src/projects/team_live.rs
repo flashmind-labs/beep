@@ -8,6 +8,7 @@
 //! are the mesh's, so a change to the mesh sends them again.
 
 use super::team::{InviteView, TeamCardsView, TeamView, invite_views, team_view};
+use crate::store::lock;
 use crate::{
     error::Result,
     fleet::{
@@ -24,7 +25,7 @@ use iroh::EndpointId;
 use serde_json::json;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
 };
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 use tokio::sync::broadcast::error::RecvError;
@@ -207,7 +208,7 @@ impl Held {
 
 impl TeamLive {
     fn held(&self) -> std::sync::MutexGuard<'_, Held> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.0)
     }
 
     /// `window`'s page shows project `id`, which has a team or not: it hears the team's changes

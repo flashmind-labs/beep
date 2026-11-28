@@ -4,9 +4,10 @@
 //! downloaded update too. The configured feed has minor releases only;
 //! Developer mode reads the feed of every release beside it.
 
+use crate::store::lock;
 use crate::{beep::state::Prefs, platform::notify};
 use std::{
-    sync::{Mutex, MutexGuard, PoisonError},
+    sync::{Mutex, MutexGuard},
     time::Duration,
 };
 use tauri::{AppHandle, Manager};
@@ -38,7 +39,7 @@ impl Default for Updates {
 
 impl Updates {
     fn lock(&self) -> MutexGuard<'_, Option<Ready>> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.0)
     }
 }
 

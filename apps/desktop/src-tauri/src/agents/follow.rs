@@ -6,6 +6,7 @@ use super::{
     sessions::{ModesRow, SessionPage},
     shown::AgentsShown,
 };
+use crate::store::lock;
 use crate::{
     center::window::{OnScreen, hidden},
     error::{DesktopError, Result},
@@ -27,7 +28,7 @@ use std::pin::Pin;
 use std::{
     collections::{HashMap, VecDeque},
     sync::{
-        Arc, Mutex, MutexGuard, PoisonError,
+        Arc, Mutex, MutexGuard,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
@@ -209,7 +210,7 @@ pub(crate) struct Follows(Mutex<Readers>);
 
 impl Follows {
     fn readers(&self) -> MutexGuard<'_, Readers> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.0)
     }
 
     pub(crate) fn clear(&self, window: &str) {

@@ -3,6 +3,7 @@
 //! cloud realtime stream (`ElevenLabs` or `Mistral`) with the API keys saved in
 //! the mesh. Secrets never leave this process.
 
+use crate::store::lock;
 use crate::{
     chat::local_dictation::{
         AudioCommand, DictationEvent, LocalDictation, LocalModelId, ModelPaths,
@@ -61,10 +62,7 @@ pub struct Dictations {
 impl Dictations {
     /// Stops every session owned by `window`.
     pub fn clear(&self, window: &str) {
-        let mut sessions = self
-            .sessions
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut sessions = lock(&self.sessions);
         let ids: Vec<Uuid> = sessions
             .iter()
             .filter(|(_, running)| running.window == window)
@@ -80,44 +78,29 @@ impl Dictations {
 
     fn insert(&self, id: Uuid, running: Running) {
         self.clear(&running.window);
-        let mut sessions = self
-            .sessions
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut sessions = lock(&self.sessions);
         sessions.insert(id, running);
     }
 
     fn sender(&self, id: Uuid) -> Option<mpsc::Sender<AudioCommand>> {
-        let sessions = self
-            .sessions
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let sessions = lock(&self.sessions);
         sessions.get(&id).map(|running| running.audio.clone())
     }
 
     fn take_sender(&self, id: Uuid) -> Option<mpsc::Sender<AudioCommand>> {
-        let mut sessions = self
-            .sessions
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut sessions = lock(&self.sessions);
         sessions.remove(&id).map(|running| running.audio)
     }
 
     fn abort(&self, id: Uuid) {
-        let mut sessions = self
-            .sessions
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut sessions = lock(&self.sessions);
         if let Some(running) = sessions.remove(&id) {
             running.task.abort();
         }
     }
 
     fn finish(&self, id: Uuid) {
-        let mut sessions = self
-            .sessions
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut sessions = lock(&self.sessions);
         sessions.remove(&id);
     }
 }

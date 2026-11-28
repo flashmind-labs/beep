@@ -2,6 +2,7 @@
 //! Periodic forge reads publish project changes locally.
 
 use super::{team::team_view, team_live::TeamLive};
+use crate::store::lock;
 use crate::{
     error::Result,
     fleet::{
@@ -12,7 +13,7 @@ use crate::{
 use beep_fleet::{Changed, ProjectRead};
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow, async_runtime::JoinHandle};
@@ -55,7 +56,7 @@ impl Drop for Following {
 
 impl Followed {
     fn select(&self, window: &str, project_id: Uuid, run: Option<SelectedRun>) {
-        let mut tasks = self.tasks.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut tasks = lock(&self.tasks);
         if let Some(following) = tasks.iter_mut().find(|following| {
             following.project_id == project_id && following.windows.contains(window)
         }) {
@@ -68,7 +69,7 @@ impl Followed {
                 }
             }
         } else {
-            let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut pending = lock(&self.pending);
             let key = (window.to_owned(), project_id);
             if let Some(run) = run {
                 if pending.contains_key(&key) || pending.len() < 256 {
@@ -82,26 +83,20 @@ impl Followed {
 
     /// Every project a window follows.
     pub(crate) fn ids(&self) -> BTreeSet<Uuid> {
-        self.tasks
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.tasks)
             .iter()
             .map(|following| following.project_id)
             .collect()
     }
 
     pub(crate) fn contains(&self, project_id: Uuid) -> bool {
-        self.tasks
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.tasks)
             .iter()
             .any(|following| following.project_id == project_id)
     }
 
     fn selected(&self, project_id: Uuid) -> Vec<SelectedRun> {
-        self.tasks
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.tasks)
             .iter()
             .filter(|following| following.project_id == project_id)
             .flat_map(|following| following.selected.values().cloned())
@@ -116,7 +111,7 @@ impl Followed {
     }
 
     fn remove(&self, window: &str, project_id: Option<Uuid>) {
-        let mut tasks = self.tasks.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut tasks = lock(&self.tasks);
 
         for following in tasks.iter_mut() {
             if project_id.is_none_or(|id| following.project_id == id) {
@@ -126,12 +121,9 @@ impl Followed {
         }
 
         tasks.retain(|following| !following.windows.is_empty());
-        self.pending
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .retain(|(owner, project), _| {
-                owner != window || project_id.is_some_and(|id| id != *project)
-            });
+        lock(&self.pending).retain(|(owner, project), _| {
+            owner != window || project_id.is_some_and(|id| id != *project)
+        });
     }
 
     fn add(
@@ -146,7 +138,7 @@ impl Followed {
             return;
         }
         {
-            let mut tasks = self.tasks.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut tasks = lock(&self.tasks);
             let already_owned = tasks.iter().any(|following| {
                 following.project_id == project_id && following.windows.contains(window)
             });
@@ -184,11 +176,7 @@ impl Followed {
                 }
             }
 
-            if let Some(run) = self
-                .pending
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .remove(&(window.to_owned(), project_id))
+            if let Some(run) = lock(&self.pending).remove(&(window.to_owned(), project_id))
                 && let Some(following) = tasks
                     .iter_mut()
                     .find(|following| following.project_id == project_id)

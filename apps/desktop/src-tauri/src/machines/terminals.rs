@@ -2,6 +2,7 @@
 //! kept running on the user's machines, their output, starting and closing them, and following
 //! an interactive one live while typing into it.
 
+use crate::store::lock;
 use crate::{
     beep::epoch_ms,
     error::{DesktopError, Result},
@@ -28,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use std::{
     collections::HashMap,
-    sync::{Arc, LazyLock, Mutex, PoisonError},
+    sync::{Arc, LazyLock, Mutex},
     time::Duration,
 };
 use tauri::{
@@ -246,7 +247,7 @@ pub(crate) fn list_changed(app: &AppHandle, machine: EndpointId, topic: &Topic) 
     let pty = topic.name() == "terminals";
     let key = (machine, pty);
     {
-        let mut running = REREADS.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut running = lock(&REREADS);
 
         if let Some(again) = running.get_mut(&key) {
             *again = true;
@@ -268,7 +269,7 @@ pub(crate) fn list_changed(app: &AppHandle, machine: EndpointId, topic: &Topic) 
                     publish_output(&app, &fleet, place.id, output);
                 }
             }
-            let mut running = REREADS.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut running = lock(&REREADS);
 
             if running.insert(key, false) != Some(true) {
                 running.remove(&key);
@@ -667,9 +668,7 @@ pub async fn terminal_resize(
 ) -> Result<()> {
     let viewer = Viewer { terminal: id, view };
     let input = attached.get(&viewer, "terminal")?;
-    let mut overflow = OVERFLOW_RESIZE
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner);
+    let mut overflow = lock(&OVERFLOW_RESIZE);
 
     match input.try_send(TerminalInput::Resize { cols, rows }) {
         Ok(()) => {
@@ -684,15 +683,10 @@ pub async fn terminal_resize(
                 tauri::async_runtime::spawn(async move {
                     loop {
                         let Ok(permit) = input.reserve().await else {
-                            OVERFLOW_RESIZE
-                                .lock()
-                                .unwrap_or_else(PoisonError::into_inner)
-                                .remove(&viewer);
+                            lock(&OVERFLOW_RESIZE).remove(&viewer);
                             return;
                         };
-                        let mut overflow = OVERFLOW_RESIZE
-                            .lock()
-                            .unwrap_or_else(PoisonError::into_inner);
+                        let mut overflow = lock(&OVERFLOW_RESIZE);
                         let Some((cols, rows)) = overflow.remove(&viewer) else {
                             return;
                         };
