@@ -1,5 +1,6 @@
 //! Render controller-owned state once, then send the same snapshot to every window.
 
+use crate::store::lock;
 use crate::{
     agents::files_live::{self, FilesLive, Reserve},
     error::Result,
@@ -19,7 +20,7 @@ use serde_json::json;
 use std::{
     collections::{BTreeMap, BTreeSet},
     future::Future,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Listener, Manager};
@@ -85,10 +86,7 @@ impl Views {
     /// The projects to push the sync detail of: those copying now, and those that were at the last
     /// draw, whose detail then shows how they ended.
     fn shown_unsettled(&self, now: BTreeSet<String>) -> BTreeSet<String> {
-        let mut before = self
-            .unsettled
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
+        let mut before = lock(&self.unsettled);
         let shown = now.union(&before).cloned().collect();
         *before = now;
         shown
@@ -269,7 +267,7 @@ fn changed(app: AppHandle, topic: Topic) {
         app.state::<crate::home::HomeReads>().forget();
     }
 
-    let mut pending = views.pending.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut pending = lock(&views.pending);
 
     for &name in affected {
         let topic = followed(name);
@@ -288,13 +286,8 @@ fn changed(app: AppHandle, topic: Topic) {
 fn resumed(app: AppHandle) {
     let views = app.state::<Views>();
     let wants = views.wants();
-    let deferred = std::mem::take(
-        &mut *views
-            .deferred
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner),
-    );
-    let mut pending = views.pending.lock().unwrap_or_else(PoisonError::into_inner);
+    let deferred = std::mem::take(&mut *lock(&views.deferred));
+    let mut pending = lock(&views.pending);
 
     for name in deferred {
         if wants.controller_wanted(&followed(name)) {
@@ -308,11 +301,7 @@ fn resumed(app: AppHandle) {
 }
 
 fn defer(views: &Views, name: &'static str) {
-    views
-        .deferred
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .insert(name);
+    lock(&views.deferred).insert(name);
 }
 
 /// A sync change; `moving` when it only reports files in transit, which waits for `SYNC_GAP`.
@@ -348,10 +337,7 @@ fn paced(app: AppHandle, name: &'static str, frequent: bool) {
     let Some((pace, gap)) = views.pace(name) else {
         return changed(app.clone(), Topic::new(name));
     };
-    let next =
-        pace.lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .next(Instant::now(), gap, frequent);
+    let next = lock(pace).next(Instant::now(), gap, frequent);
 
     match next {
         Pace::Now => changed(app, Topic::new(name)),
@@ -361,7 +347,7 @@ fn paced(app: AppHandle, name: &'static str, frequent: bool) {
                 tokio::time::sleep_until(due.into()).await;
 
                 if let Some((pace, _)) = app.state::<Views>().pace(name) {
-                    pace.lock().unwrap_or_else(PoisonError::into_inner).waiting = false;
+                    lock(pace).waiting = false;
                 }
 
                 changed(app, Topic::new(name));
@@ -374,7 +360,7 @@ fn paced(app: AppHandle, name: &'static str, frequent: bool) {
 impl Views {
     /// Event callbacks can run on the main thread, outside a Tokio runtime.
     fn spawn(&self, task: impl Future<Output = ()> + Send + 'static) {
-        let mut tasks = self.tasks.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut tasks = lock(&self.tasks);
         while tasks.try_join_next().is_some() {}
 
         tasks.spawn_on(task, tauri::async_runtime::handle().inner());
@@ -430,7 +416,7 @@ fn commands(name: &str) -> &'static [&'static str] {
 
 fn project_changed(app: AppHandle, mut row: LiveRow) {
     let views = app.state::<Views>();
-    let mut pending = views.pending.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut pending = lock(&views.pending);
     if let Some(previous) = pending.projects.get(&row.project_id) {
         // What the newer row carries wins; one that carries nothing keeps the earlier read.
         row.lists_read = row
@@ -525,7 +511,7 @@ async fn draw(app: AppHandle, name: &'static str) {
 
         if wants.controller_wanted(&topic) {
             if let Some((pace, _)) = app.state::<Views>().pace(name) {
-                pace.lock().unwrap_or_else(PoisonError::into_inner).drawn = Some(Instant::now());
+                lock(pace).drawn = Some(Instant::now());
             }
 
             let data = snapshot(&app, name).await;
@@ -543,7 +529,7 @@ async fn draw(app: AppHandle, name: &'static str) {
         }
 
         let views = app.state::<Views>();
-        let mut pending = views.pending.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut pending = lock(&views.pending);
 
         if !pending.again(name) {
             return;
@@ -556,7 +542,7 @@ async fn draw_projects(app: AppHandle) {
     loop {
         let projects = {
             let views = app.state::<Views>();
-            let mut pending = views.pending.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut pending = lock(&views.pending);
 
             if pending.projects.is_empty() {
                 pending.drawing_projects = false;

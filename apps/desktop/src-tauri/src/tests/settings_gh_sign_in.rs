@@ -77,19 +77,29 @@ fn a_failure_says_what_gh_said() {
 #[test]
 fn one_sign_in_at_a_time() {
     let sign_in = GhSignIn::default();
-    let first = sign_in.start().expect("nothing under way");
+    let _first = sign_in.start().expect("nothing under way");
     assert!(sign_in.start().is_err());
-    sign_in.finish(first.id);
+    sign_in.finish();
     assert!(sign_in.start().is_ok());
 }
 
 #[test]
-fn a_stopped_sign_in_holds_the_slot_until_gh_is_gone() {
+fn a_cancelled_sign_in_holds_the_slot_until_gh_is_gone() {
     let sign_in = GhSignIn::default();
-    let first = sign_in.start().expect("nothing under way");
-    let ended = sign_in.stop().expect("one under way");
+    let _first = sign_in.start().expect("nothing under way");
+    sign_in.cancel();
     assert!(sign_in.start().is_err());
-    sign_in.finish(first.id);
-    drop(ended);
+    sign_in.finish();
     assert!(sign_in.start().is_ok());
+}
+
+#[tokio::test]
+async fn quitting_after_a_cancel_waits_for_gh_to_exit() {
+    let sign_in = GhSignIn::default();
+    let started = sign_in.start().expect("nothing under way");
+    sign_in.cancel();
+    let mut quit = Box::pin(sign_in.stop_on_quit());
+    assert!(futures::poll!(quit.as_mut()).is_pending());
+    drop(started.ended);
+    quit.await;
 }

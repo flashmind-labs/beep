@@ -1,9 +1,10 @@
 //! Follows the mesh topics plugins want and hands each update to the host, so the page
 //! does not carry them back.
 
+use crate::store::lock;
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
 };
 
 use beep_plugins::{Host, Publication, Topic};
@@ -88,7 +89,7 @@ impl Heard {
                 update.topic.clone(),
                 update.query,
             );
-            let mut latest = self.latest.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut latest = lock(&self.latest);
 
             // Concurrent dispatches can arrive out of order; the higher seq is the newer.
             if latest.get(&key).is_none_or(|held| held.seq <= update.seq) {
@@ -103,7 +104,7 @@ impl Heard {
 
     /// Hands `deliver` one publication for each wanted topic each held update answers.
     fn take(&self, wanted: &[Topic], deliver: impl Fn(Publication)) {
-        let held = std::mem::take(&mut *self.latest.lock().unwrap_or_else(PoisonError::into_inner));
+        let held = std::mem::take(&mut *lock(&self.latest));
 
         for update in held.values() {
             publications(wanted, update).into_iter().for_each(&deliver);

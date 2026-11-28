@@ -12,12 +12,7 @@ use crate::{
 };
 use anyhow::Context;
 use serde::Serialize;
-use std::{
-    path::Path,
-    process::Stdio,
-    sync::{Mutex, MutexGuard},
-    time::Duration,
-};
+use std::{path::Path, process::Stdio, sync::Mutex, time::Duration};
 use tauri::{State, ipc::Channel};
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
@@ -39,34 +34,27 @@ pub struct GhSignIn(Mutex<Slot>);
 
 #[derive(Default)]
 struct Slot {
-    next_id: u64,
     running: Option<Running>,
 }
 
 /// Stops one sign-in, and tells when it has stopped.
 struct Running {
-    id: u64,
     /// Taken once the sign-in is told to stop.
     cancel: Option<oneshot::Sender<()>>,
-    /// Taken by whoever waits for gh to be gone.
+    /// Taken by quitting, to wait for gh to be gone.
     ended: Option<oneshot::Receiver<()>>,
 }
 
 /// What a started sign-in holds: Cancel's signal, and a sender it drops
 /// once gh is gone.
 struct Started {
-    id: u64,
     cancelled: oneshot::Receiver<()>,
     ended: oneshot::Sender<()>,
 }
 
 impl GhSignIn {
-    fn lock(&self) -> MutexGuard<'_, Slot> {
-        lock(&self.0)
-    }
-
     fn start(&self) -> Result<Started> {
-        let mut slot = self.lock();
+        let mut slot = lock(&self.0);
 
         if let Some(running) = &slot.running {
             return Err(refused(if running.cancel.is_some() {
@@ -76,34 +64,43 @@ impl GhSignIn {
             }));
         }
 
-        slot.next_id += 1;
-        let id = slot.next_id;
         let (cancel, cancelled) = oneshot::channel();
         let (ended_tx, ended) = oneshot::channel();
         slot.running = Some(Running {
-            id,
             cancel: Some(cancel),
             ended: Some(ended),
         });
         Ok(Started {
-            id,
             cancelled,
             ended: ended_tx,
         })
     }
 
-    /// Forgets sign-in `id` once it is over, unless another took its place.
-    fn finish(&self, id: u64) {
-        let mut slot = self.lock();
-        if slot.running.as_ref().is_some_and(|r| r.id == id) {
-            slot.running = None;
+    /// Clears the slot once gh is gone.
+    fn finish(&self) {
+        lock(&self.0).running = None;
+    }
+
+    /// Tells the sign-in under way to stop, which kills gh. The slot stays
+    /// taken until gh is gone and `finish` clears it.
+    fn cancel(&self) {
+        self.stop(false);
+    }
+
+    /// Stops the sign-in under way as Beep quits. The future ends once gh
+    /// is killed, so it does not outlive the app; quitting bounds the wait.
+    pub fn stop_on_quit(&self) -> impl Future<Output = ()> + Send + 'static {
+        let ended = self.stop(true);
+        async move {
+            // The sender is dropped, never sent on, once gh is gone.
+            if let Some(ended) = ended {
+                ended.await.ok();
+            }
         }
     }
 
-    /// Stops the sign-in under way, which kills gh. The slot stays taken
-    /// until gh is gone and `finish` clears it.
-    fn stop(&self) -> Option<oneshot::Receiver<()>> {
-        let mut slot = self.lock();
+    fn stop(&self, take_ended: bool) -> Option<oneshot::Receiver<()>> {
+        let mut slot = lock(&self.0);
         let running = slot.running.as_mut()?;
         // An error means the sign-in had just ended on its own.
         if let Some(cancel) = running.cancel.take()
@@ -112,31 +109,16 @@ impl GhSignIn {
             log::debug!("the GitHub sign-in had already ended");
         }
 
-        running.ended.take()
-    }
-
-    /// Stops the sign-in under way as Beep quits. The future ends once gh
-    /// is killed, so it does not outlive the app; quitting bounds the wait.
-    pub fn stop_on_quit(&self) -> impl Future<Output = ()> + Send + 'static {
-        let ended = self.stop();
-        async move {
-            // The sender is dropped, never sent on, once gh is gone.
-            if let Some(ended) = ended {
-                ended.await.ok();
-            }
-        }
+        take_ended.then(|| running.ended.take()).flatten()
     }
 }
 
 /// Clears the slot however the sign-in ends.
-struct Finish<'a> {
-    sign_in: &'a GhSignIn,
-    id: u64,
-}
+struct Finish<'a>(&'a GhSignIn);
 
 impl Drop for Finish<'_> {
     fn drop(&mut self) {
-        self.sign_in.finish(self.id);
+        self.0.finish();
     }
 }
 
@@ -156,15 +138,8 @@ pub async fn gh_sign_in(
     on_code: Channel<DeviceCode>,
 ) -> Result<CredentialView> {
     let gh = find_tool("gh").ok_or_else(|| refused("gh is not installed on this computer"))?;
-    let Started {
-        id,
-        cancelled,
-        ended,
-    } = sign_in.start()?;
-    let _finish = Finish {
-        sign_in: &sign_in,
-        id,
-    };
+    let Started { cancelled, ended } = sign_in.start()?;
+    let _finish = Finish(&sign_in);
     run_gh(&gh, &on_code, cancelled).await?;
     // Dropped only now, after gh is gone, so quitting waits for that.
     drop(ended);
@@ -174,7 +149,7 @@ pub async fn gh_sign_in(
 /// Stops the GitHub sign-in under way.
 #[tauri::command]
 pub fn cancel_gh_sign_in(sign_in: State<'_, GhSignIn>) {
-    sign_in.stop();
+    sign_in.cancel();
 }
 
 /// Runs `gh auth login --web` until it signs in, fails, times out or is
