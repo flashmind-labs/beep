@@ -51,8 +51,10 @@ struct Inner {
     holds: RepositoryHolds,
     /// Sessions held open by a local CLI, including idle prompts.
     presence: Arc<presence::Registry>,
-    /// What Claude Code's hooks report.
-    hooks: claude::Hooks,
+    /// The hook events every stream follows.
+    hook_events: claude::Hub,
+    /// What Claude Code's hooks report of each session.
+    hook_live: claude::Live,
     /// Which processes hold the sessions' files, checked once for all.
     holders: holders::Holders,
     /// Sessions started outside Beep whose process this node ended or saw
@@ -106,15 +108,15 @@ impl Occupancy {
     pub(crate) fn hook_events(
         &self,
     ) -> tokio::sync::broadcast::Receiver<beep_proto::node::agent::Activity> {
-        self.0.hooks.hub.subscribe()
+        self.0.hook_events.subscribe()
     }
 
     /// Takes hook events on the socket in `dir` until the node stops.
     pub async fn listen_hooks(&self, dir: &Path) -> Result<()> {
         claude::listen(
             &claude::hooks::socket_path(dir),
-            &self.0.hooks.hub,
-            &self.0.hooks.live,
+            &self.0.hook_events,
+            &self.0.hook_live,
         )
         .await
     }
@@ -139,10 +141,9 @@ impl Occupancy {
         steer: Option<Steer>,
         owned: HashMap<SessionId, SessionId>,
     ) -> Result<LiveStatus> {
-        let hooks = &self.0.hooks;
         let found = match self.claude().list(1, Some(id.clone()), owned).await?.pop() {
             Some(found) => found,
-            None if hooks.live.knows(id) => ExternalSession {
+            None if self.0.hook_live.knows(id) => ExternalSession {
                 id: id.clone(),
                 agent: "claude".to_owned(),
                 ..ExternalSession::default()
@@ -155,10 +156,13 @@ impl Occupancy {
         }
 
         if let Some(steer) = steer {
-            hooks.live.steer(id, steer).map_err(anyhow::Error::msg)?;
+            self.0
+                .hook_live
+                .steer(id, steer)
+                .map_err(anyhow::Error::msg)?;
         }
 
-        Ok(hooks.live.status(found))
+        Ok(self.0.hook_live.status(found))
     }
 
     /// Notes that the session `id`, started outside Beep, was closed or seen
