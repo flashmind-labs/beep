@@ -6,7 +6,7 @@ import { mountSheetFrame, dialogAbove } from "../../ui/parts.tsx";
 import { invoke, recordTiming } from "../../ui/tauri.ts";
 import { PageTiming } from "../../stores/center/page-timing.ts";
 import { perfLayer, perfOpened } from "../../ui/perf.ts";
-import { pane } from "../bar/pane.ts";
+import { loadHosts } from "../bar/views.ts";
 import type { ReactNode } from "react";
 import { flushSync } from "react-dom";
 import type { CenterView, ViewArg, ViewName } from "../../stores/center/state.ts";
@@ -51,7 +51,7 @@ export function openSettings(section?: string | null) {
     if (dialogAbove(scrim)) return;
 
     // Esc on a subpage, such as Apps then Gmail, goes back to its page first.
-    if (e.key === "Escape") { e.preventDefault(); if (!pane.settingsBack()) closeSettings(); }
+    if (e.key === "Escape") { e.preventDefault(); if (!settingsMod?.settingsBack()) closeSettings(); }
     else if (e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey && !isTypingTarget(e.target)) {
       const find = sheet.querySelector<HTMLInputElement>(".dset-find");
       if (find) { e.preventDefault(); find.focus(); find.select(); }
@@ -65,8 +65,9 @@ export function openSettings(section?: string | null) {
   window.addEventListener("keydown", keys, true);
   settingsOpen = { scrim, keys, back, render, dispose };
   sheet.focus();
+  loadHosts();
   void ensureSettingsMod()
-    .then(() => pane.settings(sheet, section))
+    .then(m => m.renderSettings(sheet, section ?? undefined))
     .then(() => { refreshTopicSubscriptions(); afterMount(); })
     .catch(e => console.warn("settings:", e));
 }

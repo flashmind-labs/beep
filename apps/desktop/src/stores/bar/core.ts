@@ -17,24 +17,16 @@ export interface BarState {
   view: View;
 }
 
-/// What the pane shows, for the window's sidebar.
-export type PaneNow = BarState;
-
-export function current(): PaneNow {
-  return { view: S.view };
-}
-
 /// Told when the view changes, for the window's sidebar.
-export const changeListeners: ((now: PaneNow) => void)[] = [];
+export const changeListeners: (() => void)[] = [];
 let changeQueued = false;
 function changed() {
   if (changeQueued) return;
   changeQueued = true;
   queueMicrotask(() => {
     changeQueued = false;
-    const now = current();
     refreshTopicSubscriptions();
-    for (const fn of changeListeners) { try { fn(now); } catch {} }
+    for (const fn of changeListeners) { try { fn(); } catch {} }
   });
 }
 const route: BarState = { view: "waiting" };

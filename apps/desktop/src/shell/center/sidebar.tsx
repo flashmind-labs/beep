@@ -5,8 +5,7 @@ import { WINDOWS, onPhone, isMobile } from "../../ui/platform.ts";
 import { onClosing } from "../../stores/agents/closing.ts";
 import { plural } from "../../ui/format.ts";
 import { openPalette } from "./palette.tsx";
-import { pane } from "../bar/pane.ts";
-import type { PaneNow } from "../../stores/bar/core.ts";
+import { S, type View } from "../../stores/bar/core.ts";
 import { openMenu, type MenuItem } from "../../ui/menu.tsx";
 import { ALL } from "../../stores/terminals/terminal-list.ts";
 import { state, stuck, type SidebarGroup, groups, listsChanged, sessionsChanged, syncChanged } from "../../stores/center/state.ts";
@@ -45,8 +44,8 @@ function registerSidebarGroup<T>(name: string, group: SidebarGroup<T>) {
 }
 
 /// What the pane shows, for the sidebar's highlight; null off the pane.
-export function paneOn(): { view: PaneNow["view"] | null } {
-  return currentLocation()?.view === "pane" ? pane.current() : { view: null };
+export function paneOn(): { view: View | null } {
+  return { view: currentLocation()?.view === "pane" ? S.view : null };
 }
 
 /// The project on screen, its page or a session of it, and the machine

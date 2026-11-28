@@ -10,13 +10,10 @@ import { closePaneTabs, newTerminal, openTerminal } from "../../parts/session/me
 import { showChanges } from "../../parts/session/changes.ts";
 import type { TerminalRow } from "../../stores/terminals/terminal-state.ts";
 import { sessions } from "../../stores/agents/sessions.ts";
-import { type BackTo, changeListeners, current, type PaneNow, windowRequests } from "../../stores/bar/core.ts";
+import { type BackTo, windowRequests } from "../../stores/bar/core.ts";
 import { mountPane } from "./keys.ts";
 import { loadHosts } from "./views.ts";
 import { setPaneShown } from "../../ui/active.ts";
-
-let settingsLoaded: typeof import("../../screens/settings/settings.tsx") | null = null;
-const ensureSettings = async () => settingsLoaded ??= await import("../../screens/settings/settings.tsx");
 
 /// What the window can open in the pane by name.
 type PanePage = "agents" | "settings" | "machines";
@@ -31,15 +28,6 @@ export type PaneTarget =
   | { assistant: AssistantOpen };
 
 export const pane = {
-  /// Draws Settings into `el`, the window's sheet, leaving the pane as it
-  /// is. It opens on `page` when given, else on the page picked last.
-  settings(el: HTMLElement, page?: string | null) {
-    loadHosts();
-    return ensureSettings().then(m => m.renderSettings(el, page ?? undefined));
-  },
-  /// Esc in the sheet: back from a subpage to its page. False when the
-  /// sheet shows a page, so Esc closes it.
-  settingsBack: () => settingsLoaded ? settingsLoaded.settingsBack() : false,
   /// Shows `target`.
   open(target: PaneTarget) {
     loadHosts();
@@ -71,7 +59,7 @@ export const pane = {
       return import("../../parts/session/agentnew.tsx").then(m => m.renderAgentNew(target.agentnew.prompt ?? "", target.from ?? "agents", target.agentnew.at ?? null, target.agentnew.assistant));
     }
 
-    if (target === "settings") return ensureSettings().then(m => m.renderSettings());
+    if (target === "settings") return import("../../screens/settings/settings.tsx").then(m => m.renderSettings());
     if (target === "machines") return import("../../screens/machines/machines.tsx").then(m => m.renderMachines());
     return renderAgents();
   },
@@ -79,8 +67,6 @@ export const pane = {
   leave() {
     closePaneTabs();
   },
-  current,
-  onChange(fn: (now: PaneNow) => void) { changeListeners.push(fn); },
   /// Whether the pane is on screen and takes the keys.
   mounted(on: boolean) {
     mountPane(on);
